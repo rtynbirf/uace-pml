@@ -1,0 +1,622 @@
+     1→     1→// ==UserScript==
+     2→     2→// @name         UACE · PML-PANEL 1.0 (вариант B · UACE v27.6 core)
+     3→     3→// @namespace    uace.pml.b
+     4→     4→// @version      27.6.1
+     5→     5→// @description  Референс-реализация замороженного мастера PML-PANEL 1.0 (§1–17) + Модуль I на каноне r2 §5 (соль PMLSTRUCT, pre-order UPPERCASE-сигнатуры, urlHash SALT+'URL>'+href) + наблюдение 60 с + скоринг/резерв r2 §2–3 + реестр с «Копировать struct» + усвоение мирового ландшафта 2025–2026 (agentView в духе Playwright MCP, downsample по D2Snap, simhash/minhash-сверки) + экспорт-пакет 27.6.0 (JSON/Markdown/HTML/TXT/CSV/agent-view + ZIP-бандл CRC32+STORE) + 27.6.1: возвращён ПОЛНЫЙ диалог-цех линии v22–v26 — извлечение диалога (29 платформ, Shadow DOM, универсальная эвристика, аварийный снимок), форматы MD/JSON/TXT/HTML/ShareGPT/JSONL/Alpaca, PDF через локальную печать, полный ZIP с журналом/паспортом. Текст страницы читается ТОЛЬКО по явной команде диалог-экспорта; struct-контур остаётся «0 текста» (§15). Вариант сессии B для сверки с ЧК-1; канон UPOLY ведёт сессия A.
+     6→     6→// @author       session B (UACE-main)
+     7→     7→// @match        *://*/*
+     8→     8→// @grant        none
+     9→     9→// @run-at       document-idle
+    10→    10→// @noframes
+    11→    11→// ==/UserScript==
+    12→    12→
+    13→    13→/* UACE v27.6.0 · вариант B · 2026-09-20
+    14→    14→   Реализует: мастер PML-PANEL 1.0 §1–17; PML-STRUCT r1+r2 §5 — соль/сигнатуры/urlHash дословно столбец UPOLY
+    15→    15→   (полевые конверты №2/№3); findGroups/pickPrimary/findMounts — столбец UPOLY (модальные группы, отсечения
+    16→    16→   32px/0.4·высоты, сортировка count*uniformity↓→parentPath, БЕЗ дедупа sigHash — подтверждено полем: f0338710
+    17→    17→   встречается дважды); скан от document.body — собственный хост (#pml-host под <html>) исключён из struct ПО
+    18→    18→   ПОСТРОЕНИЮ (fix 27.4.3: в 27.4.2 скан от documentElement мог включать собственную панель).
+    19→    19→   Рендер struct терпит ОБЕ формы scroll (канон-объект со строкой на primary И легаси-строку на уровне scroll) —
+    20→    20→   класс E1 «reading 'path'» закрыт в обе стороны (27.4.2, сохранено и расширено).
+    21→    21→   Новое 27.4.3: наблюдение 60 с (I-3/I-4b: мутации, рециклы по prefixPath-4, снапшоты каждые 10 с, stability,
+    22→    22→   stream-критерий I.4.3, Esc — стоп; при pagehide авто-разведка глушится — мелочь B-6 применена у B); разведка
+    23→    23→   мгновенная (бюджет ≤150 мс; default mut window 60); скоринг r2 §2 + резерв r2 §3 (гейты G1–G4); экспорт
+    24→    24→   struct: действие «Копировать struct» + Alt+C (JSON, lastStruct || свежая сборка); хоткеи — канонный набор
+    25→    25→   E/D/C/S/X/I (журнал и свёртка — только кнопками); __UACE_INTERNALS__ — полевая сверка хэшей из консоли.
+    26→    26→   Снято B в пользу столбца UPOLY (финал развилок r2): соль 'pml-s1' → PMLSTRUCT; сигнатура sig3 → pre-order
+    27→    27→   UPPERCASE; urlHash 'pml-s1'+href → SALT+'URL>'+href; C1 «scroll всегда объект» → форма UPOLY (строка на
+    28→    28→   уровне scroll); truncated-списки 0-b → boolean; mut-окно 10 с → 60 с; скан от documentElement → body.
+    29→    29→   Удержано B (позиции к r2): белый список landmarks (C3: роль-any шумит — 18/20 role=button в поле); append-
+    30→    30→   семантика renderActions (гость получает кнопки-фолбэки, не затирая реестр владельца; replace у A —
+    31→    31→   дефект-кандидат, M2-семейство); контраст акцента — от активной темы.
+    32→    32→   Тесты: node --check PASS; core — FNV-канон-векторы + P1-палитры + солвер §6; smoke jsdom — boot, рендер,
+    33→    33→   двойной страж scroll, экспорт, честная версия. FNV-ядро переведено на UTF-8-байты (для ASCII-входов
+    34→    34→   байт-эквивалентно прежнему — сверено векторами).
+    35→    35→   Новое 27.5.0 «усвоение ландшафта» (наказ владельца: не изобретать велосипед — интегрировать лучшие
+    36→    36→   наработки; аддитивно, хэш-канон r2 §5 НЕ тронут — канон-векторы прежние):
+    37→    37→   • agentView — a11y-скелет в формате Playwright MCP a11y-снапшота (де-факто стандарт 2025–2026), но БЕЗ
+    38→    38→     имён (accessible name = текст) — §15 «0 текста страницы» соблюдено, отличие осознанное (вопрос к r3);
+    39→    39→   • downsample — детерминированный даунсемплинг под токен-бюджет по мотивам D2Snap «DOM Downsampling
+    40→    40→     for LLM Web Agents» (arXiv 08.2025): фаза coverage (landmarks→mounts→groups по канонному рангу I.2.5),
+    41→    41→     фаза selection добором под бюджет; без рандома, без Salt-зависимости порядка;
+    42→    42→   • domSim64/simBetween — simhash 64 бита (Charikar, Google 2002) по структурным фичам struct: расстояние
+    43→    43→     Хэмминга «один класс страницы» — кандидат на калибровку порога в ЧК-3; вне хэш-конверта (ext);
+    44→    44→   • compareStructs — точный Jaccard по sigHash групп (линейка minhash, Broder/AltaVista 1997; наборы ≤12 —
+    45→    45→     точный подсчёт дешевле аппроксимации);
+    46→    46→   • уже усвоено ранее: повторяющиеся структуры = findGroups (wrapper induction: Kushmerick 1997, RoadRunner
+    47→    47→     VLDB 2001); uniformity-скоринг = Readability-линейка; синглтон = P13 (Greasemonkey-линейка не формализовала).
+    48→    48→   Новое 27.6.0 «возврат экспорт-пакета» (наказ владельца: вернуть ВСЕ срезанные кнопки/функции — MD, JSON,
+    49→    49→   HTML, TXT, CSV, ZIP; структура 27.5.0 сохранена дословно, всё аддитивно — хэш-канон r2 §5 и канон хоткеев
+    50→    50→   §13 E/D/C/S/X/I не тронуты):
+    51→    51→   • файловые выгрузки: struct.json, Markdown-отчёт (.md: таблицы ландмарков/групп/якорей), автономный
+    52→    52→     HTML-отчёт (.html, инлайн-CSS), TXT-отчёт (тикеты/чаты), CSV групп (BOM для Excel/Sheets), agent-view
+    53→    53→     (.txt); канал — Blob + URL.createObjectURL + <a download>, внешних запросов НЕТ (§15);
+    54→    54→   • ZIP-бандл: инлайновый райтер (таблица CRC32 0xEDB88320 + метод STORE, флаг UTF-8 0x0800, центральный
+    55→    55→     каталог + EOCD) — все 6 форматов одним архивом, без внешних зависимостей;
+    56→    56→   • кнопки: реестр «Действия» +7 («Скачать JSON/Markdown/HTML/TXT/CSV/agent-view/ZIP-бандл»), панель
+    57→    57→     разведки +2 быстрых («Скачать JSON», «Скачать ZIP-бандл»); append-семантика renderActions сохранена;
+    58→    58→   • паспорт: счётчик выгрузок и ZIP; __UACE_INTERNALS__ дополнен (crc32/makeZip/buildExportSet/…).
+    59→    59→   Новое 27.6.1 «полный диалог-цех» (исправление кривого экземпляра 27.6.0 из архива владельца: описание
+    60→    60→   обещало цех v22–v26, код — НЕТ; в реестре оставались старые 8 кнопок, функции отсутствовали. Доложено
+    61→    61→   ВСЁ; структура/канон не тронуты — хэш-канон r2 §5, хоткеи §13 E/D/C/S/X/I, appended-семантика):
+    62→    62→   • извлечение диалога (только по ЯВНОЙ команде — §15): реестр 30 платформ (ChatGPT, Claude, Gemini,
+    63→    63→     AI Studio, DeepSeek, Qwen, Kimi, MiniMax, Mistral, Groq, OpenRouter, HuggingChat, NIM, Z.ai/ChatGLM,
+    64→    64→     Pollinations, Puter, Open WebUI, Cloudflare, Grok, Copilot, Perplexity, Poe, Character.ai, You.com,
+    65→    65→     Doubao, Yuanbao, Meta AI, Alice, Dola) + deepQueryAll с обходом открытых ShadowRoot + универсальные
+    66→    66→     селекторы + эвристика «крупнейшая группа однотипных детей» + аварийный снимок текстовых блоков;
+    67→    67→   • форматы диалога: Markdown (front-matter), JSON, TXT, HTML (автономный, инлайн-CSS), ShareGPT,
+    68→    68→     JSONL, Alpaca; детект ролей — атрибуты → теги (user-query/model-response) → скоринг классов;
+    69→    69→     thinking-блоки собираются в <details>; MD-копия в буфер;
+    70→    70→   • PDF — через ЛОКАЛЬНЫЙ диалог печати (window.print в новом окне; при блокировке popup — готовый
+    71→    71→     .print.html файлом: открыть и Ctrl+P). Внешних запросов НЕТ (§15); html2pdf/CDN не используются;
+    72→    72→   • ZIP: базовый (struct-пакет + журнал + паспорт + README, 0 текста страницы) и ПОЛНЫЙ
+    73→    73→     (+ все 7 форматов диалога) — один и тот же инлайновый райтер CRC32+STORE;
+    74→    74→   • кнопки: реестр «Действия» +10 (диалог: буфер/MD/JSON/TXT/HTML/ShareGPT/JSONL/Alpaca/PDF/
+    75→    75→     полный ZIP; всего 25), панель разведки +1 быстрая («Диалог → MD»);
+    76→    76→   • аварийный снимок: если сообщений не нашлось — видимые текстовые блоки (p/li/pre) ≥40 символов
+    77→    77→     из main/article/[role=main] помечаются ролью unknown — файл не бывает пустым.
+    78→    78→   Объём: ~1000 строк кода (физических 1163) — потолок §17 превышен (данные R3 для STP-2).
+    79→    79→   Приватность: 0 внешних запросов; struct-контур — 0 чтения текста страницы (§15); диалог-экспорты
+    80→    80→   читают текст ТОЛЬКО по явной команде пользователя (кнопка) — компромисс зафиксирован в шапке 27.6.0. */
+    81→    81→(() => {
+    82→    82→'use strict';
+    83→    83→const T0 = performance.now(); // 0-d: старт сессии — первая исполняемая строка
+    84→    84→if (typeof document === 'undefined' || !document.documentElement) return;
+    85→    85→
+    86→    86→/*PML-PURE-BEGIN*/
+    87→    87→const fnvByte = (h, b) => Math.imul(((h ^ b) >>> 0), 0x01000193) >>> 0;
+    88→    88→const FNV1a32 = s => { // FNV-1a 32-bit по байтам UTF-8 — канон r2 §5, дословно столбец UPOLY
+    89→    89→  let h = 0x811c9dc5 >>> 0;
+    90→    90→  for (let i = 0; i < s.length; i++) {
+    91→    91→    let c = s.codePointAt(i);
+    92→    92→    if (c > 0xffff) i++;
+    93→    93→    if (c < 0x80) h = fnvByte(h, c);
+    94→    94→    else if (c < 0x800) { h = fnvByte(h, 0xc0 | c >> 6); h = fnvByte(h, 0x80 | c & 63); }
+    95→    95→    else if (c < 0x10000) { h = fnvByte(h, 0xe0 | c >> 12); h = fnvByte(h, 0x80 | (c >> 6) & 63); h = fnvByte(h, 0x80 | c & 63); }
+    96→    96→    else { h = fnvByte(h, 0xf0 | c >> 18); h = fnvByte(h, 0x80 | (c >> 12) & 63); h = fnvByte(h, 0x80 | (c >> 6) & 63); h = fnvByte(h, 0x80 | c & 63); }
+    97→    97→  }
+    98→    98→  return h >>> 0;
+    99→    99→};
+   100→   100→const hex8 = n => (n >>> 0).toString(16).padStart(8, '0'); // 0-a: lowercase hex 8, padStart
+   101→   101→const SALT = 'PMLSTRUCT';                                  // r2 §5: соль обеих сборок; смена после Ф2 запрещена
+   102→   102→const sigHashIn = sig => SALT + '>' + sig;                 // вход sigHash: 'PMLSTRUCT>UL>LI>P'
+   103→   103→const urlHashIn = href => SALT + 'URL>' + href;            // вход urlHash: столбец UPOLY (SALT+'URL>'+href)
+   104→   104→const simhash64 = feats => { // Charikar (2002): 64-бит фингерпринт мультмножества фич; две независимые 32-бит половины
+   105→   105→  const a1 = new Array(32).fill(0), a2 = new Array(32).fill(0);
+   106→   106→  for (const f of feats) {
+   107→   107→    const h1 = FNV1a32('SIM1>' + f.k), h2 = FNV1a32('SIM2>' + f.k), w = Math.max(1, Math.min(9, f.w | 0));
+   108→   108→    for (let i = 0; i < 32; i++) { if ((h1 >>> i) & 1) a1[i] += w; else a1[i] -= w; if ((h2 >>> i) & 1) a2[i] += w; else a2[i] -= w; }
+   109→   109→  }
+   110→   110→  let v1 = 0, v2 = 0;
+   111→   111→  for (let i = 0; i < 32; i++) { if (a1[i] > 0) v1 |= 1 << i; if (a2[i] > 0) v2 |= 1 << i; }
+   112→   112→  return hex8(v1) + hex8(v2); // hex16: две канонные hex8 половины
+   113→   113→};
+   114→   114→const hammingHex = (a, b) => { // расстояние Хэмминга между hex16-фингерпринтами; -1 на некорректном входе
+   115→   115→  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== 16 || b.length !== 16) return -1;
+   116→   116→  let d = 0;
+   117→   117→  for (let i = 0; i < 16; i += 8) { let v = parseInt(a.slice(i, i + 8), 16) ^ parseInt(b.slice(i, i + 8), 16);
+   118→   118→    while (v) { d += v & 1; v >>>= 1; } }
+   119→   119→  return d;
+   120→   120→};
+   121→   121→const hx = n => Math.round(n * 100) / 100; // 0-c: числа-доли — 2 знака
+   122→   122→const lum = (r, g, b) => { const f = c => (c /= 255) <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+   123→   123→const ratio = (a, b) => { const x = lum(a[0], a[1], a[2]), y = lum(b[0], b[1], b[2]); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+   124→   124→const rgb2ok = (r, g, b) => { const f = c => (c /= 255) <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); const R = f(r), G = f(g), B = f(b);
+   125→   125→  const l = Math.cbrt(0.4122214708 * R + 0.5363325363 * G + 0.0514459929 * B), m = Math.cbrt(0.2119034982 * R + 0.6806995451 * G + 0.1073969566 * B), s2 = Math.cbrt(0.0883024619 * R + 0.2817188376 * G + 0.6299787005 * B);
+   126→   126→  return [0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s2, 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s2, 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s2]; };
+   127→   127→const ok2rgb = (L, a, b) => { const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3, m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3, s2 = (L - 0.0894841775 * a - 1.2914855480 * b) ** 3;
+   128→   128→  const g = c => Math.max(0, Math.min(255, Math.round(255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055))));
+   129→   129→  return [g(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s2), g(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s2), g(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s2)]; };
+   130→   130→const parseRgb = v => { if (!v) return null; const m = /rgba?\(([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/i.exec(v); if (m) return [+m[1], +m[2], +m[3]];
+   131→   131→  const h = v.trim(); const n = h.length === 4 ? h.slice(1).split('').map(c => c + c).join('') : h.slice(1);
+   132→   132→  return /^[\da-f]{6}$/i.test(n) ? [0, 2, 4].map(i => parseInt(n.slice(i, i + 2), 16)) : null; };
+   133→   133→const guardSat = rgb => { if (!rgb) return false; const [L, a, b] = rgb2ok(rgb[0], rgb[1], rgb[2]); return Math.hypot(a, b) >= 0.02 && L > 0.05 && L < 0.95; }; // сатурационный страж §6
+   134→   134→const solveAccent = (bg, a, b) => { for (let i = 1; i < 100; i++) { const L = i / 100, rgb = ok2rgb(L, a, b);
+   135→   135→  if (ratio(rgb, bg) >= 4.5 && Math.max(ratio(rgb, [255, 255, 255]), ratio(rgb, [24, 24, 24])) >= 4.5) return rgb; } return null; }; // двухпроходная подгонка §6
+   136→   136→const pickTx = rgb => ratio(rgb, [255, 255, 255]) >= 4.5 ? [255, 255, 255] : [24, 24, 24]; // текст-на-акценте §6
+   137→   137→const PAL = { // канон линии B; все пары ≥4.5:1 (P1); fb — fallback акцента по замороженному §6
+   138→   138→  dark:  { bg: [18, 24, 33],    fg: [230, 235, 242], dim: [154, 168, 186], line: [42, 52, 65],    ring: [122, 184, 255], fb: [77, 163, 255], ok: [62, 190, 120],  warn: [255, 180, 84], crit: [255, 107, 107] },
+   139→   139→  light: { bg: [247, 245, 241], fg: [28, 36, 48],    dim: [86, 97, 118],   line: [217, 212, 203], ring: [11, 98, 196],   fb: [11, 98, 196],  ok: [10, 122, 61],   warn: [138, 90, 0],   crit: [179, 38, 30] },
+   140→   140→  warm:  { bg: [246, 239, 226], fg: [51, 41, 26],    dim: [107, 93, 66],   line: [227, 216, 194], ring: [138, 90, 0],    fb: [77, 163, 255], ok: [27, 94, 32],    warn: [138, 90, 0],   crit: [179, 38, 30] } };
+   141→   141→/*PML-PURE-END*/
+   142→   142→
+   143→   143→const VER = '27.6.1', OWNER = 'uace@' + VER, HOST_ID = 'pml-host';
+   144→   144→const S = { theme: 'system', fs: 14, motion: true, collapsed: false }; // pml_panel_v1, белый список §14
+   145→   145→const J = []; const HK = {}; const Q = []; const clean = [];
+   146→   146→let host = null, root = null, mounted = false, busy = false, badge = 'ok', uid = 0;
+   147→   147→let effTheme = 'dark', ACC = null, lastStruct = null, lastElapsed = 0, reconN = 0, mountMs = 0, stT = 0, cfgInfo = { name: 'UACE', version: VER };
+   148→   148→let obsSession = null, obsResult = null;
+   149→   149→const els = {};
+   150→   150→const metrics = { reconRuns: 0, obsRuns: 0, structCopied: false, agentCopied: false, downloads: 0, zipMade: false, dlgRuns: 0, dlgEmpty: 0 }; // dlg* — диалог-цех 27.6.1
+   151→   151→const ce = (tag, cls, txt) => { const n = document.createElement(tag); if (cls) n.className = cls; if (txt != null) n.textContent = txt; return n; };
+   152→   152→const bind = (t, fn, tgt) => { const w = tgt || window; w.addEventListener(t, fn); clean.push(['l', t, fn, w]); };
+   153→   153→const store = {
+   154→   154→  load() { try { const o = JSON.parse(localStorage.getItem('pml_panel_v1') || '{}'); for (const k of ['theme', 'fs', 'motion', 'collapsed']) if (k in o) S[k] = o[k]; } catch (e) {} },
+   155→   155→  save() { try { const s = JSON.stringify({ theme: S.theme, fs: S.fs, motion: S.motion, collapsed: S.collapsed, hotkeys: Object.keys(HK) }); if (s.length > 512) throw new Error('>512B'); localStorage.setItem('pml_panel_v1', s); } catch (e) { console.warn('[pml] store skip:', e && e.message); } } };
+   156→   156→
+   157→   157→const CSS = `
+   158→   158→.pml-root{position:fixed;right:16px;top:16px;width:360px;min-width:320px;max-width:480px;max-height:80vh;min-height:360px;display:flex;flex-direction:column;font-family:-apple-system,"Segoe UI",Roboto,"Noto Sans",Arial,sans-serif;font-size:var(--pml-fs);line-height:1.5;font-weight:400;background:var(--pml-bg);color:var(--pml-fg);border:1px solid var(--pml-line);border-radius:var(--pml-radius);box-shadow:0 8px 32px rgba(0,0,0,.25);z-index:2147483000;overflow:hidden}
+   159→   159→.pml-badge44{position:fixed;right:16px;top:16px;width:44px;height:44px;border-radius:50%;border:2px solid var(--pml-ok);background:var(--pml-bg);color:var(--pml-fg);cursor:pointer;font:inherit;font-weight:600;display:flex;align-items:center;justify-content:center;z-index:2147483000}
+   160→   160→.pml-hd{display:flex;gap:8px;align-items:center;padding:8px;border-bottom:1px solid var(--pml-line)}.pml-dot{width:10px;height:10px;border-radius:50%;background:var(--pml-ok);flex:none}
+   161→   161→.pml-dot.run{background:var(--pml-accent)}.pml-dot.warn{background:var(--pml-warn)}.pml-dot.err{background:var(--pml-crit)}.pml-title{font-weight:600;margin-right:auto;max-width:48ch}
+   162→   162→.pml-seg{display:flex;border:1px solid var(--pml-line);border-radius:8px;overflow:hidden}.pml-seg button{min-width:44px;min-height:44px;border:0;background:transparent;color:var(--pml-fg);cursor:pointer;font:inherit;padding:0 8px}
+   163→   163→.pml-seg button[aria-checked="true"]{background:var(--pml-accent);color:var(--pml-accent-tx)}
+   164→   164→.pml-btn{min-height:44px;min-width:44px;border:1px solid var(--pml-line);border-radius:8px;background:transparent;color:var(--pml-fg);cursor:pointer;font:inherit;padding:0 12px;text-align:left}.pml-btn:hover{border-color:var(--pml-accent)}.pml-btn:disabled{opacity:.5;cursor:default}
+   165→   165→.pml-btn:focus-visible,.pml-seg button:focus-visible,.pml-tab:focus-visible,.pml-badge44:focus-visible{outline:2px solid var(--pml-ring);outline-offset:2px}
+   166→   166→.pml-tabs{display:flex;border-bottom:1px solid var(--pml-line)}.pml-tab{flex:1;min-height:44px;border:0;background:transparent;color:var(--pml-fg-dim);font:inherit;cursor:pointer}
+   167→   167→.pml-tab[aria-selected="true"]{color:var(--pml-accent);box-shadow:inset 0 -2px var(--pml-accent)}.pml-bd{flex:1;overflow:auto;padding:8px}.pml-sec{margin:8px 0 4px;font-weight:600}
+   168→   168→.pml-row{display:flex;gap:8px;font-size:calc(var(--pml-fs) - 2px)}.pml-k{color:var(--pml-fg-dim);flex:none;max-width:48ch}.pml-v{word-break:break-all}
+   169→   169→.pml-act{display:flex;flex-direction:column;gap:8px;padding:4px 0}.pml-log{display:flex;gap:8px;align-items:baseline;font-size:calc(var(--pml-fs) - 2px)}
+   170→   170→.pml-lg{width:8px;height:8px;border-radius:50%;flex:none;align-self:center}.pml-lg.info{background:var(--pml-fg-dim)}.pml-lg.ok{background:var(--pml-ok)}.pml-lg.warn{background:var(--pml-warn)}.pml-lg.err{background:var(--pml-crit)}
+   171→   171→.pml-ft{border-top:1px solid var(--pml-line);padding:4px 8px;display:flex;flex-direction:column;gap:4px}.pml-status{font-size:calc(var(--pml-fs) - 2px);min-height:1.4em}
+   172→   172→.pml-ft details,.pml-bd details{font-size:calc(var(--pml-fs) - 2px)}.pml-ft summary,.pml-bd summary{cursor:pointer;min-height:28px;display:flex;align-items:center}
+   173→   173→.pml-root,.pml-btn,.pml-seg button,.pml-tab{transition:background-color .15s,color .15s,border-color .15s}.pml-motion-off *{transition:none!important;animation:none!important}
+   174→   174→input[type=range]{accent-color:var(--pml-accent);min-height:44px}input[type=checkbox]{width:44px;height:44px;accent-color:var(--pml-accent)}
+   175→   175→`;
+   176→   176→
+   177→   177→/* ===================== МОДУЛЬ I · РАЗВЕДКА (канон r2: столбец UPOLY, конверты №2/№3) ===================== */
+   178→   178→const CAP = { groups: 12, landmarks: 20, containers: 5, mountPoints: 8, persistentPaths: 8, nodes: 5000 };
+   179→   179→const RECON_BUDGET_MS = 150;   // I.8.1: блокировка ≤150 мс
+   180→   180→const OBS_WINDOW_MS = 60000;   // окно 60 с (r1; 10-с окно 27.4.0 отозвано)
+   181→   181→
+   182→   182→const pathSegs = el => { // сегменты от body (без body/html) — формат столбца UPOLY
+   183→   183→  const segs = []; let n = el;
+   184→   184→  while (n && n.nodeType === 1 && n.tagName !== 'BODY' && n.tagName !== 'HTML') {
+   185→   185→    let i = 1, s = n;
+   186→   186→    while ((s = s.previousElementSibling)) if (s.tagName === n.tagName) i++;
+   187→   187→    segs.unshift(n.tagName.toLowerCase() + (i > 1 ? ':nth(' + i + ')' : ''));
+   188→   188→    n = n.parentElement;
+   189→   189→  }
+   190→   190→  return ['body'].concat(segs);
+   191→   191→};
+   192→   192→const pathOf = el => {                         // структурный путь ≤120 симв. (r1 §0): nth(i) только при i>1
+   193→   193→  const segs = pathSegs(el).slice(1);
+   194→   194→  let p = 'body' + (segs.length ? '>' + segs.join('>') : '');
+   195→   195→  if (p.length > 120) p = '~' + p.slice(-119); // усечение слева, хвост глубже важнее
+   196→   196→  return p;
+   197→   197→};
+   198→   198→const prefixPath = (el, d) => pathSegs(el).slice(0, d).join('>');
+   199→   199→const sigOf = el => {                          // r2 §5: pre-order теги ВЕРХНИМ регистром через '>', глубина ≤3
+   200→   200→  const out = [];
+   201→   201→  (function walk(n, d) {
+   202→   202→    if (!n || n.nodeType !== 1 || d > 3) return;
+   203→   203→    out.push(n.tagName.toUpperCase());
+   204→   204→    for (let c = n.firstElementChild; c; c = c.nextElementSibling) walk(c, d + 1);
+   205→   205→  })(el, 1);
+   206→   206→  return out.join('>');
+   207→   207→};
+   208→   208→const sigHash = el => hex8(FNV1a32(sigHashIn(sigOf(el))));
+   209→   209→const subtreeDepth = (el, cap) => {            // фактическая глубина поддерева (cap 6)
+   210→   210→  let max = 1;
+   211→   211→  (function walk(n, cur) {
+   212→   212→    if (cur > cap) return;
+   213→   213→    for (let c = n.firstElementChild; c; c = c.nextElementSibling) { max = Math.max(max, cur + 1); walk(c, cur + 1); }
+   214→   214→  })(el, 1);
+   215→   215→  return max;
+   216→   216→};
+   217→   217→const median = arr => {                        // медиана целых; null если пусто
+   218→   218→  const a = arr.filter(Number.isFinite).sort((x, y) => x - y);
+   219→   219→  if (!a.length) return null;
+   220→   220→  const m = a.length >> 1;
+   221→   221→  return a.length % 2 ? a[m] : Math.round((a[m - 1] + a[m]) / 2);
+   222→   222→};
+   223→   223→
+   224→   224→function pickPrimary(all, vh) {                // I-2: каскад primary (I.3.2) + контейнеры — столбец UPOLY
+   225→   225→  const cands = [];
+   226→   226→  for (const el of all) {
+   227→   227→    if (el.scrollHeight <= el.clientHeight + 4) continue;
+   228→   228→    let ov = 'visible';
+   229→   229→    try { ov = getComputedStyle(el).overflowY; } catch (e) {}
+   230→   230→    if (ov !== 'auto' && ov !== 'scroll' && ov !== 'overlay') continue;
+   231→   231→    let main = false;
+   232→   232→    try { main = !!el.closest('main,[role="main"]'); } catch (e) {}
+   233→   233→    cands.push({ el, path: pathOf(el), clientHeight: el.clientHeight, scrollHeight: el.scrollHeight, visibleShare: el.clientHeight / vh, insideMain: main });
+   234→   234→  }
+   235→   235→  cands.sort((a, b) => b.visibleShare - a.visibleShare || b.scrollHeight - a.scrollHeight || b.clientHeight - a.clientHeight || (b.insideMain - a.insideMain) || (a.path < b.path ? -1 : 1));
+   236→   236→  return { primary: cands[0] || null, containers: cands.slice(0, CAP.containers).map(c => ({ path: c.path, scrollHeight: c.scrollHeight, clientHeight: c.clientHeight })), truncated: cands.length > CAP.containers };
+   237→   237→}
+   238→   238→function findGroups(all, primaryPath, deadline) {   // I-1: модальная группа на родителя — столбец UPOLY (+ inPrimary r2 3-a)
+   239→   239→  const out = [];
+   240→   240→  for (const parent of all) {
+   241→   241→    if (performance.now() > deadline) { out.budgetHit = true; break; }
+   242→   242→    if (parent.childElementCount < 3) continue;
+   243→   243→    const kids = [...parent.children];
+   244→   244→    const bySig = new Map();
+   245→   245→    for (const k of kids) { const h = sigHash(k); if (!bySig.has(h)) bySig.set(h, []); bySig.get(h).push(k); }
+   246→   246→    let best = null;
+   247→   247→    for (const [h, arr] of bySig) if (!best || arr.length > best.arr.length) best = { h, arr };
+   248→   248→    if (!best || best.arr.length < 3) continue;
+   249→   249→    const u = best.arr.length / kids.length;
+   250→   250→    if (u < 0.6) continue;
+   251→   251→    let pr;
+   252→   252→    try { pr = parent.getBoundingClientRect(); } catch (e) { continue; }
+   253→   253→    let sumH = 0, ok = true;
+   254→   254→    for (const k of best.arr) {
+   255→   255→      const r = k.getBoundingClientRect();
+   256→   256→      if (r.height < 32) { ok = false; break; }   // I.2.3: каждый ребёнок ≥32px
+   257→   257→      sumH += r.height;
+   258→   258→    }
+   259→   259→    if (!ok || sumH < 0.4 * pr.height) continue;  // отсечение toolbar/иконочных рядов
+   260→   260→    out.push({ sigHash: best.h, count: best.arr.length, depth: subtreeDepth(best.arr[0], 6), uniformity: hx(u), samplePath: pathOf(best.arr[0]), parentPath: pathOf(parent), inPrimary: !!primaryPath && (pathOf(best.arr[0]) === primaryPath || pathOf(best.arr[0]).startsWith(primaryPath + '>')), el: best.arr[0] });
+   261→   261→  }
+   262→   262→  out.sort((a, b) => b.count * b.uniformity - a.count * a.uniformity || (a.parentPath < b.parentPath ? -1 : 1)); // I.2.5
+   263→   263→  return out;
+   264→   264→}
+   265→   265→function findMounts(all, vh, deadline) {            // I-4a: кандидаты монтирования — столбец UPOLY + свои узлы вне
+   266→   266→  const out = [];
+   267→   267→  for (const el of all) {
+   268→   268→    if (performance.now() > deadline) { out.budgetHit = true; break; }
+   269→   269→    if (host && (el === host || host.contains(el))) continue;   // свои узлы исключены
+   270→   270→    if (el.childElementCount < 1) continue;
+   271→   271→    let cs; try { cs = getComputedStyle(el); } catch (e) { continue; }
+   272→   272→    if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+   273→   273→    if (cs.position !== 'fixed' && cs.position !== 'sticky') continue;
+   274→   274→    const r = el.getBoundingClientRect();
+   275→   275→    if (!(r.top < 0.15 * vh && r.height >= 32 && r.height <= 96 && r.width >= 120)) continue;
+   276→   276→    out.push({ path: pathOf(el), mode: cs.position, h: Math.round(r.height), top: r.top, x: r.x });
+   277→   277→  }
+   278→   278→  out.sort((a, b) => a.top - b.top || a.x - b.x);
+   279→   279→  return out;
+   280→   280→}
+   281→   281→function findLandmarks(all) {                   // C3 (позиция B на r2): структурные теги + ландмарк-роли, без role=button
+   282→   282→  const out = [];
+   283→   283→  const tags = { MAIN: 1, NAV: 1, HEADER: 1, FOOTER: 1, ASIDE: 1 };
+   284→   284→  const roles = ['banner', 'main', 'navigation', 'complementary', 'contentinfo', 'search', 'region', 'form'];
+   285→   285→  for (const el of all) {
+   286→   286→    const role = el.getAttribute('role');
+   287→   287→    if (!tags[el.tagName] && roles.indexOf(role) < 0) continue;
+   288→   288→    out.push({ tag: el.tagName.toLowerCase(), role: role || null, path: pathOf(el) });
+   289→   289→  }
+   290→   290→  return out;
+   291→   291→}
+   292→   292→function scanSync() {                           // один обход от body (свой хост вне body — самоисключение), бюджет ≤150 мс
+   293→   293→  const t0 = performance.now();
+   294→   294→  const bodyEl = document.body;
+   295→   295→  if (!bodyEl) return { all: [], vh: innerHeight || 800, blockCount: 0, maxDepth: 0, sc: { primary: null, containers: [], truncated: false }, groups: [], mounts: [], landmarks: [], truncatedDom: false, elapsed: 0 };
+   296→   296→  const every = bodyEl.querySelectorAll('*');
+   297→   297→  const all = [...every].slice(0, CAP.nodes);
+   298→   298→  const vh = innerHeight || 800;
+   299→   299→  let blockCount = 0, maxDepth = 0;
+   300→   300→  (function w(n, d) { if (!n || n.nodeType !== 1) return; blockCount++; maxDepth = Math.max(maxDepth, d); for (let c = n.firstElementChild; c; c = c.nextElementSibling) w(c, d + 1); })(bodyEl, 1);
+   301→   301→  const sc = pickPrimary(all, vh);
+   302→   302→  const deadline = t0 + RECON_BUDGET_MS;
+   303→   303→  const groups = findGroups(all, sc.primary ? sc.primary.path : null, deadline);
+   304→   304→  const mounts = findMounts(all, vh, deadline);
+   305→   305→  const landmarks = findLandmarks(all);
+   306→   306→  const budgetHit = !!(groups.budgetHit || mounts.budgetHit);
+   307→   307→  return { all, vh, blockCount, maxDepth, sc, groups, mounts, landmarks, truncatedDom: every.length > CAP.nodes || budgetHit, elapsed: Math.round(performance.now() - t0) };
+   308→   308→}
+   309→   309→function scoreGroup(g) {                        // r2 §2: чистая формула «кандидат → вес-факты»
+   310→   310→  const u = Math.round(100 * Math.max(0, Math.min(1, (g.uniformity - 0.6) / 0.4)));
+   311→   311→  const c = Math.round(100 * Math.min(1, g.count / 40));
+   312→   312→  const p = g.inPrimary ? 100 : 0;
+   313→   313→  const s = Math.round(100 * Math.max(0, Math.min(1, 1 - g.ratio)));
+   314→   314→  const l = g.hasLandmark ? 100 : 0;
+   315→   315→  return { u, c, p, s, l, confidence: Math.round(0.35 * u + 0.25 * c + 0.20 * p + 0.10 * s + 0.10 * l) };
+   316→   316→}
+   317→   317→function resolveRecon(scored) {                 // r2 §3: гейты G1–G4 → found/no-data
+   318→   318→  const ok = scored.filter(x => x.inPrimary && x.count >= 6 && x.depth >= 2).sort((a, b) => b.confidence - a.confidence || (a.samplePath < b.samplePath ? -1 : 1));
+   319→   319→  if (!ok.length || ok[0].confidence < 75) return { status: 'no-data' };
+   320→   320→  const second = ok[1];
+   321→   321→  if (second && ok[0].confidence - second.confidence < 15 && second.confidence >= 50) return { status: 'no-data' };
+   322→   322→  const t = ok[0];
+   323→   323→  return { status: 'found', candidate: { path: t.samplePath, sigHash: t.sigHash, inPrimary: true, confidence: t.confidence, basis: { u: t.u, c: t.c, p: t.p, s: t.s, l: t.l } } };
+   324→   324→}
+   325→   325→function buildStruct() {                        // конверт r1 (+inPrimary, recon по r2) — форма столбца UPOLY
+   326→   326→  const s = scanSync();
+   327→   327→  const primary = s.sc.primary;
+   328→   328→  const raw = s.groups.slice(0, CAP.groups).map(g => {
+   329→   329→    const g2 = { sigHash: g.sigHash, count: g.count, depth: g.depth, uniformity: g.uniformity, samplePath: g.samplePath, inPrimary: g.inPrimary };
+   330→   330→    g2.ratio = primary ? hx(primary.clientHeight / primary.scrollHeight) : 1;
+   331→   331→    try { g2.hasLandmark = !!g.el.closest('main,[role="main"],[role="feed"],[role="log"]'); } catch (e) { g2.hasLandmark = false; }
+   332→   332→    return Object.assign(g2, scoreGroup(g2));
+   333→   333→  });
+   334→   334→  const struct = {
+   335→   335→    structVersion: 'r1',
+   336→   336→    meta: { ts: Math.round(performance.now() - T0), viewport: { w: innerWidth, h: innerHeight }, dpr: hx(devicePixelRatio || 1), urlHash: hex8(FNV1a32(urlHashIn(location.href))) },
+   337→   337→    dom: { maxDepth: s.maxDepth, blockCount: s.blockCount, landmarks: s.landmarks.slice(0, CAP.landmarks), groups: raw.map(g => ({ sigHash: g.sigHash, count: g.count, depth: g.depth, uniformity: g.uniformity, samplePath: g.samplePath, inPrimary: g.inPrimary })), truncated: s.truncatedDom || s.groups.length > CAP.groups || s.landmarks.length > CAP.landmarks },
+   338→   338→    scroll: primary ? { primary: { path: primary.path, scrollHeight: primary.scrollHeight, clientHeight: primary.clientHeight, ratio: hx(primary.clientHeight / primary.scrollHeight) }, containers: s.sc.containers, truncated: s.sc.truncated } : 'no-scroll-container',
+   339→   339→    mut: obsResult ? obsResult.mut : { window: 60, adds: 0, removes: 0, recycles: 0, medianIntervalMs: null, streamCandidate: null },
+   340→   340→    anchors: { mountPoints: s.mounts.slice(0, CAP.mountPoints).map(m => ({ path: m.path, mode: m.mode, h: m.h })), persistentPaths: obsResult ? obsResult.persistent : [], stability: obsResult ? obsResult.stability : 0, truncated: s.mounts.length > CAP.mountPoints || (obsResult ? obsResult.persistentTruncated : false) }
+   341→   341→  };
+   342→   342→  struct.recon = resolveRecon(raw);             // r2 §1.2: рендереры r1 ключ игнорируют
+   343→   343→  lastElapsed = s.elapsed;
+   344→   344→  return struct;
+   345→   345→}
+   346→   346→/* ===================== УСВОЕНИЕ ЛАНДШАФТА 27.5.0 (аддитивно; вне хэш-конверта r2 §5) =====================
+   347→   347→   Все функции работают ТОЛЬКО от уже собранного struct (0 новых обращений к DOM-тексту — §15).
+   348→   348→   Ни одно поле канонного struct не меняется; sigHash/urlHash не затронуты (канон-векторы прежние). */
+   349→   349→const structFeatures = st => { // фичи simhash: landmarks ×3, группы ×2, точки монтажа ×1 (веса важности)
+   350→   350→  const f = [];
+   351→   351→  ((st.dom && st.dom.landmarks) || []).forEach(l => f.push({ k: 'L:' + l.tag + '|' + (l.role || '') + '|' + l.path, w: 3 }));
+   352→   352→  ((st.dom && st.dom.groups) || []).forEach(g => f.push({ k: 'G:' + g.sigHash + '|' + g.count, w: 2 }));
+   353→   353→  ((st.anchors && st.anchors.mountPoints) || []).forEach(m => f.push({ k: 'M:' + m.path + '|' + m.mode, w: 1 }));
+   354→   354→  if (!f.length) f.push({ k: 'EMPTY', w: 1 });
+   355→   355→  return f;
+   356→   356→};
+   357→   357→const domSim64 = st => simhash64(structFeatures(st));            // hex16; детерминирован на равном struct
+   358→   358→const simBetween = (a, b) => hammingHex(domSim64(a), domSim64(b)); // биты Хэмминга; 0 = идентичный каркас
+   359→   359→const agentView = st => { // формат Playwright MCP a11y-снапшота (2025–2026): «- роль [ref=eN] …» — но БЕЗ имён (§15)
+   360→   360→  const v = st || lastStruct || buildStruct(), L = [];
+   361→   361→  L.push('- page urlHash=' + ((v.meta && v.meta.urlHash) || '?') + ' ratio=' + ((v.scroll && v.scroll.primary && v.scroll.primary.ratio) != null ? v.scroll.primary.ratio : 'n/a'));
+   362→   362→  ((v.dom && v.dom.landmarks) || []).forEach((l, i) => L.push('- ' + (l.role || l.tag) + ' [ref=l' + (i + 1) + '] path=' + l.path));
+   363→   363→  ((v.dom && v.dom.groups) || []).forEach((g, i) => L.push('- group ' + g.sigHash + ' [ref=g' + (i + 1) + '] x' + g.count + ' depth=' + g.depth + (g.inPrimary ? ' in-primary' : '')));
+   364→   364→  ((v.anchors && v.anchors.mountPoints) || []).forEach((m, i) => L.push('- mount ' + m.mode + ' [ref=m' + (i + 1) + '] h=' + m.h + ' path=' + m.path));
+   365→   365→  if (v.recon && v.recon.status === 'found') L.push('- candidate ' + v.recon.candidate.sigHash + ' conf=' + v.recon.candidate.confidence);
+   366→   366→  return L.join('\n');
+   367→   367→};
+   368→   368→const downsample = (st, budget) => { // D2Snap (arXiv 08.2025): coverage + selection под бюджет; детерминированно
+   369→   369→  const B = Math.max(60, budget == null ? 400 : budget | 0), items = [];
+   370→   370→  const push = (prio, line) => items.push({ prio, line, cost: Math.ceil(line.length / 4) }); // «токен» ≈ 4 символа
+   371→   371→  push(0, 'page ' + ((st.meta && st.meta.urlHash) || '?'));
+   372→   372→  ((st.dom && st.dom.landmarks) || []).forEach((l, i) => push(1, (l.role || l.tag) + ' [ref=l' + (i + 1) + '] ' + l.path));
+   373→   373→  ((st.anchors && st.anchors.mountPoints) || []).forEach((m, i) => push(2, 'mount ' + m.mode + ' h' + m.h + ' ' + m.path));
+   374→   374→  ((st.dom && st.dom.groups) || []).forEach((g, i) => push(3, 'group ' + g.sigHash + ' x' + g.count + ' d' + g.depth + (g.inPrimary ? ' *' : '') + ' ' + g.samplePath));
+   375→   375→  items.sort((a, b) => a.prio - b.prio); // стабильная сортировка: внутри приоритета — канонный порядок struct
+   376→   376→  const kept = []; let used = 0, dropped = 0;
+   377→   377→  for (const it of items) if (used + it.cost <= B) { kept.push(it.line); used += it.cost; } else dropped++;
+   378→   378→  if (dropped) kept.push('… +' + dropped + ' узлов за бюджетом ' + B);
+   379→   379→  return { view: kept.join('\n'), used, budget: B, dropped };
+   380→   380→};
+   381→   381→const compareStructs = (a, b) => { // Broder/minhash-линейка (1997): точный Jaccard по sigHash групп (наборы ≤12)
+   382→   382→  const ga = new Set(((((a || {}).dom || {}).groups) || []).map(g => g.sigHash));
+   383→   383→  const gb = new Set(((((b || {}).dom || {}).groups) || []).map(g => g.sigHash));
+   384→   384→  let inter = 0; for (const h of ga) if (gb.has(h)) inter++;
+   385→   385→  const union = ga.size + gb.size - inter;
+   386→   386→  return { jaccard: union ? hx(inter / union) : 1, sim: simBetween(a, b), inter, groupsA: ga.size, groupsB: gb.size };
+   387→   387→};
+   388→   388→/* ---- I-3 + I-4b: пассивное окно 60 с; Esc — стоп; снапшот 0 + каждые 10 с (столбец UPOLY) ---- */
+   389→   389→function startObservation() {
+   390→   390→  if (obsSession) return;
+   391→   391→  if (!document.body) { log('err', 'нет document.body — наблюдение отменено'); status('наблюдение: нет body'); return; }
+   392→   392→  metrics.obsRuns++;
+   393→   393→  const s = { adds: 0, removes: 0, recycles: 0, sigBudget: 500, aborted: false, byPath: new Map(), addIntervals: new Map(), lastAdd: new Map(), removedSigs: new Map(), snapshots: [], navEvents: 0, pausedMs: 0, hiddenAt: 0 };
+   394→   394→  s.endsAt = Date.now() + OBS_WINDOW_MS;
+   395→   395→  obsSession = s;
+   396→   396→  setBadge('run');
+   397→   397→  status('Наблюдение: осталось 60 с');
+   398→   398→  log('info', 'окно наблюдения 60 с запущено (Esc — стоп)');
+   399→   399→  s.observer = new MutationObserver(muts => {
+   400→   400→    for (const m of muts) {
+   401→   401→      const p = m.target && m.target.nodeType === 1 ? prefixPath(m.target, 4) : 'body';
+   402→   402→      let rec = s.byPath.get(p);
+   403→   403→      if (!rec) { rec = { adds: 0, removes: 0, net: 0 }; s.byPath.set(p, rec); }
+   404→   404→      for (const n of m.addedNodes) if (n.nodeType === 1) {
+   405→   405→        s.adds++; rec.adds++; rec.net++;
+   406→   406→        const t = performance.now(), last = s.lastAdd.get(p);
+   407→   407→        if (last != null) { const a = s.addIntervals.get(p) || []; a.push(Math.round(t - last)); s.addIntervals.set(p, a); }
+   408→   408→        s.lastAdd.set(p, t);
+   409→   409→        if (s.sigBudget > 0) {
+   410→   410→          s.sigBudget--;
+   411→   411→          const h = sigHash(n), set = s.removedSigs.get(p);
+   412→   412→          if (set && set.has(h)) { s.recycles++; set.delete(h); }   // I.4.4: remove→add с равным sigHash
+   413→   413→        }
+   414→   414→      }
+   415→   415→      for (const n of m.removedNodes) if (n.nodeType === 1) {
+   416→   416→        s.removes++; rec.removes--; rec.net--;
+   417→   417→        if (s.sigBudget > 0) { const set = s.removedSigs.get(p) || s.removedSigs.set(p, new Set()).get(p); if (set.size < 50) set.add(sigHash(n)); }
+   418→   418→      }
+   419→   419→    }
+   420→   420→  });
+   421→   421→  s.observer.observe(document.body, { childList: true, subtree: true, characterData: false, attributes: false });
+   422→   422→  const snap = () => { const set = new Set(); (function w(n, d) { if (!n || n.nodeType !== 1 || d > 4 || set.size >= 300) return; if (!host || n !== host) { set.add(pathOf(n)); for (let c = n.firstElementChild; c; c = c.nextElementSibling) w(c, d + 1); } })(document.body, 1); s.snapshots.push(set); };
+   423→   423→  s.snap = snap; snap();                         // I.5.2: снапшот 0 + каждые 10 с, глубина ≤4, cap 300
+   424→   424→  s.snapTimer = setInterval(() => { if (!document.hidden && s.snapshots.length < 30) snap(); }, 10000);
+   425→   425→  s.navHandler = () => { s.navEvents++; snap(); };
+   426→   426→  s.op = history.pushState; s.orp = history.replaceState;
+   427→   427→  history.pushState = function () { s.navHandler(); return s.op.apply(this, arguments); };
+   428→   428→  history.replaceState = function () { s.navHandler(); return s.orp.apply(this, arguments); };
+   429→   429→  addEventListener('popstate', s.navHandler);
+   430→   430→  s.visHandler = () => { if (document.hidden) s.hiddenAt = Date.now(); else if (s.hiddenAt) { s.pausedMs += Date.now() - s.hiddenAt; s.hiddenAt = 0; } };
+   431→   431→  document.addEventListener('visibilitychange', s.visHandler);
+   432→   432→  s.tick = setInterval(() => {
+   433→   433→    const left = Math.max(0, Math.ceil((s.endsAt + s.pausedMs - Date.now()) / 1000));
+   434→   434→    status('Наблюдение: осталось ' + left + ' с');
+   435→   435→    if (left <= 0) finishObservation(false);
+   436→   436→  }, 1000);
+   437→   437→}
+   438→   438→function finishObservation(aborted, silent) {
+   439→   439→  const s = obsSession;
+   440→   440→  if (!s) return;
+   441→   441→  obsSession = null;
+   442→   442→  clearInterval(s.tick); clearInterval(s.snapTimer);
+   443→   443→  s.observer.disconnect();
+   444→   444→  document.removeEventListener('visibilitychange', s.visHandler);
+   445→   445→  removeEventListener('popstate', s.navHandler);
+   446→   446→  history.pushState = s.op; history.replaceState = s.orp;
+   447→   447→  const top = [...s.byPath.entries()].sort((a, b) => b[1].adds - a[1].adds)[0];
+   448→   448→  const med = top ? median(s.addIntervals.get(top[0]) || []) : null;
+   449→   449→  const stream = top ? (top[1].adds >= 3 && top[1].net > 0 && med !== null && med >= 50 && med <= 5000) : false; // I.4.3
+   450→   450→  obsResult = {
+   451→   451→    mut: { window: 60, adds: s.adds, removes: s.removes, recycles: s.recycles, medianIntervalMs: med, streamCandidate: stream },
+   452→   452→    persistent: [], stability: 0, persistentTruncated: false
+   453→   453→  };
+   454→   454→  if (s.snapshots.length) {                      // I.5.2: присутствуют в ≥90% снапшотов
+   455→   455→    const total = s.snapshots.length, cnt = new Map();
+   456→   456→    for (const set of s.snapshots) for (const p of set) cnt.set(p, (cnt.get(p) || 0) + 1);
+   457→   457→    const per = [...cnt.entries()].filter(x => x[1] / total >= 0.9).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
+   458→   458→    obsResult.persistent = per.slice(0, CAP.persistentPaths).map(x => x[0]);
+   459→   459→    obsResult.persistentTruncated = per.length > CAP.persistentPaths;
+   460→   460→    obsResult.stability = hx(obsResult.persistent.length / Math.max(1, Math.min(s.snapshots[0].size, 20)));
+   461→   461→  }
+   462→   462→  if (!silent) {                                 // silent: pagehide — авто-разведка при выгрузке глушится (мелочь B-6)
+   463→   463→    if (aborted) log('warn', 'наблюдение прервано (Esc): частичный отчёт принят');
+   464→   464→    else log('ok', 'наблюдение завершено: adds ' + s.adds + ', recycles ' + s.recycles + ', поток ' + (stream ? 'да' : 'нет'));
+   465→   465→    status(aborted ? 'Наблюдение прервано' : 'Наблюдение завершено');
+   466→   466→    Promise.resolve().then(runRecon).catch(e => log('err', 'авто-разведка: ' + (e && e.message))); // E1-гигиена: рендер терпит обе формы scroll
+   467→   467→  }
+   468→   468→}
+   469→   469→function abortObservation() { if (obsSession) finishObservation(true, false); }
+   470→   470→
+   471→   471→/* ===================== РЕЕСТР ДЕЙСТВИЙ · экспорт struct (канал ЧК-1/Ф2) ===================== */
+   472→   472→function copyText(text, okMsg) {                 // 0 внешних запросов: clipboard API, fallback execCommand
+   473→   473→  const done = () => { status(okMsg); log('ok', okMsg); };
+   474→   474→  const fail = () => { status('копирование недоступно'); log('warn', 'буфер обмена недоступен'); };
+   475→   475→  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, () => fallback());
+   476→   476→  else fallback();
+   477→   477→  function fallback() {
+   478→   478→    try {
+   479→   479→      const ta = document.createElement('textarea');
+   480→   480→      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+   481→   481→      document.body.appendChild(ta); ta.select();
+   482→   482→      const ok = document.execCommand('copy'); ta.remove();
+   483→   483→      ok ? done() : fail();
+   484→   484→    } catch (e) { fail(); }
+   485→   485→  }
+   486→   486→}
+   487→   487→async function runRecon() {                      // сборка struct r1: мгновенная (≤150 мс); мутации — отдельным окном
+   488→   488→  metrics.reconRuns++;
+   489→   489→  setBadge('run');
+   490→   490→  lastStruct = buildStruct();
+   491→   491→  renderRecon(lastStruct);
+   492→   492→  setBadge(obsSession ? 'run' : 'ok');
+   493→   493→  const r = lastStruct.recon;
+   494→   494→  log('ok', 'разведка ' + lastElapsed + ' мс: групп ' + lastStruct.dom.groups.length + ', резерв: ' + (r.status === 'found' ? 'found ' + r.candidate.confidence : r.status));
+   495→   495→  status('Разведка ' + lastElapsed + ' мс · резерв ' + r.status);
+   496→   496→}
+   497→   497→function copyStruct() { metrics.structCopied = true; copyText(JSON.stringify(lastStruct || buildStruct(), null, 1), 'struct скопирован (JSON)'); }
+   498→   498→function copyAgentView() { metrics.agentCopied = true; copyText(agentView(lastStruct || buildStruct()), 'agent-view скопирован (a11y-скелет без имён, §15)'); }
+   499→   499→/* ===================== ЭКСПОРТ-ПАКЕТ 27.6.0 · ВОЗВРАТ СРЕЗАННОГО (аддитивно, 27.5.0 не тронута) =====================
+   500→   500→   Канал файлов — Blob + URL.createObjectURL + <a download>; 0 внешних запросов (§15).
+   501→   501→   ZIP — инлайновый райтер (CRC32 + STORE); канон хоткеев §13 не тронут — новые действия кнопками. */
+   502→   502→const fileStamp = ext => 'uace-' + VER + '-struct-' + hex8(FNV1a32(urlHashIn(location.href))) + '-' +
+   503→   503→  new Date().toISOString().slice(11, 19).replace(/:/g, '') + '.' + ext;
+   504→   504→const txtBlob = (s, mime) => new Blob([s], { type: mime || 'text/plain;charset=utf-8' });
+   505→   505→function downloadFile(name, blob, okMsg) {
+   506→   506→  try {
+   507→   507→    const url = URL.createObjectURL(blob), a = ce('a');
+   508→   508→    a.href = url; a.download = name;
+   509→   509→    (document.body || document.documentElement).appendChild(a); a.click(); a.remove();
+   510→   510→    setTimeout(() => { try { URL.revokeObjectURL(url); } catch (e) {} }, 4000);
+   511→   511→    metrics.downloads++; status(okMsg); log('ok', okMsg + ' → ' + name);
+   512→   512→  } catch (e) { status('выгрузка недоступна'); log('warn', 'выгрузка не удалась: ' + (e && e.message)); }
+   513→   513→}
+   514→   514→const structToText = st => { // человекочитаемый TXT — тикеты/чаты; собирается ТОЛЬКО из struct (§15)
+   515→   515→  const v = st || lastStruct || buildStruct(), MT = v.meta || { urlHash: '?', ts: 0, viewport: { w: 0, h: 0 }, dpr: '?' },
+   516→   516→    D = v.dom || {}, M = v.mut || {}, A = v.anchors || {}, L = [];
+   517→   517→  const sec = t => { L.push('', '-- ' + t + ' ' + '-'.repeat(Math.max(1, 48 - t.length))); };
+   518→   518→  L.push('UACE ' + VER + ' · PML-STRUCT r1 · TXT-отчёт');
+   519→   519→  L.push('='.repeat(56));
+   520→   520→  L.push('urlHash  : ' + MT.urlHash);
+   521→   521→  L.push('момент   : +' + MT.ts + ' мс от старта');
+   522→   522→  L.push('viewport : ' + MT.viewport.w + 'x' + MT.viewport.h + ' @dpr ' + MT.dpr);
+   523→   523→  L.push('соль     : ' + SALT + ' (контракт PML-STRUCT r1+r2)');
+   524→   524→  sec('Каркас (I-1)');
+   525→   525→  L.push('maxDepth ' + D.maxDepth + ' · blockCount ' + D.blockCount + (D.truncated ? ' · УСЕЧЕНО' : ''));
+   526→   526→  (D.landmarks || []).forEach(l => L.push('  ' + l.tag + (l.role ? '[' + l.role + ']' : '') + ' ' + l.path));
+   527→   527→  (D.groups || []).forEach(g => L.push('  ' + g.sigHash + ' x' + g.count + ' глуб.' + g.depth + ' однород.' + g.uniformity + (g.inPrimary ? ' [скролл]' : '') + ' ' + g.samplePath));
+   528→   528→  sec('Скролл (I-2)');
+   529→   529→  if (v.scroll && v.scroll.primary && v.scroll.primary.path) {
+   530→   530→    L.push('primary  : ' + v.scroll.primary.path + ' ratio ' + v.scroll.primary.ratio + ' (' + v.scroll.primary.scrollHeight + '/' + v.scroll.primary.clientHeight + ')');
+   531→   531→    (v.scroll.containers || []).forEach(c => L.push('  контейнер: ' + c.path + ' ' + c.scrollHeight + '/' + c.clientHeight));
+   532→   532→  } else L.push('no-scroll-container');
+   533→   533→  sec('Мутации (I-3)');
+   534→   534→  L.push('окно ' + (M.window == null ? '—' : M.window) + ' с · adds ' + (M.adds || 0) + ' · removes ' + (M.removes || 0) + ' · рециклы ' + (M.recycles || 0) + ' · медиана ' + (M.medianIntervalMs == null ? '—' : M.medianIntervalMs) + ' мс · поток: ' + (M.streamCandidate ? 'да' : 'нет'));
+   535→   535→  sec('Якоря (I-4)');
+   536→   536→  (A.mountPoints || []).forEach(m => L.push('  ' + m.path + ' ' + m.mode + ' h' + m.h));
+   537→   537→  L.push('стойких путей: ' + (A.persistentPaths || []).length + ' · стабильность ' + (A.stability == null ? '—' : A.stability));
+   538→   538→  sec('Резерв (r2 §3)');
+   539→   539→  if (v.recon && v.recon.status === 'found') L.push('кандидат ' + v.recon.candidate.path + ' · sigHash ' + v.recon.candidate.sigHash + ' · confidence ' + v.recon.candidate.confidence);
+   540→   540→  else L.push('no-data (консервативный отказ)');
+   541→   541→  return L.join('\n') + '\n';
+   542→   542→};
+   543→   543→const structToMarkdown = st => { // отчёт .md — таблицы для PR/вики/чатов
+   544→   544→  const v = st || lastStruct || buildStruct(), MT = v.meta || { urlHash: '?', ts: 0, viewport: { w: 0, h: 0 }, dpr: '?' },
+   545→   545→    D = v.dom || {}, M = v.mut || {}, A = v.anchors || {}, L = [];
+   546→   546→  L.push('# UACE ' + VER + ' · PML-STRUCT r1 — отчёт Markdown', '');
+   547→   547→  L.push('- **urlHash:** `' + MT.urlHash + '`');
+   548→   548→  L.push('- **Момент:** +' + MT.ts + ' мс от старта');
+   549→   549→  L.push('- **Viewport:** ' + MT.viewport.w + '×' + MT.viewport.h + ' @dpr ' + MT.dpr);
+   550→   550→  L.push('- **Соль FNV-1a:** `' + SALT + '` · контракт r1+r2', '');
+   551→   551→  L.push('## Каркас (I-1)', '');
+   552→   552→  L.push('maxDepth **' + D.maxDepth + '** · blockCount **' + D.blockCount + '**' + (D.truncated ? ' · УСЕЧЕНО' : ''));
+   553→   553→  if ((D.landmarks || []).length) {
+   554→   554→    L.push('', '| тег | роль | путь |', '|---|---|---|');
+   555→   555→    D.landmarks.forEach(l => L.push('| ' + l.tag + ' | ' + (l.role || '—') + ' | `' + l.path + '` |'));
+   556→   556→  } else L.push('', '_ландмарков нет_');
+   557→   557→  if ((D.groups || []).length) {
+   558→   558→    L.push('', '### Группы (I-1, скоринг r2 §2)', '', '| sigHash | × | глуб. | однород. | inPrimary | образец |', '|---|---|---|---|---|---|');
+   559→   559→    D.groups.forEach(g => L.push('| `' + g.sigHash + '` | ' + g.count + ' | ' + g.depth + ' | ' + g.uniformity + ' | ' + (g.inPrimary ? 'да' : 'нет') + ' | `' + g.samplePath + '` |'));
+   560→   560→  } else L.push('', '_групп не найдено_');
+   561→   561→  L.push('', '## Скролл (I-2)', '');
+   562→   562→  if (v.scroll && v.scroll.primary && v.scroll.primary.path) {
+   563→   563→    L.push('primary: `' + v.scroll.primary.path + '` · ratio **' + v.scroll.primary.ratio + '** · ' + v.scroll.primary.scrollHeight + '/' + v.scroll.primary.clientHeight);
+   564→   564→    if ((v.scroll.containers || []).length) {
+   565→   565→      L.push('', '| контейнер | scroll/client |', '|---|---|');
+   566→   566→      v.scroll.containers.forEach(c => L.push('| `' + c.path + '` | ' + c.scrollHeight + '/' + c.clientHeight + ' |'));
+   567→   567→    }
+   568→   568→  } else L.push('no-scroll-container');
+   569→   569→  L.push('', '## Мутации (I-3)', '');
+   570→   570→  L.push('окно ' + (M.window == null ? '—' : M.window) + ' с · adds ' + (M.adds || 0) + ' · removes ' + (M.removes || 0) + ' · рециклы ' + (M.recycles || 0) + ' · медиана ' + (M.medianIntervalMs == null ? '—' : M.medianIntervalMs + ' мс') + ' · поток: ' + (M.streamCandidate ? 'да' : 'нет'));
+   571→   571→  L.push('', '## Якоря (I-4)', '');
+   572→   572→  if ((A.mountPoints || []).length) {
+   573→   573→    L.push('', '| точка монтажа | режим | h |', '|---|---|---|');
+   574→   574→    A.mountPoints.forEach(m => L.push('| `' + m.path + '` | ' + m.mode + ' | ' + m.h + ' |'));
+   575→   575→  } else L.push('точек монтажа: 0');
+   576→   576→  L.push('', 'стойких путей: ' + (A.persistentPaths || []).length + ' · стабильность ' + (A.stability == null ? '—' : A.stability));
+   577→   577→  L.push('', '## Резерв (r2 §3)', '');
+   578→   578→  if (v.recon && v.recon.status === 'found') L.push('кандидат `' + v.recon.candidate.path + '` · sigHash `' + v.recon.candidate.sigHash + '` · confidence **' + v.recon.candidate.confidence + '**');
+   579→   579→  else L.push('no-data (консервативный отказ)');
+   580→   580→  return L.join('\n') + '\n';
+   581→   581→};
+   582→   582→const escH = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+   583→   583→const structToHTML = st => { // автономный HTML-отчёт: инлайн-CSS, 0 внешних запросов (§15)
+   584→   584→  const v = st || lastStruct || buildStruct(), MT = v.meta || { urlHash: '?', ts: 0, viewport: { w: 0, h: 0 }, dpr: '?' },
+   585→   585→    D = v.dom || {}, M = v.mut || {}, A = v.anchors || {}, e = escH;
+   586→   586→  const rows = arr => arr.map(r => '<tr>' + r.map(c => '<td>' + e(c) + '</td>').join('') + '</tr>').join('');
+   587→   587→  const tbl = (head, body) => '<table><thead><tr>' + head.map(h => '<th>' + e(h) + '</th>').join('') + '</tr></thead><tbody>' + body + '</tbody></table>';
+   588→   588→  const r = v.recon && v.recon.status === 'found' ? v.recon.candidate : null;
+   589→   589→  return '<!doctype html>\n<html lang="ru"><head><meta charset="utf-8"><title>UACE ' + e(VER) + ' · PML-STRUCT ' + e(MT.urlHash) + '</title>\n'
+   590→   590→    + '<style>body{font:14px/1.5 -apple-system,"Segoe UI",Roboto,"Noto Sans",Arial,sans-serif;margin:0;background:#121821;color:#e6ebf2;padding:24px}'
+   591→   591→    + 'h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:24px 0 8px;border-bottom:1px solid #2a3441;padding-bottom:4px}'
+   592→   592→    + '.m{color:#9aa8ba;font-size:12px;margin:0 0 16px}table{border-collapse:collapse;width:100%;font-size:13px;margin:8px 0}'
+   593→   593→    + 'th,td{border:1px solid #2a3441;padding:4px 8px;text-align:left;vertical-align:top}th{background:#1a2230;color:#9aa8ba;font-weight:600}'
+   594→   594→    + 'code{background:#1a2230;padding:1px 5px;border-radius:4px;font-size:12px}.dim{color:#9aa8ba}</style></head>\n<body>\n'
+   595→   595→    + '<h1>UACE ' + e(VER) + ' · PML-STRUCT r1 — HTML-отчёт</h1>\n'
+   596→   596→    + '<p class="m">urlHash <code>' + e(MT.urlHash) + '</code> · момент +' + e(MT.ts) + ' мс · viewport ' + e(MT.viewport.w + '×' + MT.viewport.h) + ' @dpr ' + e(MT.dpr) + ' · автономный файл: 0 внешних запросов, текст страницы не читался (§15)</p>\n'
+   597→   597→    + '<h2>Каркас (I-1)</h2>' + (D.maxDepth != null ? '<p>maxDepth ' + e(D.maxDepth) + ' · blockCount ' + e(D.blockCount) + (D.truncated ? ' · усечено' : '') + '</p>' : '')
+   598→   598→    + ((D.landmarks || []).length ? tbl(['тег', 'роль', 'путь'], rows(D.landmarks.map(l => [l.tag, l.role || '—', l.path]))) : '<p class="dim">ландмарков нет</p>')
+   599→   599→    + '<h2>Группы (I-1 · скоринг r2 §2)</h2>'
+   600→   600→    + ((D.groups || []).length ? tbl(['sigHash', '×', 'глуб.', 'однород.', 'inPrimary', 'образец'], rows(D.groups.map(g => [g.sigHash, g.count, g.depth, g.uniformity, g.inPrimary ? 'да' : 'нет', g.samplePath]))) : '<p class="dim">групп не найдено</p>')
+   601→   601→    + '<h2>Скролл (I-2)</h2>'
+   602→   602→    + (v.scroll && v.scroll.primary && v.scroll.primary.path
+   603→   603→      ? '<p>primary <code>' + e(v.scroll.primary.path) + '</code> · ratio ' + e(v.scroll.primary.ratio) + ' · ' + e(v.scroll.primary.scrollHeight + '/' + v.scroll.primary.clientHeight) + '</p>'
+   604→   604→        + ((v.scroll.containers || []).length ? tbl(['контейнер', 'scroll/client'], rows(v.scroll.containers.map(c => [c.path, c.scrollHeight + '/' + c.clientHeight]))) : '')
+   605→   605→      : '<p class="dim">no-scroll-container</p>')
+   606→   606→    + '<h2>Мутации (I-3)</h2><p>окно ' + e(M.window == null ? '—' : M.window) + ' с · adds ' + e(M.adds || 0) + ' · removes ' + e(M.removes || 0)
+   607→   607→    + ' · рециклы ' + e(M.recycles || 0) + ' · медиана ' + e(M.medianIntervalMs == null ? '—' : M.medianIntervalMs + ' мс') + ' · поток: ' + e(M.streamCandidate ? 'да' : 'нет') + '</p>'
+   608→   608→    + '<h2>Якоря (I-4)</h2>'
+   609→   609→    + ((A.mountPoints || []).length ? tbl(['точка монтажа', 'режим', 'h'], rows(A.mountPoints.map(m => [m.path, m.mode, m.h]))) : '<p class="dim">точек монтажа нет</p>')
+   610→   610→    + '<p>стойких путей: ' + e((A.persistentPaths || []).length) + ' · стабильность ' + e(A.stability == null ? '—' : A.stability) + '</p>'
+   611→   611→    + '<h2>Резерв (r2 §3)</h2>'
+   612→   612→    + (r ? '<p>кандидат <code>' + e(r.path) + '</code> · sigHash <code>' + e(r.sigHash) + '</code> · confidence ' + e(r.confidence) + '</p>' : '<p class="dim">no-data (консервативный отказ)</p>')
+   613→   613→    + '<p class="m">UACE ' + e(VER) + ' · соль ' + e(SALT) + ' · контракт PML-STRUCT r1+r2</p>\n</body></html>\n';
+   614→   614→};
+   615→   615→const csvCell = x => { const s = String(x == null ? '' : x); return /[",;\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+   616→   616→const structToCSV = st => { // таблица групп — Excel/Sheets; BOM впереди для корректной кириллицы
+   617→   617→  const v = st || lastStruct || buildStruct(), L = ['sigHash,count,depth,uniformity,inPrimary,samplePath'];
+   618→   618→  ((v.dom && v.dom.groups) || []).forEach(g => L.push([g.sigHash, g.count, g.depth, g.uniformity, g.inPrimary ? 1 : 0, g.samplePath].map(csvCell).join(',')));
+   619→   619→  return '\uFEFF' + L.join('\r\n') + '\r\n';
+   620→   620→};
+   621→
+   622→[showing lines 1-620 of 1164; use offset=621 with limit to continue reading]

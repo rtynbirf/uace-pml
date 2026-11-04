@@ -1,0 +1,607 @@
+     1→// ==UserScript==
+     2→// @name         UACE · PML-PANEL 1.0 (вариант B · UACE v27.4 core)
+     3→// @namespace    uace.pml.b
+     4→// @version      27.4.3
+     5→// @description  Референс-реализация замороженного мастера PML-PANEL 1.0 (§1–17) + Модуль I на каноне r2 §5 (соль PMLSTRUCT, pre-order UPPERCASE-сигнатуры, urlHash SALT+'URL>'+href) + наблюдение 60 с + скоринг/резерв r2 §2–3 + реестр с «Копировать struct». Вариант сессии B для сверки с ЧК-1; канон UPOLY ведёт сессия A.
+     6→// @author       session B (UACE-main)
+     7→// @match        *://*/*
+     8→// @grant        none
+     9→// @run-at       document-idle
+    10→// @noframes
+    11→// ==/UserScript==
+    12→
+    13→/* UACE v27.4.3 · вариант B · 2026-09-20
+    14→   Реализует: мастер PML-PANEL 1.0 §1–17; PML-STRUCT r1+r2 §5 — соль/сигнатуры/urlHash дословно столбец UPOLY
+    15→   (полевые конверты №2/№3); findGroups/pickPrimary/findMounts — столбец UPOLY (модальные группы, отсечения
+    16→   32px/0.4·высоты, сортировка count*uniformity↓→parentPath, БЕЗ дедупа sigHash — подтверждено полем: f0338710
+    17→   встречается дважды); скан от document.body — собственный хост (#pml-host под <html>) исключён из struct ПО
+    18→   ПОСТРОЕНИЮ (fix 27.4.3: в 27.4.2 скан от documentElement мог включать собственную панель).
+    19→   Рендер struct терпит ОБЕ формы scroll (канон-объект со строкой на primary И легаси-строку на уровне scroll) —
+    20→   класс E1 «reading 'path'» закрыт в обе стороны (27.4.2, сохранено и расширено).
+    21→   Новое 27.4.3: наблюдение 60 с (I-3/I-4b: мутации, рециклы по prefixPath-4, снапшоты каждые 10 с, stability,
+    22→   stream-критерий I.4.3, Esc — стоп; при pagehide авто-разведка глушится — мелочь B-6 применена у B); разведка
+    23→   мгновенная (бюджет ≤150 мс; default mut window 60); скоринг r2 §2 + резерв r2 §3 (гейты G1–G4); экспорт
+    24→   struct: действие «Копировать struct» + Alt+C (JSON, lastStruct || свежая сборка); хоткеи — канонный набор
+    25→   E/D/C/S/X/I (журнал и свёртка — только кнопками); __UACE_INTERNALS__ — полевая сверка хэшей из консоли.
+    26→   Снято B в пользу столбца UPOLY (финал развилок r2): соль 'pml-s1' → PMLSTRUCT; сигнатура sig3 → pre-order
+    27→   UPPERCASE; urlHash 'pml-s1'+href → SALT+'URL>'+href; C1 «scroll всегда объект» → форма UPOLY (строка на
+    28→   уровне scroll); truncated-списки 0-b → boolean; mut-окно 10 с → 60 с; скан от documentElement → body.
+    29→   Удержано B (позиции к r2): белый список landmarks (C3: роль-any шумит — 18/20 role=button в поле); append-
+    30→   семантика renderActions (гость получает кнопки-фолбэки, не затирая реестр владельца; replace у A —
+    31→   дефект-кандидат, M2-семейство); контраст акцента — от активной темы.
+    32→   Тесты: node --check PASS; core — FNV-канон-векторы + P1-палитры + солвер §6; smoke jsdom — boot, рендер,
+    33→   двойной страж scroll, экспорт, честная версия. FNV-ядро переведено на UTF-8-байты (для ASCII-входов
+    34→   байт-эквивалентно прежнему — сверено векторами).
+    35→   Объём: ~450 строк кода (физических ~470) — потолок §17 превышен (данные R3 для STP-2, вопрос поднят в r2).
+    36→   Приватность: 0 внешних запросов, 0 чтения текста страницы — только структурные агрегаты (§15). */
+    37→(() => {
+    38→'use strict';
+    39→const T0 = performance.now(); // 0-d: старт сессии — первая исполняемая строка
+    40→if (typeof document === 'undefined' || !document.documentElement) return;
+    41→
+    42→/*PML-PURE-BEGIN*/
+    43→const fnvByte = (h, b) => Math.imul(((h ^ b) >>> 0), 0x01000193) >>> 0;
+    44→const FNV1a32 = s => { // FNV-1a 32-bit по байтам UTF-8 — канон r2 §5, дословно столбец UPOLY
+    45→  let h = 0x811c9dc5 >>> 0;
+    46→  for (let i = 0; i < s.length; i++) {
+    47→    let c = s.codePointAt(i);
+    48→    if (c > 0xffff) i++;
+    49→    if (c < 0x80) h = fnvByte(h, c);
+    50→    else if (c < 0x800) { h = fnvByte(h, 0xc0 | c >> 6); h = fnvByte(h, 0x80 | c & 63); }
+    51→    else if (c < 0x10000) { h = fnvByte(h, 0xe0 | c >> 12); h = fnvByte(h, 0x80 | (c >> 6) & 63); h = fnvByte(h, 0x80 | c & 63); }
+    52→    else { h = fnvByte(h, 0xf0 | c >> 18); h = fnvByte(h, 0x80 | (c >> 12) & 63); h = fnvByte(h, 0x80 | (c >> 6) & 63); h = fnvByte(h, 0x80 | c & 63); }
+    53→  }
+    54→  return h >>> 0;
+    55→};
+    56→const hex8 = n => (n >>> 0).toString(16).padStart(8, '0'); // 0-a: lowercase hex 8, padStart
+    57→const SALT = 'PMLSTRUCT';                                  // r2 §5: соль обеих сборок; смена после Ф2 запрещена
+    58→const sigHashIn = sig => SALT + '>' + sig;                 // вход sigHash: 'PMLSTRUCT>UL>LI>P'
+    59→const urlHashIn = href => SALT + 'URL>' + href;            // вход urlHash: столбец UPOLY (SALT+'URL>'+href)
+    60→const hx = n => Math.round(n * 100) / 100; // 0-c: числа-доли — 2 знака
+    61→const lum = (r, g, b) => { const f = c => (c /= 255) <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+    62→const ratio = (a, b) => { const x = lum(a[0], a[1], a[2]), y = lum(b[0], b[1], b[2]); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+    63→const rgb2ok = (r, g, b) => { const f = c => (c /= 255) <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); const R = f(r), G = f(g), B = f(b);
+    64→  const l = Math.cbrt(0.4122214708 * R + 0.5363325363 * G + 0.0514459929 * B), m = Math.cbrt(0.2119034982 * R + 0.6806995451 * G + 0.1073969566 * B), s2 = Math.cbrt(0.0883024619 * R + 0.2817188376 * G + 0.6299787005 * B);
+    65→  return [0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s2, 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s2, 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s2]; };
+    66→const ok2rgb = (L, a, b) => { const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3, m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3, s2 = (L - 0.0894841775 * a - 1.2914855480 * b) ** 3;
+    67→  const g = c => Math.max(0, Math.min(255, Math.round(255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055))));
+    68→  return [g(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s2), g(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s2), g(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s2)]; };
+    69→const parseRgb = v => { if (!v) return null; const m = /rgba?\(([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/i.exec(v); if (m) return [+m[1], +m[2], +m[3]];
+    70→  const h = v.trim(); const n = h.length === 4 ? h.slice(1).split('').map(c => c + c).join('') : h.slice(1);
+    71→  return /^[\da-f]{6}$/i.test(n) ? [0, 2, 4].map(i => parseInt(n.slice(i, i + 2), 16)) : null; };
+    72→const guardSat = rgb => { if (!rgb) return false; const [L, a, b] = rgb2ok(rgb[0], rgb[1], rgb[2]); return Math.hypot(a, b) >= 0.02 && L > 0.05 && L < 0.95; }; // сатурационный страж §6
+    73→const solveAccent = (bg, a, b) => { for (let i = 1; i < 100; i++) { const L = i / 100, rgb = ok2rgb(L, a, b);
+    74→  if (ratio(rgb, bg) >= 4.5 && Math.max(ratio(rgb, [255, 255, 255]), ratio(rgb, [24, 24, 24])) >= 4.5) return rgb; } return null; }; // двухпроходная подгонка §6
+    75→const pickTx = rgb => ratio(rgb, [255, 255, 255]) >= 4.5 ? [255, 255, 255] : [24, 24, 24]; // текст-на-акценте §6
+    76→const PAL = { // канон линии B; все пары ≥4.5:1 (P1); fb — fallback акцента по замороженному §6
+    77→  dark:  { bg: [18, 24, 33],    fg: [230, 235, 242], dim: [154, 168, 186], line: [42, 52, 65],    ring: [122, 184, 255], fb: [77, 163, 255], ok: [62, 190, 120],  warn: [255, 180, 84], crit: [255, 107, 107] },
+    78→  light: { bg: [247, 245, 241], fg: [28, 36, 48],    dim: [86, 97, 118],   line: [217, 212, 203], ring: [11, 98, 196],   fb: [11, 98, 196],  ok: [10, 122, 61],   warn: [138, 90, 0],   crit: [179, 38, 30] },
+    79→  warm:  { bg: [246, 239, 226], fg: [51, 41, 26],    dim: [107, 93, 66],   line: [227, 216, 194], ring: [138, 90, 0],    fb: [77, 163, 255], ok: [27, 94, 32],    warn: [138, 90, 0],   crit: [179, 38, 30] } };
+    80→/*PML-PURE-END*/
+    81→
+    82→const VER = '27.4.3', OWNER = 'uace@' + VER, HOST_ID = 'pml-host';
+    83→const S = { theme: 'system', fs: 14, motion: true, collapsed: false }; // pml_panel_v1, белый список §14
+    84→const J = []; const HK = {}; const Q = []; const clean = [];
+    85→let host = null, root = null, mounted = false, busy = false, badge = 'ok', uid = 0;
+    86→let effTheme = 'dark', ACC = null, lastStruct = null, lastElapsed = 0, reconN = 0, mountMs = 0, stT = 0, cfgInfo = { name: 'UACE', version: VER };
+    87→let obsSession = null, obsResult = null;
+    88→const els = {};
+    89→const metrics = { reconRuns: 0, obsRuns: 0, structCopied: false };
+    90→const ce = (tag, cls, txt) => { const n = document.createElement(tag); if (cls) n.className = cls; if (txt != null) n.textContent = txt; return n; };
+    91→const bind = (t, fn, tgt) => { const w = tgt || window; w.addEventListener(t, fn); clean.push(['l', t, fn, w]); };
+    92→const store = {
+    93→  load() { try { const o = JSON.parse(localStorage.getItem('pml_panel_v1') || '{}'); for (const k of ['theme', 'fs', 'motion', 'collapsed']) if (k in o) S[k] = o[k]; } catch (e) {} },
+    94→  save() { try { const s = JSON.stringify({ theme: S.theme, fs: S.fs, motion: S.motion, collapsed: S.collapsed, hotkeys: Object.keys(HK) }); if (s.length > 512) throw new Error('>512B'); localStorage.setItem('pml_panel_v1', s); } catch (e) { console.warn('[pml] store skip:', e && e.message); } } };
+    95→
+    96→const CSS = `
+    97→.pml-root{position:fixed;right:16px;top:16px;width:360px;min-width:320px;max-width:480px;max-height:80vh;min-height:360px;display:flex;flex-direction:column;font-family:-apple-system,"Segoe UI",Roboto,"Noto Sans",Arial,sans-serif;font-size:var(--pml-fs);line-height:1.5;font-weight:400;background:var(--pml-bg);color:var(--pml-fg);border:1px solid var(--pml-line);border-radius:var(--pml-radius);box-shadow:0 8px 32px rgba(0,0,0,.25);z-index:2147483000;overflow:hidden}
+    98→.pml-badge44{position:fixed;right:16px;top:16px;width:44px;height:44px;border-radius:50%;border:2px solid var(--pml-ok);background:var(--pml-bg);color:var(--pml-fg);cursor:pointer;font:inherit;font-weight:600;display:flex;align-items:center;justify-content:center;z-index:2147483000}
+    99→.pml-hd{display:flex;gap:8px;align-items:center;padding:8px;border-bottom:1px solid var(--pml-line)}.pml-dot{width:10px;height:10px;border-radius:50%;background:var(--pml-ok);flex:none}
+   100→.pml-dot.run{background:var(--pml-accent)}.pml-dot.warn{background:var(--pml-warn)}.pml-dot.err{background:var(--pml-crit)}.pml-title{font-weight:600;margin-right:auto;max-width:48ch}
+   101→.pml-seg{display:flex;border:1px solid var(--pml-line);border-radius:8px;overflow:hidden}.pml-seg button{min-width:44px;min-height:44px;border:0;background:transparent;color:var(--pml-fg);cursor:pointer;font:inherit;padding:0 8px}
+   102→.pml-seg button[aria-checked="true"]{background:var(--pml-accent);color:var(--pml-accent-tx)}
+   103→.pml-btn{min-height:44px;min-width:44px;border:1px solid var(--pml-line);border-radius:8px;background:transparent;color:var(--pml-fg);cursor:pointer;font:inherit;padding:0 12px;text-align:left}.pml-btn:hover{border-color:var(--pml-accent)}.pml-btn:disabled{opacity:.5;cursor:default}
+   104→.pml-btn:focus-visible,.pml-seg button:focus-visible,.pml-tab:focus-visible,.pml-badge44:focus-visible{outline:2px solid var(--pml-ring);outline-offset:2px}
+   105→.pml-tabs{display:flex;border-bottom:1px solid var(--pml-line)}.pml-tab{flex:1;min-height:44px;border:0;background:transparent;color:var(--pml-fg-dim);font:inherit;cursor:pointer}
+   106→.pml-tab[aria-selected="true"]{color:var(--pml-accent);box-shadow:inset 0 -2px var(--pml-accent)}.pml-bd{flex:1;overflow:auto;padding:8px}.pml-sec{margin:8px 0 4px;font-weight:600}
+   107→.pml-row{display:flex;gap:8px;font-size:calc(var(--pml-fs) - 2px)}.pml-k{color:var(--pml-fg-dim);flex:none;max-width:48ch}.pml-v{word-break:break-all}
+   108→.pml-act{display:flex;flex-direction:column;gap:8px;padding:4px 0}.pml-log{display:flex;gap:8px;align-items:baseline;font-size:calc(var(--pml-fs) - 2px)}
+   109→.pml-lg{width:8px;height:8px;border-radius:50%;flex:none;align-self:center}.pml-lg.info{background:var(--pml-fg-dim)}.pml-lg.ok{background:var(--pml-ok)}.pml-lg.warn{background:var(--pml-warn)}.pml-lg.err{background:var(--pml-crit)}
+   110→.pml-ft{border-top:1px solid var(--pml-line);padding:4px 8px;display:flex;flex-direction:column;gap:4px}.pml-status{font-size:calc(var(--pml-fs) - 2px);min-height:1.4em}
+   111→.pml-ft details,.pml-bd details{font-size:calc(var(--pml-fs) - 2px)}.pml-ft summary,.pml-bd summary{cursor:pointer;min-height:28px;display:flex;align-items:center}
+   112→.pml-root,.pml-btn,.pml-seg button,.pml-tab{transition:background-color .15s,color .15s,border-color .15s}.pml-motion-off *{transition:none!important;animation:none!important}
+   113→input[type=range]{accent-color:var(--pml-accent);min-height:44px}input[type=checkbox]{width:44px;height:44px;accent-color:var(--pml-accent)}
+   114→`;
+   115→
+   116→/* ===================== МОДУЛЬ I · РАЗВЕДКА (канон r2: столбец UPOLY, конверты №2/№3) ===================== */
+   117→const CAP = { groups: 12, landmarks: 20, containers: 5, mountPoints: 8, persistentPaths: 8, nodes: 5000 };
+   118→const RECON_BUDGET_MS = 150;   // I.8.1: блокировка ≤150 мс
+   119→const OBS_WINDOW_MS = 60000;   // окно 60 с (r1; 10-с окно 27.4.0 отозвано)
+   120→
+   121→const pathSegs = el => { // сегменты от body (без body/html) — формат столбца UPOLY
+   122→  const segs = []; let n = el;
+   123→  while (n && n.nodeType === 1 && n.tagName !== 'BODY' && n.tagName !== 'HTML') {
+   124→    let i = 1, s = n;
+   125→    while ((s = s.previousElementSibling)) if (s.tagName === n.tagName) i++;
+   126→    segs.unshift(n.tagName.toLowerCase() + (i > 1 ? ':nth(' + i + ')' : ''));
+   127→    n = n.parentElement;
+   128→  }
+   129→  return ['body'].concat(segs);
+   130→};
+   131→const pathOf = el => {                         // структурный путь ≤120 симв. (r1 §0): nth(i) только при i>1
+   132→  const segs = pathSegs(el).slice(1);
+   133→  let p = 'body' + (segs.length ? '>' + segs.join('>') : '');
+   134→  if (p.length > 120) p = '~' + p.slice(-119); // усечение слева, хвост глубже важнее
+   135→  return p;
+   136→};
+   137→const prefixPath = (el, d) => pathSegs(el).slice(0, d).join('>');
+   138→const sigOf = el => {                          // r2 §5: pre-order теги ВЕРХНИМ регистром через '>', глубина ≤3
+   139→  const out = [];
+   140→  (function walk(n, d) {
+   141→    if (!n || n.nodeType !== 1 || d > 3) return;
+   142→    out.push(n.tagName.toUpperCase());
+   143→    for (let c = n.firstElementChild; c; c = c.nextElementSibling) walk(c, d + 1);
+   144→  })(el, 1);
+   145→  return out.join('>');
+   146→};
+   147→const sigHash = el => hex8(FNV1a32(sigHashIn(sigOf(el))));
+   148→const subtreeDepth = (el, cap) => {            // фактическая глубина поддерева (cap 6)
+   149→  let max = 1;
+   150→  (function walk(n, cur) {
+   151→    if (cur > cap) return;
+   152→    for (let c = n.firstElementChild; c; c = c.nextElementSibling) { max = Math.max(max, cur + 1); walk(c, cur + 1); }
+   153→  })(el, 1);
+   154→  return max;
+   155→};
+   156→const median = arr => {                        // медиана целых; null если пусто
+   157→  const a = arr.filter(Number.isFinite).sort((x, y) => x - y);
+   158→  if (!a.length) return null;
+   159→  const m = a.length >> 1;
+   160→  return a.length % 2 ? a[m] : Math.round((a[m - 1] + a[m]) / 2);
+   161→};
+   162→
+   163→function pickPrimary(all, vh) {                // I-2: каскад primary (I.3.2) + контейнеры — столбец UPOLY
+   164→  const cands = [];
+   165→  for (const el of all) {
+   166→    if (el.scrollHeight <= el.clientHeight + 4) continue;
+   167→    let ov = 'visible';
+   168→    try { ov = getComputedStyle(el).overflowY; } catch (e) {}
+   169→    if (ov !== 'auto' && ov !== 'scroll' && ov !== 'overlay') continue;
+   170→    let main = false;
+   171→    try { main = !!el.closest('main,[role="main"]'); } catch (e) {}
+   172→    cands.push({ el, path: pathOf(el), clientHeight: el.clientHeight, scrollHeight: el.scrollHeight, visibleShare: el.clientHeight / vh, insideMain: main });
+   173→  }
+   174→  cands.sort((a, b) => b.visibleShare - a.visibleShare || b.scrollHeight - a.scrollHeight || b.clientHeight - a.clientHeight || (b.insideMain - a.insideMain) || (a.path < b.path ? -1 : 1));
+   175→  return { primary: cands[0] || null, containers: cands.slice(0, CAP.containers).map(c => ({ path: c.path, scrollHeight: c.scrollHeight, clientHeight: c.clientHeight })), truncated: cands.length > CAP.containers };
+   176→}
+   177→function findGroups(all, primaryPath, deadline) {   // I-1: модальная группа на родителя — столбец UPOLY (+ inPrimary r2 3-a)
+   178→  const out = [];
+   179→  for (const parent of all) {
+   180→    if (performance.now() > deadline) { out.budgetHit = true; break; }
+   181→    if (parent.childElementCount < 3) continue;
+   182→    const kids = [...parent.children];
+   183→    const bySig = new Map();
+   184→    for (const k of kids) { const h = sigHash(k); if (!bySig.has(h)) bySig.set(h, []); bySig.get(h).push(k); }
+   185→    let best = null;
+   186→    for (const [h, arr] of bySig) if (!best || arr.length > best.arr.length) best = { h, arr };
+   187→    if (!best || best.arr.length < 3) continue;
+   188→    const u = best.arr.length / kids.length;
+   189→    if (u < 0.6) continue;
+   190→    let pr;
+   191→    try { pr = parent.getBoundingClientRect(); } catch (e) { continue; }
+   192→    let sumH = 0, ok = true;
+   193→    for (const k of best.arr) {
+   194→      const r = k.getBoundingClientRect();
+   195→      if (r.height < 32) { ok = false; break; }   // I.2.3: каждый ребёнок ≥32px
+   196→      sumH += r.height;
+   197→    }
+   198→    if (!ok || sumH < 0.4 * pr.height) continue;  // отсечение toolbar/иконочных рядов
+   199→    out.push({ sigHash: best.h, count: best.arr.length, depth: subtreeDepth(best.arr[0], 6), uniformity: hx(u), samplePath: pathOf(best.arr[0]), parentPath: pathOf(parent), inPrimary: !!primaryPath && (pathOf(best.arr[0]) === primaryPath || pathOf(best.arr[0]).startsWith(primaryPath + '>')), el: best.arr[0] });
+   200→  }
+   201→  out.sort((a, b) => b.count * b.uniformity - a.count * a.uniformity || (a.parentPath < b.parentPath ? -1 : 1)); // I.2.5
+   202→  return out;
+   203→}
+   204→function findMounts(all, vh, deadline) {            // I-4a: кандидаты монтирования — столбец UPOLY + свои узлы вне
+   205→  const out = [];
+   206→  for (const el of all) {
+   207→    if (performance.now() > deadline) { out.budgetHit = true; break; }
+   208→    if (host && (el === host || host.contains(el))) continue;   // свои узлы исключены
+   209→    if (el.childElementCount < 1) continue;
+   210→    let cs; try { cs = getComputedStyle(el); } catch (e) { continue; }
+   211→    if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+   212→    if (cs.position !== 'fixed' && cs.position !== 'sticky') continue;
+   213→    const r = el.getBoundingClientRect();
+   214→    if (!(r.top < 0.15 * vh && r.height >= 32 && r.height <= 96 && r.width >= 120)) continue;
+   215→    out.push({ path: pathOf(el), mode: cs.position, h: Math.round(r.height), top: r.top, x: r.x });
+   216→  }
+   217→  out.sort((a, b) => a.top - b.top || a.x - b.x);
+   218→  return out;
+   219→}
+   220→function findLandmarks(all) {                   // C3 (позиция B на r2): структурные теги + ландмарк-роли, без role=button
+   221→  const out = [];
+   222→  const tags = { MAIN: 1, NAV: 1, HEADER: 1, FOOTER: 1, ASIDE: 1 };
+   223→  const roles = ['banner', 'main', 'navigation', 'complementary', 'contentinfo', 'search', 'region', 'form'];
+   224→  for (const el of all) {
+   225→    const role = el.getAttribute('role');
+   226→    if (!tags[el.tagName] && roles.indexOf(role) < 0) continue;
+   227→    out.push({ tag: el.tagName.toLowerCase(), role: role || null, path: pathOf(el) });
+   228→  }
+   229→  return out;
+   230→}
+   231→function scanSync() {                           // один обход от body (свой хост вне body — самоисключение), бюджет ≤150 мс
+   232→  const t0 = performance.now();
+   233→  const bodyEl = document.body;
+   234→  if (!bodyEl) return { all: [], vh: innerHeight || 800, blockCount: 0, maxDepth: 0, sc: { primary: null, containers: [], truncated: false }, groups: [], mounts: [], landmarks: [], truncatedDom: false, elapsed: 0 };
+   235→  const every = bodyEl.querySelectorAll('*');
+   236→  const all = [...every].slice(0, CAP.nodes);
+   237→  const vh = innerHeight || 800;
+   238→  let blockCount = 0, maxDepth = 0;
+   239→  (function w(n, d) { if (!n || n.nodeType !== 1) return; blockCount++; maxDepth = Math.max(maxDepth, d); for (let c = n.firstElementChild; c; c = c.nextElementSibling) w(c, d + 1); })(bodyEl, 1);
+   240→  const sc = pickPrimary(all, vh);
+   241→  const deadline = t0 + RECON_BUDGET_MS;
+   242→  const groups = findGroups(all, sc.primary ? sc.primary.path : null, deadline);
+   243→  const mounts = findMounts(all, vh, deadline);
+   244→  const landmarks = findLandmarks(all);
+   245→  const budgetHit = !!(groups.budgetHit || mounts.budgetHit);
+   246→  return { all, vh, blockCount, maxDepth, sc, groups, mounts, landmarks, truncatedDom: every.length > CAP.nodes || budgetHit, elapsed: Math.round(performance.now() - t0) };
+   247→}
+   248→function scoreGroup(g) {                        // r2 §2: чистая формула «кандидат → вес-факты»
+   249→  const u = Math.round(100 * Math.max(0, Math.min(1, (g.uniformity - 0.6) / 0.4)));
+   250→  const c = Math.round(100 * Math.min(1, g.count / 40));
+   251→  const p = g.inPrimary ? 100 : 0;
+   252→  const s = Math.round(100 * Math.max(0, Math.min(1, 1 - g.ratio)));
+   253→  const l = g.hasLandmark ? 100 : 0;
+   254→  return { u, c, p, s, l, confidence: Math.round(0.35 * u + 0.25 * c + 0.20 * p + 0.10 * s + 0.10 * l) };
+   255→}
+   256→function resolveRecon(scored) {                 // r2 §3: гейты G1–G4 → found/no-data
+   257→  const ok = scored.filter(x => x.inPrimary && x.count >= 6 && x.depth >= 2).sort((a, b) => b.confidence - a.confidence || (a.samplePath < b.samplePath ? -1 : 1));
+   258→  if (!ok.length || ok[0].confidence < 75) return { status: 'no-data' };
+   259→  const second = ok[1];
+   260→  if (second && ok[0].confidence - second.confidence < 15 && second.confidence >= 50) return { status: 'no-data' };
+   261→  const t = ok[0];
+   262→  return { status: 'found', candidate: { path: t.samplePath, sigHash: t.sigHash, inPrimary: true, confidence: t.confidence, basis: { u: t.u, c: t.c, p: t.p, s: t.s, l: t.l } } };
+   263→}
+   264→function buildStruct() {                        // конверт r1 (+inPrimary, recon по r2) — форма столбца UPOLY
+   265→  const s = scanSync();
+   266→  const primary = s.sc.primary;
+   267→  const raw = s.groups.slice(0, CAP.groups).map(g => {
+   268→    const g2 = { sigHash: g.sigHash, count: g.count, depth: g.depth, uniformity: g.uniformity, samplePath: g.samplePath, inPrimary: g.inPrimary };
+   269→    g2.ratio = primary ? hx(primary.clientHeight / primary.scrollHeight) : 1;
+   270→    try { g2.hasLandmark = !!g.el.closest('main,[role="main"],[role="feed"],[role="log"]'); } catch (e) { g2.hasLandmark = false; }
+   271→    return Object.assign(g2, scoreGroup(g2));
+   272→  });
+   273→  const struct = {
+   274→    structVersion: 'r1',
+   275→    meta: { ts: Math.round(performance.now() - T0), viewport: { w: innerWidth, h: innerHeight }, dpr: hx(devicePixelRatio || 1), urlHash: hex8(FNV1a32(urlHashIn(location.href))) },
+   276→    dom: { maxDepth: s.maxDepth, blockCount: s.blockCount, landmarks: s.landmarks.slice(0, CAP.landmarks), groups: raw.map(g => ({ sigHash: g.sigHash, count: g.count, depth: g.depth, uniformity: g.uniformity, samplePath: g.samplePath, inPrimary: g.inPrimary })), truncated: s.truncatedDom || s.groups.length > CAP.groups || s.landmarks.length > CAP.landmarks },
+   277→    scroll: primary ? { primary: { path: primary.path, scrollHeight: primary.scrollHeight, clientHeight: primary.clientHeight, ratio: hx(primary.clientHeight / primary.scrollHeight) }, containers: s.sc.containers, truncated: s.sc.truncated } : 'no-scroll-container',
+   278→    mut: obsResult ? obsResult.mut : { window: 60, adds: 0, removes: 0, recycles: 0, medianIntervalMs: null, streamCandidate: null },
+   279→    anchors: { mountPoints: s.mounts.slice(0, CAP.mountPoints).map(m => ({ path: m.path, mode: m.mode, h: m.h })), persistentPaths: obsResult ? obsResult.persistent : [], stability: obsResult ? obsResult.stability : 0, truncated: s.mounts.length > CAP.mountPoints || (obsResult ? obsResult.persistentTruncated : false) }
+   280→  };
+   281→  struct.recon = resolveRecon(raw);             // r2 §1.2: рендереры r1 ключ игнорируют
+   282→  lastElapsed = s.elapsed;
+   283→  return struct;
+   284→}
+   285→/* ---- I-3 + I-4b: пассивное окно 60 с; Esc — стоп; снапшот 0 + каждые 10 с (столбец UPOLY) ---- */
+   286→function startObservation() {
+   287→  if (obsSession) return;
+   288→  if (!document.body) { log('err', 'нет document.body — наблюдение отменено'); status('наблюдение: нет body'); return; }
+   289→  metrics.obsRuns++;
+   290→  const s = { adds: 0, removes: 0, recycles: 0, sigBudget: 500, aborted: false, byPath: new Map(), addIntervals: new Map(), lastAdd: new Map(), removedSigs: new Map(), snapshots: [], navEvents: 0, pausedMs: 0, hiddenAt: 0 };
+   291→  s.endsAt = Date.now() + OBS_WINDOW_MS;
+   292→  obsSession = s;
+   293→  setBadge('run');
+   294→  status('Наблюдение: осталось 60 с');
+   295→  log('info', 'окно наблюдения 60 с запущено (Esc — стоп)');
+   296→  s.observer = new MutationObserver(muts => {
+   297→    for (const m of muts) {
+   298→      const p = m.target && m.target.nodeType === 1 ? prefixPath(m.target, 4) : 'body';
+   299→      let rec = s.byPath.get(p);
+   300→      if (!rec) { rec = { adds: 0, removes: 0, net: 0 }; s.byPath.set(p, rec); }
+   301→      for (const n of m.addedNodes) if (n.nodeType === 1) {
+   302→        s.adds++; rec.adds++; rec.net++;
+   303→        const t = performance.now(), last = s.lastAdd.get(p);
+   304→        if (last != null) { const a = s.addIntervals.get(p) || []; a.push(Math.round(t - last)); s.addIntervals.set(p, a); }
+   305→        s.lastAdd.set(p, t);
+   306→        if (s.sigBudget > 0) {
+   307→          s.sigBudget--;
+   308→          const h = sigHash(n), set = s.removedSigs.get(p);
+   309→          if (set && set.has(h)) { s.recycles++; set.delete(h); }   // I.4.4: remove→add с равным sigHash
+   310→        }
+   311→      }
+   312→      for (const n of m.removedNodes) if (n.nodeType === 1) {
+   313→        s.removes++; rec.removes--; rec.net--;
+   314→        if (s.sigBudget > 0) { const set = s.removedSigs.get(p) || s.removedSigs.set(p, new Set()).get(p); if (set.size < 50) set.add(sigHash(n)); }
+   315→      }
+   316→    }
+   317→  });
+   318→  s.observer.observe(document.body, { childList: true, subtree: true, characterData: false, attributes: false });
+   319→  const snap = () => { const set = new Set(); (function w(n, d) { if (!n || n.nodeType !== 1 || d > 4 || set.size >= 300) return; if (!host || n !== host) { set.add(pathOf(n)); for (let c = n.firstElementChild; c; c = c.nextElementSibling) w(c, d + 1); } })(document.body, 1); s.snapshots.push(set); };
+   320→  s.snap = snap; snap();                         // I.5.2: снапшот 0 + каждые 10 с, глубина ≤4, cap 300
+   321→  s.snapTimer = setInterval(() => { if (!document.hidden && s.snapshots.length < 30) snap(); }, 10000);
+   322→  s.navHandler = () => { s.navEvents++; snap(); };
+   323→  s.op = history.pushState; s.orp = history.replaceState;
+   324→  history.pushState = function () { s.navHandler(); return s.op.apply(this, arguments); };
+   325→  history.replaceState = function () { s.navHandler(); return s.orp.apply(this, arguments); };
+   326→  addEventListener('popstate', s.navHandler);
+   327→  s.visHandler = () => { if (document.hidden) s.hiddenAt = Date.now(); else if (s.hiddenAt) { s.pausedMs += Date.now() - s.hiddenAt; s.hiddenAt = 0; } };
+   328→  document.addEventListener('visibilitychange', s.visHandler);
+   329→  s.tick = setInterval(() => {
+   330→    const left = Math.max(0, Math.ceil((s.endsAt + s.pausedMs - Date.now()) / 1000));
+   331→    status('Наблюдение: осталось ' + left + ' с');
+   332→    if (left <= 0) finishObservation(false);
+   333→  }, 1000);
+   334→}
+   335→function finishObservation(aborted, silent) {
+   336→  const s = obsSession;
+   337→  if (!s) return;
+   338→  obsSession = null;
+   339→  clearInterval(s.tick); clearInterval(s.snapTimer);
+   340→  s.observer.disconnect();
+   341→  document.removeEventListener('visibilitychange', s.visHandler);
+   342→  removeEventListener('popstate', s.navHandler);
+   343→  history.pushState = s.op; history.replaceState = s.orp;
+   344→  const top = [...s.byPath.entries()].sort((a, b) => b[1].adds - a[1].adds)[0];
+   345→  const med = top ? median(s.addIntervals.get(top[0]) || []) : null;
+   346→  const stream = top ? (top[1].adds >= 3 && top[1].net > 0 && med !== null && med >= 50 && med <= 5000) : false; // I.4.3
+   347→  obsResult = {
+   348→    mut: { window: 60, adds: s.adds, removes: s.removes, recycles: s.recycles, medianIntervalMs: med, streamCandidate: stream },
+   349→    persistent: [], stability: 0, persistentTruncated: false
+   350→  };
+   351→  if (s.snapshots.length) {                      // I.5.2: присутствуют в ≥90% снапшотов
+   352→    const total = s.snapshots.length, cnt = new Map();
+   353→    for (const set of s.snapshots) for (const p of set) cnt.set(p, (cnt.get(p) || 0) + 1);
+   354→    const per = [...cnt.entries()].filter(x => x[1] / total >= 0.9).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
+   355→    obsResult.persistent = per.slice(0, CAP.persistentPaths).map(x => x[0]);
+   356→    obsResult.persistentTruncated = per.length > CAP.persistentPaths;
+   357→    obsResult.stability = hx(obsResult.persistent.length / Math.max(1, Math.min(s.snapshots[0].size, 20)));
+   358→  }
+   359→  if (!silent) {                                 // silent: pagehide — авто-разведка при выгрузке глушится (мелочь B-6)
+   360→    if (aborted) log('warn', 'наблюдение прервано (Esc): частичный отчёт принят');
+   361→    else log('ok', 'наблюдение завершено: adds ' + s.adds + ', recycles ' + s.recycles + ', поток ' + (stream ? 'да' : 'нет'));
+   362→    status(aborted ? 'Наблюдение прервано' : 'Наблюдение завершено');
+   363→    Promise.resolve().then(runRecon).catch(e => log('err', 'авто-разведка: ' + (e && e.message))); // E1-гигиена: рендер терпит обе формы scroll
+   364→  }
+   365→}
+   366→function abortObservation() { if (obsSession) finishObservation(true, false); }
+   367→
+   368→/* ===================== РЕЕСТР ДЕЙСТВИЙ · экспорт struct (канал ЧК-1/Ф2) ===================== */
+   369→function copyText(text, okMsg) {                 // 0 внешних запросов: clipboard API, fallback execCommand
+   370→  const done = () => { status(okMsg); log('ok', okMsg); };
+   371→  const fail = () => { status('копирование недоступно'); log('warn', 'буфер обмена недоступен'); };
+   372→  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, () => fallback());
+   373→  else fallback();
+   374→  function fallback() {
+   375→    try {
+   376→      const ta = document.createElement('textarea');
+   377→      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+   378→      document.body.appendChild(ta); ta.select();
+   379→      const ok = document.execCommand('copy'); ta.remove();
+   380→      ok ? done() : fail();
+   381→    } catch (e) { fail(); }
+   382→  }
+   383→}
+   384→async function runRecon() {                      // сборка struct r1: мгновенная (≤150 мс); мутации — отдельным окном
+   385→  metrics.reconRuns++;
+   386→  setBadge('run');
+   387→  lastStruct = buildStruct();
+   388→  renderRecon(lastStruct);
+   389→  setBadge(obsSession ? 'run' : 'ok');
+   390→  const r = lastStruct.recon;
+   391→  log('ok', 'разведка ' + lastElapsed + ' мс: групп ' + lastStruct.dom.groups.length + ', резерв: ' + (r.status === 'found' ? 'found ' + r.candidate.confidence : r.status));
+   392→  status('Разведка ' + lastElapsed + ' мс · резерв ' + r.status);
+   393→}
+   394→function copyStruct() { metrics.structCopied = true; copyText(JSON.stringify(lastStruct || buildStruct(), null, 1), 'struct скопирован (JSON)'); }
+   395→function stopAll() { if (obsSession) abortObservation(); else { status('стоп: нечего прерывать'); log('info', 'стоп: активного окна нет'); } }
+   396→function cycleTabs() { if (!els.tabs) return; const n = els.tabs.children.length;
+   397→  for (let i = 0; i < n; i++) if (els.tabs.children[i].getAttribute('aria-selected') === 'true') { els.tabs.children[(i + 1) % n].click(); return; }
+   398→  if (n) els.tabs.children[0].click(); }
+   399→function showPassport() { if (!els.pf) return; els.pf.open = true; els.pp.textContent = passportText().join('\n'); els.pf.scrollIntoView({ block: 'nearest' }); }
+   400→
+   401→const renderRecon = st => { // рендер-контракт §2: известные секции, неизвестные ключи игнор; терпит ОБЕ формы scroll (E1)
+   402→  lastStruct = st; const box = els.recon; box.textContent = '';
+   403→  const row = (k, v) => { const r = ce('div', 'pml-row'); r.append(ce('span', 'pml-k', k), ce('span', 'pml-v', String(v))); box.append(r); };
+   404→  if (!st || typeof st !== 'object') { row('struct', 'нет данных'); return; }
+   405→  const found = x => x && x.source === 'backup' ? ' · резерв ' + x.confidence : '';
+   406→  const truncTxt = t => t === true ? 'да' : (t && t.length ? t.join(', ') : ''); // boolean (столбец UPOLY) и список (0-b) обе tolerated
+   407→  box.append(ce('div', 'pml-sec', 'Каркас (I-1)'));
+   408→  if (!st.dom) row('dom', 'нет данных'); else {
+   409→    row('maxDepth', st.dom.maxDepth); row('blockCount', st.dom.blockCount);
+   410→    (st.dom.landmarks || []).forEach(l => row('landmark', l.tag + (l.role ? '[' + l.role + ']' : '') + ' ' + l.path));
+   411→    (st.dom.groups || []).forEach(g => row('group', g.sigHash + ' ×' + g.count + ' глуб.' + g.depth + ' однород.' + g.uniformity + (g.inPrimary ? ' ✓скролл' : '') + (g.found ? found(g.found) : '')));
+   412→    (st.dom.groups || []).slice(0, 1).forEach(g => row('образец', g.samplePath));
+   413→    const t = truncTxt(st.dom.truncated); if (t) row('усечено', t); }
+   414→  box.append(ce('div', 'pml-sec', 'Скролл (I-2)'));
+   415→  if (!st.scroll) row('scroll', 'нет данных'); // двойной страж 27.4.2+ (FIX E1): канон-объект со строкой на primary + легаси-строка на уровне scroll
+   416→  else if (st.scroll === 'no-scroll-container' || st.scroll.primary === 'no-scroll-container') row('primary', 'no-scroll-container');
+   417→  else if (st.scroll.primary && st.scroll.primary.path) { row('primary', st.scroll.primary.path + ' ratio ' + st.scroll.primary.ratio);
+   418→    (st.scroll.containers || []).forEach(c => row('container', c.path + ' ' + c.scrollHeight + '/' + c.clientHeight + found(c.found)));
+   419→    const t2 = truncTxt(st.scroll.truncated); if (t2) row('усечено', t2); }
+   420→  else row('scroll', 'нет данных');
+   421→  box.append(ce('div', 'pml-sec', 'Мутации (I-3)'));
+   422→  if (!st.mut) row('mut', 'нет данных'); else { row('окно, с', st.mut.window); row('добавлено', st.mut.adds); row('удалено', st.mut.removes);
+   423→    row('рецикл', st.mut.recycles); row('медиана, мс', st.mut.medianIntervalMs == null ? 'нет данных' : st.mut.medianIntervalMs);
+   424→    row('поток?', st.mut.streamCandidate == null ? 'нет данных' : String(st.mut.streamCandidate)); }
+   425→  box.append(ce('div', 'pml-sec', 'Якоря (I-4)'));
+   426→  if (!st.anchors) row('anchors', 'нет данных'); else { row('точек монтажа', (st.anchors.mountPoints || []).length);
+   427→    (st.anchors.mountPoints || []).forEach(m => row('точка', m.path + ' ' + m.mode + ' h' + m.h));
+   428→    row('стойких путей', (st.anchors.persistentPaths || []).length); row('стабильность', st.anchors.stability);
+   429→    const t3 = truncTxt(st.anchors.truncated); if (t3) row('усечено', t3); }
+   430→  box.append(ce('div', 'pml-sec', 'Резерв (r2 §3)'));
+   431→  if (!st.recon) row('recon', 'нет данных');
+   432→  else if (st.recon.status === 'found') { row('кандидат', st.recon.candidate.path); row('sigHash', st.recon.candidate.sigHash); row('confidence', st.recon.candidate.confidence); }
+   433→  else row('статус', 'no-data (консервативный отказ)');
+   434→};
+   435→
+   436→const passportText = () => ['Скрипт: ' + cfgInfo.name + ' v' + cfgInfo.version, 'Панель: PML-PANEL 1.0',
+   437→  'Тема: ' + S.theme + ' (эфф. ' + effTheme + ')',
+   438→  'Акцент: ' + (ACC ? 'rgb(' + ACC.rgb + ')' : '—') + ' / ' + (ACC ? ACC.source : '—') + ' / фон ' + (ACC ? ACC.ratioBg : '—') + ':1, текст ' + (ACC ? hx(ratio(ACC.rgb, ACC.tx)) : '—') + ':1',
+   439→  'Движение: ' + (S.motion ? 'вкл' : 'выкл') + '; кегль ' + S.fs,
+   440→  'Разведка: прогонов ' + metrics.reconRuns + ', наблюдений ' + metrics.obsRuns + ', struct ' + (metrics.structCopied ? 'копировался' : 'не копировался'),
+   441→  'Метрики: журнал ' + J.length + ', монтирование ' + mountMs + ' мс, последняя разведка ' + lastElapsed + ' мс',
+   442→  'Хоткеи: ' + (Object.keys(HK).map(k => 'Alt+' + k + ' — ' + HK[k].label).join('; ') || 'нет'),
+   443→  'Соль FNV-1a: ' + SALT + ' · контракт: PML-STRUCT r1+r2'];
+   444→
+   445→const REG = [ // реестр ядра; канонный набор хоткеев E/D/C/S/X/I (§13); журнал и свёртка — только кнопками
+   446→  { id: 'observe', label: 'Наблюдение 60 с', hint: 'I-3/I-4b; Esc — стоп (Alt+D)', run: () => startObservation() },
+   447→  { id: 'copy-struct', label: 'Копировать struct', hint: 'JSON в буфер (Alt+C) — канал ЧК-1/Ф2', run: () => copyStruct() },
+   448→  { id: 'stop', label: 'Стоп', hint: 'прервать окно (Alt+S)', run: () => stopAll() },
+   449→  { id: 'copylog', label: 'Скопировать журнал', hint: 'Полный лог info/ok/warn/err — канал отчётов беты', run: async () => { copyText(J.map(j => '[' + j.t + '] ' + j.lv + ': ' + j.msg).join('\n'), 'журнал скопирован (' + J.length + ' записей)'); } },
+   450→  { id: 'tabs', label: 'Цикл вкладок', hint: 'Alt+X', run: () => cycleTabs() },
+   451→  { id: 'collapse', label: 'Свернуть панель', run: async () => setCollapsed(true) },
+   452→  { id: 'passport', label: 'Открыть паспорт', hint: 'Alt+I', run: () => showPassport() }];
+   453→
+   454→const runAct = a => async () => { if (busy) return; busy = true; setBadge('run');
+   455→  els.acts.querySelectorAll('button').forEach(b => { b.disabled = true; });
+   456→  try { await a.run(); } catch (e) { log('err', String(e && e.message || e)); status('Ошибка действия'); }
+   457→  finally { busy = false; setBadge(obsSession ? 'run' : 'ok'); els.acts.querySelectorAll('button').forEach(b => { b.disabled = false; }); } };
+   458→
+   459→const addActions = list => (list || []).forEach(a => { if (!a || els.acts.querySelector('[data-id="' + a.id + '"]')) return;
+   460→  const b = ce('button', 'pml-btn', a.label); b.type = 'button'; b.dataset.id = a.id; if (a.hint) b.title = a.hint; b.disabled = !!a.disabled;
+   461→  b.onclick = runAct(a); els.acts.append(b); });
+   462→
+   463→const regHotkeys = cfg => { let added = 0; ((cfg && cfg.hotkeys) || []).forEach(h => { const k = String(h.key || '').toUpperCase();
+   464→  if ('EDCSXI'.indexOf(k) < 0) return;
+   465→  if (HK[k]) { console.warn('[pml] Alt+' + k + ' занят («' + HK[k].label + '» побеждает)'); addActions([{ id: 'hk-' + k + '-' + (++uid), label: h.label + ' (без хоткея)', run: h.run }]); }
+   466→  else { HK[k] = { label: h.label, run: h.run }; added++; } });
+   467→  store.save(); return { attached: true, owner: OWNER }; }; // хедер/паспорт не переписываем (§1)
+   468→
+   469→const setBadge = s => { badge = s; if (els.dot) els.dot.className = 'pml-dot ' + s; // бейдж красим напрямую: var() не достаёт вне поддерева root
+   470→  if (els.badge && PAL[effTheme]) { const map = { ok: 'ok', warn: 'warn', err: 'crit', run: null }[s];
+   471→    els.badge.style.borderColor = 'rgb(' + (map ? PAL[effTheme][map] : ACC ? ACC.rgb : PAL[effTheme].fb) + ')'; } };
+   472→const log = (lv, msg) => { J.unshift({ t: Math.round(performance.now() - T0), lv, msg: String(msg).slice(0, 120) }); if (J.length > 200) J.pop(); // §9: свежее сверху
+   473→  els.log.textContent = ''; J.forEach(j => { const r = ce('div', 'pml-log'); r.append(ce('span', 'pml-lg ' + j.lv), ce('span', '', '[' + j.t + '] ' + j.msg)); els.log.append(r); }); };
+   474→const status = m => { els.status.textContent = String(m).slice(0, 80); clearTimeout(stT); stT = setTimeout(() => { els.status.textContent = ''; }, 4000); clean.push(['t', stT]); }; // §12
+   475→const setCollapsed = v => { S.collapsed = !!v; store.save(); root.hidden = !!v; els.badge.hidden = !v; };
+   476→
+   477→const syncTheme = () => { // §5–§6
+   478→  const h = new Date().getHours();
+   479→  effTheme = S.theme === 'system' ? (h >= 20 || h < 6 ? 'warm' : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : S.theme;
+   480→  const P = PAL[effTheme];
+   481→  let probe = null; try { const i = ce('input'); i.type = 'checkbox'; i.style.accentColor = 'auto'; document.body.append(i);
+   482→    probe = parseRgb(getComputedStyle(i).accentColor); i.remove(); } catch (e) {}
+   483→  const sat = guardSat(probe); // сатурационный страж
+   484→  const c = sat ? rgb2ok(probe[0], probe[1], probe[2]) : rgb2ok(P.fb[0], P.fb[1], P.fb[2]);
+   485→  const rgb = (sat && solveAccent(P.bg, c[1], c[2])) || P.fb; // отказ стража → детерминированный дефолт
+   486→  ACC = { rgb, source: sat ? 'system' : 'fallback', ratioBg: hx(ratio(rgb, P.bg)), tx: pickTx(rgb) };
+   487→  const st = root.style, T = { 'pml-bg': P.bg, 'pml-fg': P.fg, 'pml-fg-dim': P.dim, 'pml-line': P.line, 'pml-accent': rgb, 'pml-accent-tx': ACC.tx, 'pml-ring': P.ring, 'pml-ok': P.ok, 'pml-warn': P.warn, 'pml-crit': P.crit };
+   488→  for (const k in T) st.setProperty('--pml-' + k, 'rgb(' + T[k] + ')');
+   489→  st.setProperty('--pml-radius', '12px'); st.setProperty('--pml-fs', S.fs + 'px');
+   490→  if (els.badge) { els.badge.style.background = 'rgb(' + P.bg + ')'; els.badge.style.color = 'rgb(' + P.fg + ')'; }
+   491→  root.className = 'pml-root' + (S.motion ? '' : ' pml-motion-off');
+   492→  [...els.seg.children].forEach(b => b.setAttribute('aria-checked', String(b.dataset.v === S.theme)));
+   493→};
+   494→
+   495→const zscan = () => { // §3: разведка перед монтажом
+   496→  let z = 1000; const bars = [];
+   497→  for (const el of (document.body || document.documentElement).querySelectorAll('*')) { let s = null; try { s = getComputedStyle(el); } catch (e) {}
+   498→    if (!s || (s.position !== 'fixed' && s.position !== 'sticky')) continue;
+   499→    const r = el.getBoundingClientRect(); const zz = +s.zIndex; if (zz > z) z = Math.min(zz + 1, 2147483000);
+   500→    if (r.top < innerHeight * 0.15 && r.height >= 32 && r.height <= 96 && r.width >= 120) bars.push(r); }
+   501→  let top = 16, bottom = null;
+   502→  if (bars.length) { const maxB = Math.max.apply(null, bars.map(r => r.bottom)); if (maxB + 8 + 360 < innerHeight * 0.8) top = Math.round(maxB + 8); else bottom = 16; }
+   503→  return { z, top, bottom };
+   504→};
+   505→
+   506→const build = () => {
+   507→  let h = document.getElementById(HOST_ID); if (h) h.remove(); // takeover: под нашим ID снимаем ЛЮБОЙ прежний хост (анти-дубль ID)
+   508→  host = ce('div'); host.id = HOST_ID; host.__pml = 1; document.documentElement.appendChild(host);
+   509→  let sh = null; try { sh = host.attachShadow({ mode: 'open' }); } catch (e) {}
+   510→  const style = ce('style'); style.textContent = CSS;
+   511→  if (sh) { root = ce('div'); sh.append(style, root); } else { root = host; (document.head || document.documentElement).append(style); clean.push(['n', style]); } // fallback §2
+   512→  const hd = ce('div', 'pml-hd');
+   513→  els.dot = ce('span', 'pml-dot'); els.title = ce('span', 'pml-title', cfgInfo.name + ' v' + cfgInfo.version.split('.').slice(0, 2).join('.'));
+   514→  els.seg = ce('div', 'pml-seg'); els.seg.setAttribute('role', 'radiogroup'); els.seg.setAttribute('aria-label', 'Тема');
+   515→  [['system', 'Авто'], ['light', 'Свет'], ['dark', 'Тьма'], ['warm', 'Тепло']].forEach((v, i) => {
+   516→    const b = ce('button', '', v[1]); b.type = 'button'; b.dataset.v = v[0]; b.setAttribute('role', 'radio'); b.tabIndex = i === 0 ? 0 : -1;
+   517→    b.onclick = () => { S.theme = b.dataset.v; store.save(); syncTheme(); status('Тема: ' + b.dataset.v); };
+   518→    b.onkeydown = e => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].indexOf(e.key) < 0) return; e.preventDefault();
+   519→      const bs = [...els.seg.children], i2 = bs.indexOf(e.target);
+   520→      const j = e.key === 'ArrowLeft' ? i2 - 1 : e.key === 'ArrowRight' ? i2 + 1 : e.key === 'Home' ? 0 : bs.length - 1;
+   521→      const jj = (j + bs.length) % bs.length; bs.forEach((x, xi) => { x.tabIndex = xi === jj ? 0 : -1; }); bs[jj].focus(); bs[jj].click(); }; // roving tabindex §9
+   522→    els.seg.append(b); });
+   523→  const col = ce('button', 'pml-btn', '⌃'); col.type = 'button'; col.title = 'Свернуть'; col.setAttribute('aria-label', 'Свернуть панель'); col.onclick = () => setCollapsed(true);
+   524→  hd.append(els.dot, els.title, els.seg, col);
+   525→  const tabs = ce('div', 'pml-tabs'); els.tabs = tabs; const bd = ce('div', 'pml-bd'); els.panels = {};
+   526→  const ids = ['recon', 'actions', 'log'], names = ['Разведка', 'Действия', 'Журнал'];
+   527→  ids.forEach((id, i) => { const t = ce('button', 'pml-tab', names[i]); t.type = 'button'; t.setAttribute('role', 'tab');
+   528→    t.setAttribute('aria-selected', String(i === 0)); t.onclick = () => ids.forEach((id2, i2) => { tabs.children[i2].setAttribute('aria-selected', String(i2 === i)); els.panels[id2].hidden = i2 !== i; });
+   529→    tabs.append(t); const p = ce('div'); p.hidden = i !== 0; els.panels[id] = p; bd.append(p); });
+   530→  const rb = ce('button', 'pml-btn', 'Запустить разведку'); rb.type = 'button'; rb.onclick = runAct({ id: 'recon', run: runRecon });
+   531→  const cs = ce('button', 'pml-btn', 'Копировать struct'); cs.type = 'button'; cs.title = 'JSON в буфер (Alt+C) — канал ЧК-1/Ф2'; cs.onclick = runAct({ id: 'copy-struct', run: copyStruct });
+   532→  els.recon = ce('div'); els.panels.recon.append(rb, cs, els.recon);
+   533→  els.acts = ce('div', 'pml-act'); els.panels.actions.append(els.acts);
+   534→  els.log = ce('div'); els.panels.log.append(els.log);
+   535→  const ft = ce('div', 'pml-ft'); els.status = ce('div', 'pml-status'); els.status.setAttribute('role', 'status'); els.status.setAttribute('aria-live', 'polite');
+   536→  const cm = ce('details'); cm.append(ce('summary', '', 'Комфорт'));
+   537→  const mv = ce('label'); const mc = ce('input'); mc.type = 'checkbox'; mc.checked = !S.motion;
+   538→  mc.onchange = () => { S.motion = !mc.checked; store.save(); syncTheme(); }; mv.append(mc, ' Движение выкл');
+   539→  const fv = ce('label'); const fr = ce('input'); fr.type = 'range'; fr.min = '12'; fr.max = '20'; fr.step = '1'; fr.value = String(S.fs);
+   540→  fr.oninput = () => { S.fs = +fr.value; store.save(); syncTheme(); }; fv.append(fr, ' Кегль ' + S.fs);
+   541→  cm.append(mv, fv);
+   542→  els.pf = ce('details'); els.pf.append(ce('summary', '', 'Паспорт')); els.pp = ce('pre'); els.pf.append(els.pp);
+   543→  ft.append(els.status, cm, els.pf);
+   544→  root.append(hd, tabs, bd, ft);
+   545→  els.badge = ce('button', 'pml-badge44', cfgInfo.name.slice(0, 2)); els.badge.type = 'button'; els.badge.title = 'Развернуть панель';
+   546→  els.badge.onclick = () => setCollapsed(false); (root.parentElement || sh || root).append(els.badge); // FIX 27.4.1: у ребёнка ShadowRoot parentElement === null
+   547→  const z = zscan(); root.style.zIndex = z.z;
+   548→  if (z.bottom != null) { root.style.top = 'auto'; root.style.bottom = '16px'; } else root.style.top = z.top + 'px'; // §3 каскад
+   549→  els.pf.addEventListener('toggle', () => { if (els.pf.open) els.pp.textContent = passportText().join('\n'); });
+   550→};
+   551→
+   552→const CONFIG = { name: 'UACE', version: VER, hotkeys: [ // канонный набор §13: E/D/C/S/X/I
+   553→  { key: 'E', label: 'разведка', run: () => { if (els.panels) els.panels.recon.querySelector('button').click(); } },
+   554→  { key: 'D', label: 'наблюдение 60 с', run: () => startObservation() },
+   555→  { key: 'C', label: 'копировать struct', run: () => copyStruct() },
+   556→  { key: 'S', label: 'стоп', run: () => stopAll() },
+   557→  { key: 'X', label: 'цикл вкладок', run: () => cycleTabs() },
+   558→  { key: 'I', label: 'паспорт', run: () => showPassport() }] };
+   559→
+   560→const api = Object.freeze({ // §1: синглтон API
+   561→  version: '1.0',
+   562→  ping: () => ({ version: '1.0', alive: true, owner: OWNER }),
+   563→  mount(c) { if (!mounted) { Q.push(['mount', c]); return { queued: true }; } log('info', 'подключён через mount(config): ' + ((c && c.name) || '?') + ' v' + ((c && c.version) || '?')); return regHotkeys(c); },
+   564→  setBadge(s) { if (!mounted) { Q.push(['setBadge', s]); return; } setBadge(s); },
+   565→  log(lv, msg) { if (!mounted) { Q.push(['log', lv, msg]); return; } log(lv, msg); },
+   566→  renderRecon(st) { if (!mounted) { Q.push(['renderRecon', st]); return; } renderRecon(st); }, // прямая совместимость с r1; lastStruct обновляется — «Копировать struct» владельца отдаст struct гостя
+   567→  renderActions(list) { if (!mounted) { Q.push(['renderActions', list]); return; } addActions(list); },
+   568→  getPassport() { return passportText().join('\n'); } });
+   569→
+   570→const init = () => {
+   571→  const t0 = performance.now(); store.load(); build();
+   572→  syncTheme(); els.badge.hidden = !S.collapsed; root.hidden = !!S.collapsed;
+   573→  regHotkeys(CONFIG); addActions(REG);
+   574→  const wd = setInterval(() => { try { if (!host.isConnected) document.documentElement.appendChild(host); } catch (e) {} }, 2000); // watchdog §2
+   575→  clean.push(['i', wd]);
+   576→  bind('keydown', e => { if (e.key === 'Escape' && obsSession) { abortObservation(); return; } // Esc — стоп окна I-3
+   577→    if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return; // §13
+   578→    const t = e.target; if (t && ((t.matches && t.matches('input,textarea,select')) || t.isContentEditable)) return; // P5
+   579→    const h = HK[String(e.key || '').toUpperCase()]; if (!h) return; e.preventDefault(); h.run(); });
+   580→  bind('focus', syncTheme); bind('visibilitychange', syncTheme, document); // §5–§6 переспрос
+   581→  bind('pagehide', () => { if (obsSession) finishObservation(true, true); // мелочь B-6: без авто-разведки при выгрузке
+   582→    clean.forEach(c => { try { if (c[0] === 'l') c[3].removeEventListener(c[1], c[2]); else if (c[0] === 'i') clearInterval(c[1]);
+   583→      else if (c[0] === 't') clearTimeout(c[1]); else if (c[0] === 'n') c[1].remove(); } catch (e) {} }); if (host) host.remove(); }); // самоочистка §2
+   584→  mounted = true;
+   585→  while (Q.length) { const q = Q.shift(); try { if (q[0] === 'mount') regHotkeys(q[1]); else if (q[0] === 'renderRecon') renderRecon(q[1]);
+   586→    else if (q[0] === 'renderActions') addActions(q[1]); else if (q[0] === 'log') log(q[1], q[2]); else if (q[0] === 'setBadge') setBadge(q[1]); } catch (e) {} }
+   587→  mountMs = Math.round(performance.now() - t0);
+   588→  setBadge('ok'); log('ok', 'Панель PML-PANEL 1.0 · UACE ' + VER + ' · монтирование ' + mountMs + ' мс');
+   589→  log('info', 'соль FNV-1a: ' + SALT + ' — сверка sigHash со второй сборкой на первом обмене struct');
+   590→  status('Панель готова');
+   591→};
+   592→
+   593→try { Object.defineProperty(window, '__UACE_INTERNALS__', { value: Object.freeze({ FNV1a32, hex8, SALT, urlHashIn, sigHashIn, sigOf, sigHash, pathOf, prefixPath, subtreeDepth, scoreGroup, resolveRecon, buildStruct, median, ok2rgb, rgb2ok, ratio }), configurable: true }); } catch (e) {} // полевая сверка хэшей из консоли (ЧК-1)
+   594→
+   595→const prev = window.__PML_PANEL_API__;
+   596→if (prev) { // P13: синглтон; takeover >5 с (§1)
+   597→  let tries = 0;
+   598→  const chk = () => { let alive = false; try { const hh = document.getElementById(HOST_ID); // FIX 27.4.1: alive = живой UI, не голый хост
+   599→    const sr = hh && hh.shadowRoot; const ui = sr ? sr.childElementCount > 1 : !!(hh && hh.childElementCount);
+   600→    alive = !!ui && !!hh && hh.isConnected && prev.ping().alive; } catch (e) {}
+   601→    if (alive) { try { prev.mount(CONFIG); } catch (e) {} console.info('[pml] attached:', OWNER, '← владелец', prev.ping && prev.ping().owner); return; }
+   602→    if (++tries < 5) { setTimeout(chk, 1000); return; }
+   603→    console.warn('[pml] takeover: панель не отвечает >5 с — пересоздаю'); init(); };
+   604→  try { chk(); } catch (e) { console.warn('[pml] chk', e); init(); }
+   605→} else { window.__PML_PANEL_API__ = api; try { init(); } catch (e) { console.warn('[pml] init', e); } }
+   606→})();
+   607→

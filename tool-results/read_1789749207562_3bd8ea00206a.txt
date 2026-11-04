@@ -1,0 +1,2002 @@
+     1→ТЫ ПОЛИМАТ=МНОГОЗНАЮЩИЙ ГРЕЧЕСКИЙ
+     2→С ДОСТУПОМ К ВЭБ ПЕСОЧНИЦА ПАЙТОН=ТВОИ ИНСТРУМЕНТЫ
+     3→ТЫ ИССЛЕДОВАТЕЛЬ-НОВАТОР
+     4→САМ ФОРМУЛИРУЕШЬ ЗАДАЧУ!!! САМ РАССПАРАЛЕЛИВАЕШЬ!!! САМ РЕШАЕШЬ!!! САМ СОЕДИНЯЕШЬ!!! САМ СВЯЗЫВАЕШЬ!!!
+     5→ОТТВЕРГАЯ!!! ПРЕДЛАГАЙ АЛЬТЕРНАТИВУ КРИТИКА ПРИВЕТСТВУЕТСЯ!!
+     6→ДОРАБОТАЙ ПРЕДЛОЖЕНИЯ ВСЕ ЛУЧШИЕ ИЗ ЛУЧШИХ ФИЧ И ПЛЮШЕК  ПРИВЕТСТВУЮТСЯ ВМЕСТЕ С РЕШЕНИЯМИ ГОТОВЫМИ
+     7→РЕЖИМ АНТИГАЛЮЦИНАЦИЙ НЕ ВЫДУМЫВАЙ ТОГО ЧЕГО НЕТ
+     8→// ==UserScript==
+     9→// @name         Universal AI Chat Exporter — Polymat v25.0.0 ULTIMATE
+    10→// @namespace    local.universal.ai.exporter
+    11→// @version      25.0.0
+    12→// @description  Полимат-мерж: движок v22 (29 платформ) + фичи v24 (onlyNew-манифест, stripUiPrefix, снайпер сайдбара, Debug/Sniffer/Report) + форматы ShareGPT/JSONL/Alpaca + собственный ZIP без CDN + Shadow DOM + картинки/артефакты + панель настроек + resume-прогресс + drag-панель. Без диалогов при экспорте. UI в стиле v20.
+    13→// @author       local
+    14→// @license      MIT
+    15→// @match        *://*/*
+    16→// @grant        none
+    17→// @run-at       document-idle
+    18→// ==/UserScript==
+    19→
+    20→(function () {
+    21→  'use strict';
+    22→
+    23→  const SCRIPT_VER = '25.0.0';
+    24→  const UI_ID = 'uaice-25';
+    25→  const IS_FRAME = (function () { try { return window.top !== window.self; } catch (e) { return true; } })();
+    26→
+    27→  function injectModernStyles() {
+    28→    if (document.getElementById(UI_ID + '-styles')) return;
+    29→    // UI в стиле v20: тёмная панель .box со стопкой однотипных кнопок, статус и версия внутри панели.
+    30→    // Дополнения ULTIMATE: grip-заголовок с drag, панель настроек, прокрутка высокой панели.
+    31→    const css = `
+    32→#${UI_ID}{position:fixed;right:16px;bottom:16px;z-index:2147483647;font:13px system-ui,sans-serif;color:#fff;}
+    33→#${UI_ID} .box{display:flex;flex-direction:column;gap:7px;background:rgba(20,20,20,.94);padding:10px;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.3);min-width:230px;max-width:320px;max-height:86vh;overflow-y:auto;box-sizing:border-box;}
+    34→#${UI_ID} button{border:0;border-radius:7px;padding:8px 10px;cursor:pointer;font:inherit;}
+    35→#${UI_ID} button:disabled{opacity:.5;cursor:not-allowed;}
+    36→#${UI_ID} .status{font-size:11px;color:#ddd;max-width:300px;white-space:pre-wrap;}
+    37→#${UI_ID} .mini{font-size:11px;opacity:.75;}
+    38→#${UI_ID} .grip{display:flex;align-items:center;justify-content:space-between;gap:6px;cursor:move;user-select:none;-webkit-user-select:none;font-size:12px;font-weight:600;opacity:.92;padding:1px 2px;}
+    39→#${UI_ID} .grip .title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    40→#${UI_ID} .grip button{flex:0 0 auto;padding:2px 9px;font-size:13px;line-height:1.2;}
+    41→#${UI_ID} .settings{display:flex;flex-direction:column;gap:6px;border-top:1px solid rgba(255,255,255,.18);padding-top:8px;}
+    42→#${UI_ID} .settings input[type="text"]{background:#111;color:#eee;border:1px solid #444;border-radius:6px;padding:4px 6px;font:inherit;font-size:12px;box-sizing:border-box;width:100%;}
+    43→#${UI_ID} .settings select{background:#111;color:#eee;border:1px solid #444;border-radius:6px;padding:4px 6px;font:inherit;font-size:12px;}
+    44→#${UI_ID} .settings label{display:flex;gap:6px;align-items:center;font-size:12px;color:#ddd;cursor:pointer;}
+    45→#${UI_ID} .settings .row{display:flex;gap:6px;}
+    46→#${UI_ID} .settings .row button{flex:1;padding:5px 6px;font-size:11px;}
+    47→`;
+    48→    const s = document.createElement('style');
+    49→    s.id = UI_ID + '-styles';
+    50→    s.textContent = css;
+    51→    (document.head || document.documentElement).appendChild(s);
+    52→  }
+    53→
+    54→  // PDF-рендер — единственная опциональная CDN-зависимость (с fallback на печать).
+    55→  // ZIP — собственная реализация (см. ниже), внешних библиотек не требует.
+    56→  const LIBS = {
+    57→    html2pdf: [
+    58→      'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.12.1/html2pdf.bundle.min.js',
+    59→      'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js'
+    60→    ]
+    61→  };
+    62→
+    63→  function loadScript(urls, globalName) {
+    64→    if (globalName && window[globalName]) return Promise.resolve(window[globalName]);
+    65→    return new Promise((resolve, reject) => {
+    66→      let i = 0;
+    67→      const tryNext = () => {
+    68→        if (i >= urls.length) return reject(new Error('Не удалось загрузить библиотеку (CSP?)'));
+    69→        const s = document.createElement('script');
+    70→        s.src = urls[i++];
+    71→        s.onload = () => resolve(globalName ? window[globalName] : true);
+    72→        s.onerror = () => { s.remove(); tryNext(); };
+    73→        (document.head || document.documentElement).appendChild(s);
+    74→      };
+    75→      tryNext();
+    76→    });
+    77→  }
+    78→
+    79→  const MSG_REQ = 'UAICE_EXPORT_REQUEST';
+    80→  const MSG_RES = 'UAICE_EXPORT_RESULT';
+    81→
+    82→  const CFG = {
+    83→    MIN_TEXT: 8, MIN_TOTAL_TEXT: 80, CLICK_WAIT: 800, STABLE_MS: 1200,
+    84→    MAX_WAIT: 25000, POLL: 300, SCROLL_ROUNDS: 50, SCROLL_WAIT: 550, TAB_CHILD_TIMEOUT: 65000,
+    85→    DEDUPE_CAP: 400, MSG_MIN: 1, MSG_MAX: 800, IMG_PER_MSG: 40, IMG_TOTAL: 60, IMG_TIMEOUT: 10000,
+    86→    SNAPSHOT_MAX: 200000
+    87→  };
+    88→
+    89→  const FORMATS = ['md', 'json', 'txt', 'html', 'pdf', 'zip', 'sharegpt', 'jsonl', 'alpaca'];
+    90→
+    91→  let CANCEL = false;
+    92→  let busy = false;
+    93→  let tabsExportRunning = false;
+    94→
+    95→  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    96→  const ts = () => now().replace(/[: ]/g, '-');
+    97→  function safeStorageGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+    98→  function safeStorageSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+    99→  function safeStorageRemove(k) { try { localStorage.removeItem(k); } catch (e) {} }
+   100→
+   101→  function now() {
+   102→    const d = new Date();
+   103→    const p = (n) => String(n).padStart(2, '0');
+   104→    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+   105→  }
+   106→  function sanitize(s, m) {
+   107→    m = m || 80;
+   108→    return (String(s || 'export').replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim().slice(0, m)) || 'export';
+   109→  }
+   110→  function pageTitle() {
+   111→    let t = (document.title || '').trim();
+   112→    t = t.replace(/\s*[-–|·]\s*[^-–|·]{0,40}$/i, '').trim();
+   113→    return t.length > 1 ? t.slice(0, 120) : 'export';
+   114→  }
+   115→  // Схлопывание повторяющегося текста (артефакт виртуализированного DOM): "abcabcabc" -> "abc"
+   116→  function dedupeText(s) {
+   117→    s = String(s || '');
+   118→    if (s.length < 6 || s.length > 400) return s;
+   119→    for (let n = 2; n <= 4; n++) {
+   120→      if (s.length % n !== 0) continue;
+   121→      const chunk = s.slice(0, s.length / n);
+   122→      if (!chunk) continue;
+   123→      let rep = true;
+   124→      for (let i = 1; i < n; i++) { if (s.slice(i * chunk.length, (i + 1) * chunk.length) !== chunk) { rep = false; break; } }
+   125→      if (rep) return chunk;
+   126→    }
+   127→    return s;
+   128→  }
+   129→  // Срезание UI-обёрток перед текстом ("Ваш запрос", "Ответ Gemini", "You said" и т.п.)
+   130→  function stripUiPrefix(text) {
+   131→    if (!text) return text;
+   132→    const lines = String(text).split('\n');
+   133→    let i = 0;
+   134→    while (i < lines.length) {
+   135→      const st = lines[i].replace(/^#+\s*/, '').trim();
+   136→      if (/^(Ответ\s+\S+|Ваш\s+запрос|Gemini|You\s+said|ChatGPT\s+said|Assistant\s+said|User\s+said|DeepSeek|Claude|Grok|Kimi|Qwen|Mistral|Copilot|GPT)$/i.test(st)) {
+   137→        i++;
+   138→        while (i < lines.length && !lines[i].trim()) i++;
+   139→      } else break;
+   140→    }
+   141→    return lines.slice(i).join('\n').trim();
+   142→  }
+   143→  // Прогресс-бар в строке статуса: [█████·----] 3/10 Заголовок
+   144→  function progress(i, n, label) {
+   145→    const f = Math.max(0, Math.min(10, Math.round(10 * (i) / Math.max(1, n))));
+   146→    return '[' + '█'.repeat(f) + '·'.repeat(10 - f) + '] ' + (i + 1) + '/' + n + ' ' + (label || '');
+   147→  }
+   148→
+   149→  // ============ ПЛАТФОРМЫ (28 из v22.1.7 + Dola; хосты расширены из v24) ============
+   150→  const PLATFORMS = [
+   151→    { name: 'ChatGPT', hosts: [/(^|\.)(chatgpt\.com|chat\.openai\.com)$/],
+   152→      msgSelectors: ['[data-message-author-role]', 'article[data-testid^="conversation-turn"]'],
+   153→      roleAttr: 'data-message-author-role', chatUrlPattern: '/c/{id}',
+   154→      sidebarSelectors: ['#stage-slideover-sidebar', 'nav[aria-label*="Chat" i]', 'nav', 'aside'] },
+   155→    { name: 'Claude', hosts: [/(^|\.)claude\.ai$/],
+   156→      msgSelectors: ['[data-testid="user-message"]', '[data-testid="assistant-message"]', '.font-claude-message', '.font-user-message'],
+   157→      role: (el) => el.matches('[data-testid="user-message"], .font-user-message') ? 'user' : 'assistant',
+   158→      chatUrlPattern: '/chat/{id}' },
+   159→    { name: 'Gemini', hosts: [/(^|\.)(gemini\.google\.com|bard\.google\.com)$/],
+   160→      msgSelectors: ['user-query', 'model-response', 'conversation-turn', 'ms-chat-turn'],
+   161→      role: (el) => {
+   162→        const t = el.tagName.toLowerCase();
+   163→        if (t === 'user-query') return 'user';
+   164→        if (t === 'model-response') return 'assistant';
+   165→        return /user|query|human/i.test(el.className || '') ? 'user' : 'assistant';
+   166→      },
+   167→      chatUrlPattern: '/app/{id}', sidebarSelectors: ['side-navigation-v2', 'bard-sidenav', 'mat-sidenav'] },
+   168→    { name: 'Google AI Studio', hosts: [/(^|\.)aistudio\.google\.com$/],
+   169→      msgSelectors: ['[data-test-id="user-message"]', '[data-test-id="model-message"]', 'ms-chat-turn'],
+   170→      role: (el) => (el.getAttribute('data-role') || '') === 'user' ? 'user' : 'assistant' },
+   171→    { name: 'DeepSeek', hosts: [/(^|\.)deepseek\.com$/],
+   172→      msgSelectors: ['[class*="message"]', '[class*="_message"]'],
+   173→      role: (el) => /user|human|query/i.test(el.className || '') ? 'user' : 'assistant',
+   174→      chatUrlPattern: '/a/chat/s/{id}',
+   175→      sidebarSelectors: ['aside', 'nav', '[class*="sidebar"]', '[class*="sider"]', '[class*="history"]'] },
+   176→    { name: 'Qwen', hosts: [/(^|\.)(qwen\.ai|tongyi\.aliyun\.com)$/],
+   177→      msgSelectors: ['[class*="_message"]', '[data-message-role]', '[class*="chat-message"]', '[class*="markdown"]'],
+   178→      role: (el) => {
+   179→        const c = (el.className || '') + ' ' + (el.getAttribute('data-message-role') || '') + ' ' + (el.getAttribute('data-role') || '');
+   180→        if (/user|human|question/i.test(c)) return 'user';
+   181→        if (/assistant|bot|ai|model|response/i.test(c)) return 'assistant';
+   182→        return 'unknown';
+   183→      },
+   184→      chatUrlPattern: '/c/{id}',
+   185→      sidebarSelectors: ['.sidebar-side', '.session-list-wrapper', 'a[aria-label="chat-item"]', 'a.chat-item-drag-link', '[class*="sidebar"]', 'aside', 'nav'] },
+   186→    { name: 'Kimi', hosts: [/(^|\.)(kimi\.moonshot\.cn|kimi\.ai|kimi\.com)$/],
+   187→      msgSelectors: ['.segment', '.segment-container', '[class*="message"]'],
+   188→      role: (el) => /user|human/i.test((el.className || '') + ' ' + (el.getAttribute('data-role') || '')) ? 'user' : 'assistant',
+   189→      sidebarSelectors: ['aside', 'nav', '.next-sidebar', '[class*="sidebar"]'] },
+   190→    { name: 'MiniMax', hosts: [/(^|\.)(minimax\.io|minimaxi\.com)$/],
+   191→      msgSelectors: ['[class*="message"]', '[class*="chat-item"]'],
+   192→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   193→    { name: 'Mistral Le Chat', hosts: [/(^|\.)mistral\.ai$/],
+   194→      msgSelectors: ['[data-message-role]', '[class*="Message"]', '[class*="message"]'],
+   195→      role: (el) => {
+   196→        const r = el.getAttribute('data-message-role') || '';
+   197→        if (/user/i.test(r)) return 'user';
+   198→        if (/assistant/i.test(r)) return 'assistant';
+   199→        return /user/i.test(el.className || '') ? 'user' : 'assistant';
+   200→      } },
+   201→    { name: 'Groq', hosts: [/(^|\.)groq\.com$/], msgSelectors: ['[class*="message"]', '[class*="chat"]'],
+   202→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   203→    { name: 'OpenRouter', hosts: [/(^|\.)openrouter\.ai$/], msgSelectors: ['[class*="message"]', '[class*="chat"]'],
+   204→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   205→    { name: 'HuggingChat', hosts: [/(^|\.)huggingface\.co$/], path: /^\/chat/,
+   206→      msgSelectors: ['[class*="message"]', '[class*="chat"]'],
+   207→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   208→    { name: 'NVIDIA NIM', hosts: [/(^|\.)build\.nvidia\.com$/], msgSelectors: ['[class*="message"]', '[class*="chat"]'],
+   209→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   210→    { name: 'Z.ai', hosts: [/(^|\.)(z\.ai|chatglm\.cn|space-z\.ai)$/],
+   211→      msgSelectors: ['[data-role="user"]', '[data-role="assistant"]', '[data-message-role]', '[class*="UserMessage"]', '[class*="AssistantMessage"]', '[class*="message"]', '[class*="chat-message"]'],
+   212→      role: (el) => {
+   213→        const e = el.getAttribute('data-role') || el.getAttribute('data-message-role') || '';
+   214→        if (e) return /user|human/i.test(e) ? 'user' : 'assistant';
+   215→        return /user|human/i.test(el.className || '') ? 'user' : 'assistant';
+   216→      },
+   217→      chatUrlPattern: '/c/{id}',
+   218→      sidebarSelectors: ['.chat-aside', '.chat-history-list', '[class*="chat-aside"]', '[class*="chat-history"]', 'aside', 'nav'] },
+   219→    { name: 'Pollinations', hosts: [/(^|\.)pollinations\.ai$/], msgSelectors: ['[class*="message"]', '[class*="chat"]'],
+   220→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   221→    { name: 'Puter', hosts: [/(^|\.)puter\.com$/], msgSelectors: ['[class*="message"]', '[class*="chat"]'],
+   222→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   223→    { name: 'Open WebUI', hosts: [/openwebui/, /^localhost(?::\d+)?$/, /^127\.0\.0\.1(?::\d+)?$/],
+   224→      msgSelectors: ['[class*="message"]', '[class*="chat"]'],
+   225→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   226→    { name: 'Cloudflare AI', hosts: [/(^|\.)playground\.ai\.cloudflare\.com$/],
+   227→      msgSelectors: ['[class*="message"]', '[class*="chat"]'],
+   228→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   229→    { name: 'Grok', hosts: [/(^|\.)grok\.com$/], msgSelectors: ['[class*="message"]', '[class*="message-bubble"]'],
+   230→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant',
+   231→      chatUrlPattern: '/c/{id}', sidebarSelectors: ['aside', 'nav', '[class*="sidebar"]', '[class*="sidebar-group"]'] },
+   232→    { name: 'Microsoft Copilot', hosts: [/(^|\.)copilot\.microsoft\.com$/],
+   233→      msgSelectors: ['[class*="message"]', '[class*="turn"]'],
+   234→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   235→    { name: 'Perplexity', hosts: [/(^|\.)perplexity\.ai$/],
+   236→      msgSelectors: ['[class*="query"]', '[class*="answer"]', '[class*="message"]'],
+   237→      role: (el) => /query|user|human/i.test(el.className || '') ? 'user' : 'assistant',
+   238→      chatUrlHints: [/\/search\//] },
+   239→    { name: 'Poe', hosts: [/(^|\.)poe\.com$/],
+   240→      msgSelectors: ['[class*="human-message"]', '[class*="chat-message"]', '[class*="message"]'],
+   241→      role: (el) => /human|user/i.test(el.className || '') ? 'user' : 'assistant' },
+   242→    { name: 'Character.ai', hosts: [/(^|\.)character\.ai$/], msgSelectors: ['[class*="message"]', '[class*="chat"]'],
+   243→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   244→    { name: 'You.com', hosts: [/(^|\.)you\.com$/], msgSelectors: ['[class*="message"]', '[class*="chat"]'],
+   245→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   246→    { name: 'Doubao', hosts: [/(^|\.)doubao\.com$/], msgSelectors: ['[class*="message"]', '[class*="chat"]'],
+   247→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   248→    { name: 'Tencent Yuanbao', hosts: [/(^|\.)yuanbao\.tencent\.com$/], msgSelectors: ['[class*="message"]', '[class*="chat"]'],
+   249→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   250→    { name: 'Meta AI', hosts: [/(^|\.)meta\.ai$/], msgSelectors: ['[class*="message"]', '[class*="chat"]'],
+   251→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   252→    { name: 'Yandex Alice AI', hosts: [/(^|\.)alice\.yandex\.ru$/],
+   253→      msgSelectors: ['[class*="message"]', '[class*="chat"]'],
+   254→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   255→    { name: 'Yandex Alice (path)', hosts: [/(^|\.)yandex\.(ru|com)$/], path: /\/alice\//i,
+   256→      msgSelectors: ['[class*="message"]', '[class*="chat"]'],
+   257→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   258→    { name: 'Dola', hosts: [/(^|\.)dola\.com$/], msgSelectors: ['[class*="message"]', '[class*="chat-message"]'],
+   259→      role: (el) => {
+   260→        const c = (el.className || '').toLowerCase();
+   261→        if (/user|human|question/i.test(c)) return 'user';
+   262→        if (/bot|assistant|ai|response|reply/i.test(c)) return 'assistant';
+   263→        return 'unknown';
+   264→      },
+   265→      chatUrlPattern: '/chat/{id}',
+   266→      sidebarSelectors: ['#flow_chat_sidebar', 'nav[class*="panel-"]', '[class*="conversation-item"]', 'nav', 'aside'] }
+   267→  ];
+   268→
+   269→  function getPlatform() {
+   270→    const host = location.host, path = location.pathname;
+   271→    for (const p of PLATFORMS) {
+   272→      let ok = false;
+   273→      for (const re of p.hosts) { try { if (re.test(host)) { ok = true; break; } } catch (e) {} }
+   274→      if (!ok) continue;
+   275→      if (p.path) { try { if (!p.path.test(path)) continue; } catch (e) {} }
+   276→      return p;
+   277→    }
+   278→    return null;
+   279→  }
+   280→
+   281→  // ============ DOM-ХЕЛПЕРЫ И ФИЛЬТРЫ ============
+   282→  const SKIP_TAGS = new Set(['STYLE','SCRIPT','LINK','META','NOSCRIPT','TEMPLATE','HEAD','TITLE','BASE','HTML','SVG','PATH','G','DEFS','MAT-ICON','BR','HR']);
+   283→  const HARD_EXCLUDE = '#' + UI_ID + ',[class*="tooltip"]:not([class*="content"]),[class*="popover"]:not([class*="content"])';
+   284→  const CHAT_AREA = 'div.chat-container,#chat-history,[data-test-id="chat-history-container"],conversation-container,div.conversation-container,ms-chat-turn,[class*="chat-history-scroll"],[class*="turn-content"],main,[role="main"]';
+   285→
+   286→  function isInHardExclude(el) {
+   287→    let p = el, d = 0;
+   288→    while (p && p !== document.body && d < 15) {
+   289→      try { if (p.matches && p.matches(HARD_EXCLUDE)) return true; } catch (e) {}
+   290→      p = p.parentElement; d++;
+   291→    }
+   292→    return false;
+   293→  }
+   294→  function isInNavigation(el) {
+   295→    let p = el, d = 0;
+   296→    while (p && p !== document.body && d < 12) {
+   297→      const tag = p.tagName ? p.tagName.toLowerCase() : '';
+   298→      const role = p.getAttribute ? (p.getAttribute('role') || '') : '';
+   299→      if (tag === 'nav' || tag === 'aside' || role === 'navigation') return true;
+   300→      if (tag === 'mat-sidenav' || tag === 'bard-sidenav' || tag === 'side-navigation-v2') return true;
+   301→      const c = (typeof p.className === 'string' ? p.className : (p.className && p.className.baseVal) || '').toLowerCase();
+   302→      if (/(^|[-_ ])(sidebar|sidenav|side-nav|drawer|chat-list|conversation-list|history-list|nav-|panel-left)([-_ ]|$)/.test(c)) return true;
+   303→      p = p.parentElement; d++;
+   304→    }
+   305→    return false;
+   306→  }
+   307→  function isInChatArea(el) {
+   308→    if (!el || !el.closest) return false;
+   309→    try { if (el.closest('aside, nav, [role="navigation"], [class*="sidebar"], [class*="sider"]')) return false; } catch (e) {}
+   310→    try { return !!el.closest(CHAT_AREA); } catch (e) { return false; }
+   311→  }
+   312→  function cls(el) { if (!el || !el.className) return ''; const c = el.className; return (typeof c === 'string' ? c : c.baseVal || '').toLowerCase(); }
+   313→  function clean(s) {
+   314→    return String(s || '').replace(/[\u200B-\u200D\uFEFF]/g, '').replace(/\u00A0/g, ' ')
+   315→      .replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+   316→  }
+   317→  function txt(el) {
+   318→    if (!el || SKIP_TAGS.has(el.tagName)) return '';
+   319→    let out = '';
+   320→    try { const x = el.innerText; if (x && x.trim()) out = x.trim(); } catch (e) {}
+   321→    if (!out) out = (el.textContent || '').trim();
+   322→    return dedupeText(out);
+   323→  }
+   324→  function isCssOrJs(s) {
+   325→    if (!s) return false;
+   326→    const head = s.slice(0, 800);
+   327→    if (/_ngcontent|_nghost/.test(head)) return true;
+   328→    const decl = (head.match(/[a-z-]+\s*:\s*[^;{}\n]+\s*[;\n]/gi) || []).length;
+   329→    if (!decl) return false;
+   330→    const lines = head.split('\n').filter((l) => l.trim()).length || 1;
+   331→    const hasBraces = /[{}]/.test(head);
+   332→    if (hasBraces && decl >= 5 && decl / lines > 0.5) return true;
+   333→    if (/@media|@font-face|@keyframes/.test(head) && decl >= 3) return true;
+   334→    return false;
+   335→  }
+   336→  function isSourceListing(s) {
+   337→    if (!s || s.length > 400) return false;
+   338→    if (/\d+\s*(источник|источника|источников|source|sources)/i.test(s)) return true;
+   339→    if (/\d+\s*(дн\.|день|дня|дней|day|days)\s*(назад|ago)/i.test(s)) return true;
+   340→    if (/только для скачивания/i.test(s)) return true;
+   341→    return false;
+   342→  }
+   343→  function isVisible(el) { try { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; } catch (e) { return true; } }
+   344→
+   345→  function dedupeNested(els) {
+   346→    let arr = Array.from(els);
+   347→    if (arr.length > CFG.DEDUPE_CAP) arr = arr.slice(0, CFG.DEDUPE_CAP);
+   348→    const isContainer = new Set();
+   349→    for (const x of arr) {
+   350→      const held = arr.filter((y) => y !== x && x.contains(y) && !arr.some((z) => z !== x && z !== y && z.contains(y) && x.contains(z)));
+   351→      if (held.length >= 2) isContainer.add(x);
+   352→    }
+   353→    const drop = new Set();
+   354→    for (const x of arr) {
+   355→      if (isContainer.has(x)) continue;
+   356→      for (const y of arr) { if (y !== x && y.contains(x) && !isContainer.has(y)) { drop.add(x); break; } }
+   357→    }
+   358→    return arr.filter((e) => !drop.has(e) && !isContainer.has(e));
+   359→  }
+   360→
+   361→  // ============ SHADOW DOM: обход открытых shadow-корней (с TTL-кэшем) ============
+   362→  let _srCache = null, _srCacheAt = 0;
+   363→  function collectShadowRoots(root) {
+   364→    const roots = [];
+   365→    const seen = new Set();
+   366→    const nowMs = Date.now();
+   367→    const cached = (!root && _srCache && (nowMs - _srCacheAt) < 1500) ? _srCache : null;
+   368→    if (cached) return cached.slice();
+   369→    const walk = (r) => {
+   370→      if (!r || seen.has(r)) return;
+   371→      seen.add(r);
+   372→      let all;
+   373→      try { all = r.querySelectorAll('*'); } catch (e) { return; }
+   374→      for (let i = 0; i < all.length; i++) {
+   375→        const sr = all[i].shadowRoot;
+   376→        if (sr) { roots.push(sr); walk(sr); }
+   377→      }
+   378→    };
+   379→    try { walk(root || document); } catch (e) {}
+   380→    if (!root) { _srCache = roots; _srCacheAt = nowMs; }
+   381→    return roots;
+   382→  }
+   383→  // querySelectorAll по документу + всем открытым shadow-корням (в порядке появления)
+   384→  function deepQueryAll(sel, root) {
+   385→    const scopes = [root || document].concat(collectShadowRoots(root));
+   386→    const out = [];
+   387→    for (const sc of scopes) {
+   388→      let found;
+   389→      try { found = sc.querySelectorAll(sel); } catch (e) { continue; }
+   390→      for (const el of found) if (out.indexOf(el) === -1) out.push(el);
+   391→    }
+   392→    return out;
+   393→  }
+   394→
+   395→  function roleFromValue(v) {
+   396→    const x = String(v || '').toLowerCase().trim();
+   397→    if (/^(user|human|you|me|client|prompt|question|query)$/.test(x)) return 'user';
+   398→    if (/^(assistant|bot|ai|model|response|answer|reply)$/.test(x)) return 'assistant';
+   399→    if (/(^|[-_ ])(user|human|query|prompt|question)([-_ ]|$)/.test(x)) return 'user';
+   400→    if (/(^|[-_ ])(assistant|bot|model|response|answer|reply)([-_ ]|$)/.test(x)) return 'assistant';
+   401→    return null;
+   402→  }
+   403→
+   404→  function detectRole(el, platform) {
+   405→    if (platform && platform.roleAttr) { const v = roleFromValue(el.getAttribute(platform.roleAttr)); if (v) return v; }
+   406→    if (platform && typeof platform.role === 'function') { try { const r = platform.role(el); if (r === 'user' || r === 'assistant') return r; } catch (e) {} }
+   407→    if (el.tagName) {
+   408→      const tag = el.tagName.toLowerCase();
+   409→      if (tag === 'user-query') return 'user';
+   410→      if (tag === 'model-response') return 'assistant';
+   411→    }
+   412→    const score = { user: 0, assistant: 0 };
+   413→    const nodes = [el]; let p = el.parentElement;
+   414→    for (let i = 0; i < 5 && p; i++, p = p.parentElement) nodes.push(p);
+   415→    for (let ni = 0; ni < nodes.length; ni++) {
+   416→      const n = nodes[ni]; const w = ni === 0 ? 1 : 0.6;
+   417→      for (const a of n.attributes || []) {
+   418→        const name = a.name.toLowerCase(), value = String(a.value || '').toLowerCase();
+   419→        if (/role|author|sender|speaker|type|side|from/i.test(name)) {
+   420→          if (/user|human|you\b|me\b|client|question|prompt|query/i.test(value)) score.user += 8 * w;
+   421→          if (/assistant|bot|model|response|answer|reply/i.test(value)) score.assistant += 8 * w;
+   422→        }
+   423→      }
+   424→      const r1 = roleFromValue(cls(n));
+   425→      if (r1) score[r1] += (ni === 0 ? 6 : 4) * w;
+   426→    }
+   427→    if (el.querySelector && el.querySelector('[class*="markdown"],[class*="prose"],.katex')) score.assistant += 5;
+   428→    if (score.user >= score.assistant + 4 && score.user >= 5) return 'user';
+   429→    if (score.assistant >= score.user + 4 && score.assistant >= 5) return 'assistant';
+   430→    return 'unknown';
+   431→  }
+   432→
+   433→  function filterValid(found) {
+   434→    const valid = [];
+   435→    found.forEach((el) => {
+   436→      if (isInHardExclude(el)) return;
+   437→      if (isInNavigation(el)) return;
+   438→      if (!isVisible(el)) return;
+   439→      const t = txt(el);
+   440→      if (!t || t.length < CFG.MIN_TEXT) return;
+   441→      if (isCssOrJs(t) || isSourceListing(t)) return;
+   442→      valid.push(el);
+   443→    });
+   444→    return valid;
+   445→  }
+   446→
+   447→  // ============ ПОИСК СООБЩЕНИЙ ============
+   448→  function findMessages() {
+   449→    const platform = getPlatform();
+   450→    const UNIVERSAL = ['[data-message-author-role]','[data-testid="user-message"]','[data-testid="assistant-message"]','user-query','model-response','.segment','.segment-container','[data-message-role]','[data-message-id]','[class*="UserMessage"]','[class*="AssistantMessage"]','[class*="user-message"]:not([class*="input"]):not([class*="fixed"])','[class*="assistant-message"]:not([class*="input"]):not([class*="fixed"])','[class*="Message_container"]','[class*="MessageContainer"]','div.conversation-container'];
+   451→    const trySel = (sel) => {
+   452→      let found = deepQueryAll(sel);
+   453→      if (!found || found.length < 1) return null;
+   454→      const valid = dedupeNested(filterValid(found));
+   455→      return valid.length ? valid : null;
+   456→    };
+   457→    if (platform) {
+   458→      for (let i = 0; i < platform.msgSelectors.length; i++) {
+   459→        const valid = trySel(platform.msgSelectors[i]);
+   460→        if (valid && (i === 0 ? valid.length >= 2 : valid.length >= CFG.MSG_MIN)) {
+   461→          return { items: valid.slice(0, CFG.MSG_MAX), source: platform.msgSelectors[i], platform: platform };
+   462→        }
+   463→      }
+   464→      let best = null, bestSel = '';
+   465→      for (const sel of platform.msgSelectors.concat(UNIVERSAL)) {
+   466→        const valid = trySel(sel);
+   467→        if (valid && valid.length > (best ? best.length : 0)) { best = valid; bestSel = sel; }
+   468→      }
+   469→      if (best) return { items: best.slice(0, CFG.MSG_MAX), source: bestSel, platform: platform };
+   470→    }
+   471→    let best = null, bestSel = '';
+   472→    for (const sel of UNIVERSAL) {
+   473→      const valid = trySel(sel);
+   474→      if (valid && valid.length > (best ? best.length : 0)) { best = valid; bestSel = sel; }
+   475→    }
+   476→    if (best) return { items: best.slice(0, CFG.MSG_MAX), source: bestSel, platform: platform };
+   477→
+   478→    // Эвристика: крупнейшая группа однотипных детей основного контейнера (из v20)
+   479→    const heur = heuristicMessages();
+   480→    if (heur && heur.length >= 2) return { items: heur.slice(0, CFG.MSG_MAX), source: 'heuristic', platform: platform };
+   481→    return null;
+   482→  }
+   483→
+   484→  function heuristicMessages() {
+   485→    const containers = deepQueryAll('main, article, section, [role="main"], [class*="conversation"], [class*="chat"]');
+   486→    let best = null;
+   487→    for (const c of containers) {
+   488→      const groups = {};
+   489→      Array.from(c.children || []).forEach((child) => {
+   490→        const key = child.tagName + '|' + (typeof child.className === 'string' ? child.className : '').split(/\s+/).slice(0, 3).join(' ');
+   491→        (groups[key] = groups[key] || []).push(child);
+   492→      });
+   493→      for (const key of Object.keys(groups)) {
+   494→        const group = dedupeNested(filterValid(groups[key]));
+   495→        if (group.length >= 3 && (!best || group.length > best.length)) best = group;
+   496→      }
+   497→      // второй уровень: внуки (виртуализированные списки)
+   498→      Array.from(c.children || []).forEach((mid) => {
+   499→        Array.from(mid.children || []).forEach((child) => {
+   500→          const key = child.tagName + '|' + (typeof child.className === 'string' ? child.className : '').split(/\s+/).slice(0, 3).join(' ');
+   501→          (groups['@' + key] = groups['@' + key] || []).push(child);
+   502→        });
+   503→      });
+   504→      for (const key of Object.keys(groups)) {
+   505→        if (!/^@/.test(key)) continue;
+   506→        const group = dedupeNested(filterValid(groups[key]));
+   507→        if (group.length >= 3 && (!best || group.length > best.length)) best = group;
+   508→      }
+   509→    }
+   510→    return best;
+   511→  }
+   512→
+   513→  // ============ ТЕКСТ / MARKDOWN ============
+   514→  let renderHolder = null;
+   515→  function getRenderHolder() {
+   516→    if (!renderHolder || !renderHolder.isConnected) {
+   517→      renderHolder = document.createElement('div');
+   518→      renderHolder.style.cssText = 'position:fixed;left:-10000px;top:0;width:900px;pointer-events:none;opacity:0;z-index:-1;white-space:normal;';
+   519→      (document.body || document.documentElement).appendChild(renderHolder);
+   520→    }
+   521→    return renderHolder;
+   522→  }
+   523→  // Клон присоединяется к скрытому держателю в документе — innerText считает переносы корректно.
+   524→  function extractText(el) {
+   525→    const clone = el.cloneNode(true);
+   526→    const remove = clone.querySelectorAll('style,script,link,meta,noscript,template,svg,button,nav,footer,[role="button"],[role="toolbar"],.sr-only,time,[class*="timestamp"],[class*="copy-button"],[class*="action-bar"],[class*="toolbar"],[class*="feedback"],[class*="rating"],mat-icon,[class*="icon"]:not([class*="content"]),[data-icon],i[class*="fa-"]');
+   527→    for (let i = 0; i < remove.length; i++) remove[i].remove();
+   528→    const holder = getRenderHolder();
+   529→    holder.appendChild(clone);
+   530→    let t = '';
+   531→    try { t = clean(clone.innerText || ''); } catch (e) { t = (clone.textContent || '').trim(); }
+   532→    clone.remove();
+   533→    return t;
+   534→  }
+   535→
+   536→  const MD_REMOVE = 'style,script,link,meta,noscript,template,svg,button,nav,footer,header,[role="button"],[role="toolbar"],[aria-hidden="true"],.sr-only,time,[class*="timestamp"],[class*="copy-button"],[class*="action-bar"],[class*="toolbar"],[class*="feedback"],[class*="rating"],mat-icon,[data-icon]';
+   537→
+   538→  function domToMarkdown(el) {
+   539→    const root = el.cloneNode(true);
+   540→    let rm;
+   541→    try { rm = root.querySelectorAll(MD_REMOVE); } catch (e) { rm = []; }
+   542→    for (let i = 0; i < rm.length; i++) rm[i].remove();
+   543→    function children(node) { return Array.from(node.childNodes || []).map(walk).join(''); }
+   544→    function walk(node) {
+   545→      if (node.nodeType === 3) return node.nodeValue || '';
+   546→      if (node.nodeType !== 1) return '';
+   547→      const tag = node.tagName.toLowerCase();
+   548→      if (tag === 'script' || tag === 'style' || tag === 'svg' || tag === 'noscript') return '';
+   549→      if (tag === 'br') return '\n';
+   550→      if (tag === 'hr') return '\n\n---\n\n';
+   551→      if (tag === 'pre') {
+   552→        const code = node.querySelector('code');
+   553→        const lang = code && code.className && (code.className.match(/language-([\w-]+)/) || [])[1] || '';
+   554→        const text = (code ? code.textContent : node.textContent) || '';
+   555→        return '\n\n```' + lang + '\n' + String(text).replace(/\r\n/g, '\n').replace(/\n+$/, '') + '\n```\n\n';
+   556→      }
+   557→      if (tag === 'code') return '`' + clean(node.textContent) + '`';
+   558→      if (tag === 'img') { const src = node.getAttribute('src') || ''; if (!src) return ''; return '![' + (node.getAttribute('alt') || '') + '](' + src + ')'; }
+   559→      if (tag === 'a') { const href = node.getAttribute('href') || ''; const v = clean(children(node)); return href ? '[' + (v || href) + '](' + href + ')' : v; }
+   560→      if (/^h[1-6]$/.test(tag)) return '\n\n' + '#'.repeat(Number(tag[1])) + ' ' + clean(children(node)) + '\n\n';
+   561→      if (tag === 'strong' || tag === 'b') { const v = clean(children(node)); return v ? '**' + v + '**' : ''; }
+   562→      if (tag === 'em' || tag === 'i') { const v = clean(children(node)); return v ? '*' + v + '*' : ''; }
+   563→      if (tag === 'del' || tag === 's') { const v = clean(children(node)); return v ? '~~' + v + '~~' : ''; }
+   564→      if (tag === 'blockquote') { const v = clean(children(node)); return '\n\n' + v.split('\n').map((l) => '> ' + l).join('\n') + '\n\n'; }
+   565→      if (tag === 'li') { const ordered = node.parentElement && node.parentElement.tagName.toLowerCase() === 'ol'; return (ordered ? '1. ' : '- ') + clean(children(node)) + '\n'; }
+   566→      if (tag === 'ul' || tag === 'ol') return '\n\n' + children(node) + '\n';
+   567→      if (tag === 'table') return tableToMarkdown(node);
+   568→      if (tag === 'p' || tag === 'div' || tag === 'section' || tag === 'article' || tag === 'figure') return '\n' + children(node) + '\n';
+   569→      return children(node);
+   570→    }
+   571→    function tableToMarkdown(table) {
+   572→      let rows;
+   573→      try { rows = Array.from(table.querySelectorAll('tr')); } catch (e) { return ''; }
+   574→      if (!rows.length) return '';
+   575→      const matrix = rows.map((row) => Array.from(row.querySelectorAll('th,td')).map((cell) => clean(cell.innerText || cell.textContent || '').replace(/\|/g, '\\|').replace(/\n/g, ' ')));
+   576→      const width = Math.max(1, ...matrix.map((r) => r.length));
+   577→      const norm = matrix.map((r) => { const c = r.slice(); while (c.length < width) c.push(''); return c; });
+   578→      const head = norm[0];
+   579→      let out = '\n\n| ' + head.join(' | ') + ' |\n| ' + head.map(() => '---').join(' | ') + ' |\n';
+   580→      out += norm.slice(1).map((r) => '| ' + r.join(' | ') + ' |').join('\n') + '\n\n';
+   581→      return out;
+   582→    }
+   583→    return clean(walk(root));
+   584→  }
+   585→
+   586→  const THINK_SELECTORS = ['[class*="think"]','[class*="reason"]','[class*="analysis"]','[class*="thought"]','[data-testid*="think"]','[data-testid*="reason"]','[data-testid*="analysis"]','[aria-label*="thinking" i]','[aria-label*="reasoning" i]'];
+   587→  function extractThinking(el) {
+   588→    const nodes = [];
+   589→    for (const sel of THINK_SELECTORS) { nodes.push(...deepQueryAll(sel, el)); }
+   590→    const unique = dedupeNested(nodes);
+   591→    const out = [];
+   592→    for (const n of unique) { const t = domToMarkdown(n); if (t && out.indexOf(t) === -1) out.push(t); }
+   593→    return out;
+   594→  }
+   595→
+   596→  // Сбор картинок и вложений сообщения (для ZIP-режима)
+   597→  function collectMedia(el, msgIndex) {
+   598→    const images = [], attachments = [];
+   599→    try {
+   600→      const imgs = el.querySelectorAll('img[src]');
+   601→      for (let i = 0; i < imgs.length && images.length < CFG.IMG_PER_MSG; i++) {
+   602→        const src = imgs[i].getAttribute('src') || '';
+   603→        if (!src || /^data:/i.test(src)) continue;
+   604→        images.push({ src: new URL(src, location.href).href, alt: imgs[i].getAttribute('alt') || '', msg: msgIndex });
+   605→      }
+   606→    } catch (e) {}
+   607→    try {
+   608→      const atts = el.querySelectorAll('a[href][download],[class*="attachment"] a[href],[data-filename]');
+   609→      for (let i = 0; i < atts.length; i++) {
+   610→        const a = atts[i];
+   611→        const href = a.getAttribute('href') || '';
+   612→        if (!href || /^(#|javascript:)/i.test(href)) continue;
+   613→        attachments.push({
+   614→          url: new URL(href, location.href).href,
+   615→          name: a.getAttribute('data-filename') || a.getAttribute('download') || (href.split('/').pop() || 'file').split('?')[0]
+   616→        });
+   617→      }
+   618→    } catch (e) {}
+   619→    return { images: images, attachments: attachments };
+   620→  }
+   621→
+   622→  // ============ SCRAPE ============
+   623→  function scrape(options) {
+   624→    options = options || {};
+   625→    const found = findMessages();
+   626→    if (!found) return { items: [], platform: null, source: null, images: [], attachments: [] };
+   627→    const platform = found.platform;
+   628→    const pre = [];
+   629→    found.items.forEach((el) => {
+   630→      const content = stripUiPrefix(domToMarkdown(el));
+   631→      const text = stripUiPrefix(extractText(el));
+   632→      if (!content && !text) return;
+   633→      const plain = text || content;
+   634→      if (plain.length < CFG.MIN_TEXT) return;
+   635→      if (isCssOrJs(plain) || isSourceListing(plain)) return;
+   636→      pre.push({ el: el, content: content, text: text, thinking: extractThinking(el) });
+   637→    });
+   638→    const roles = pre.map((m) => detectRole(m.el, platform));
+   639→    const allUnknown = roles.length > 0 && roles.every((r) => r === 'unknown');
+   640→    const allSame = roles.length > 1 && roles.every((r) => r === roles[0]);
+   641→    const parity = allUnknown || (allSame && roles[0] !== 'user');
+   642→    const allImages = [], allAttachments = [];
+   643→    const out = pre.map((m, i) => {
+   644→      let role = roles[i];
+   645→      if (role === 'unknown' && parity) role = i % 2 === 0 ? 'user' : 'assistant';
+   646→      else if (parity && role === roles[0]) role = i % 2 === 0 ? 'user' : 'assistant';
+   647→      let content = m.content;
+   648→      if (options.stripThinking && m.thinking.length) {
+   649→        for (const block of m.thinking) content = content.replace(block, '');
+   650→        content = clean(content);
+   651→      }
+   652→      const media = collectMedia(m.el, i);
+   653→      media.images.forEach((x) => allImages.push(x));
+   654→      media.attachments.forEach((x) => allAttachments.push(x));
+   655→      return { role: role, content: content, text: m.text || clean(m.content), thinking: options.exportThinking ? m.thinking : [] };
+   656→    }).filter((m) => (options.stripThinking ? m.content : m.text) && (options.stripThinking ? m.content.length : m.text.length) >= CFG.MIN_TEXT);
+   657→    return { items: out.slice(0, CFG.MSG_MAX), source: found.source, platformName: (platform && platform.name) || null, images: allImages.slice(0, CFG.IMG_TOTAL), attachments: allAttachments.slice(0, CFG.IMG_TOTAL) };
+   658→  }
+   659→
+   660→  // Аварийный снимок страницы, когда точечная структура не распознана (урок из Gemini-беседы)
+   661→  function snapshotScrape() {
+   662→    try {
+   663→      const clone = document.body.cloneNode(true);
+   664→      clone.querySelectorAll('#' + UI_ID + ',script,style,noscript,svg').forEach((n) => n.remove());
+   665→      const holder = getRenderHolder();
+   666→      holder.appendChild(clone);
+   667→      let t = '';
+   668→      try { t = clean(clone.innerText || ''); } catch (e) { t = (clone.textContent || '').trim(); }
+   669→      clone.remove();
+   670→      if (!t || t.length < CFG.MIN_TOTAL_TEXT) return null;
+   671→      if (t.length > CFG.SNAPSHOT_MAX) t = t.slice(0, CFG.SNAPSHOT_MAX) + '\n\n… (обрезано)';
+   672→      return {
+   673→        items: [{ role: 'unknown', content: '⚠ Автоснимок страницы (структура не распознана точечно):\n\n' + t, text: '⚠ Автоснимок страницы (структура не распознана точечно):\n\n' + t, thinking: [] }],
+   674→        source: 'snapshot', platformName: (getPlatform() || {}).name || null, images: [], attachments: []
+   675→      };
+   676→    } catch (e) { return null; }
+   677→  }
+   678→
+   679→  function fingerprint() {
+   680→    const found = findMessages();
+   681→    if (!found) return '';
+   682→    return found.items.map((el) => txt(el).slice(0, 80)).join('|');
+   683→  }
+   684→
+   685→  function findScrollContainer() {
+   686→    const found = findMessages();
+   687→    const sample = found && found.items && found.items[0];
+   688→    let p = sample;
+   689→    for (let i = 0; i < 14 && p; i++, p = p.parentElement) {
+   690→      try { const st = getComputedStyle(p); if (/auto|scroll/.test(st.overflowY) && p.scrollHeight > p.clientHeight + 100) return p; } catch (e) {}
+   691→    }
+   692→    const candidates = [document.scrollingElement, document.documentElement, document.body];
+   693→    try { candidates.push(...document.querySelectorAll('main,[role="main"],[class*="scroll"],[class*="conversation"]')); } catch (e) {}
+   694→    let sc = null, bestSize = 0;
+   695→    for (const el of candidates) {
+   696→      if (!el) continue;
+   697→      try { const extra = el.scrollHeight - el.clientHeight; if (extra > 100 && el.clientHeight > 150 && el.scrollHeight > bestSize) { bestSize = el.scrollHeight; sc = el; } } catch (e) {}
+   698→    }
+   699→    return sc;
+   700→  }
+   701→
+   702→  // Автопрокрутка истории: к началу, ждём стабилизации высоты, к концу (рабочая версия из v22/v24)
+   703→  async function autoScroll(statusFn) {
+   704→    const sc = findScrollContainer();
+   705→    if (!sc) return;
+   706→    if (statusFn) statusFn('Прокручиваю историю...');
+   707→    let lastH = -1, stable = 0;
+   708→    for (let i = 0; i < CFG.SCROLL_ROUNDS; i++) {
+   709→      if (CANCEL) return;
+   710→      sc.scrollTop = 0;
+   711→      await sleep(CFG.SCROLL_WAIT);
+   712→      const h = sc.scrollHeight;
+   713→      if (h === lastH) stable++; else stable = 0;
+   714→      lastH = h;
+   715→      if (stable >= 3) break;
+   716→      if (statusFn && i % 5 === 0) statusFn('История: ' + (i + 1) + '/' + CFG.SCROLL_ROUNDS);
+   717→    }
+   718→    try { sc.scrollTop = sc.scrollHeight; } catch (e) {}
+   719→    await sleep(400);
+   720→  }
+   721→
+   722→  // Ожидание смены контента после активации чата: фингерпринт + смена URL (фикс «экспорт предыдущего чата»)
+   723→  async function waitStable(prevFp, prevHref) {
+   724→    const start = Date.now();
+   725→    let lastFp = '', lastChangeTime = Date.now();
+   726→    let hrefChanged = !!(prevHref && location.href !== prevHref);
+   727→    while (Date.now() - start < CFG.MAX_WAIT) {
+   728→      if (CANCEL) return false;
+   729→      await sleep(CFG.POLL);
+   730→      if (!hrefChanged && prevHref && location.href !== prevHref) { hrefChanged = true; lastChangeTime = Date.now(); }
+   731→      const cur = fingerprint();
+   732→      if (cur && cur !== prevFp) {
+   733→        if (cur !== lastFp) { lastFp = cur; lastChangeTime = Date.now(); }
+   734→        else if (Date.now() - lastChangeTime >= CFG.STABLE_MS) return true;
+   735→      } else if (hrefChanged && Date.now() - lastChangeTime >= CFG.STABLE_MS) {
+   736→        return true;
+   737→      }
+   738→      if (!hrefChanged && !lastFp && Date.now() - start > 6000) return false;
+   739→    }
+   740→    const fp = fingerprint();
+   741→    return (!!fp && fp !== prevFp) || hrefChanged;
+   742→  }
+   743→
+   744→  async function waitForContentChange(beforeHref, prevFp, timeoutMs) {
+   745→    const t0 = Date.now();
+   746→    while (Date.now() - t0 < timeoutMs) {
+   747→      if (CANCEL) return false;
+   748→      await sleep(250);
+   749→      if (location.href !== beforeHref) return true;
+   750→      if (fingerprint() !== prevFp) return true;
+   751→    }
+   752→    return false;
+   753→  }
+   754→
+   755→  // ============ ФОРМАТЫ ЭКСПОРТА (9) ============
+   756→  function platformName(scraped) {
+   757→    const n = scraped && scraped.platformName;
+   758→    if (n) return n;
+   759→    const p = getPlatform();
+   760→    return p ? p.name : 'universal-heuristic';
+   761→  }
+   762→  function roleLabel(role) {
+   763→    if (role === 'user') return '🧑‍💻 User';
+   764→    if (role === 'assistant') return '🤖 Assistant';
+   765→    return '❔ ' + (role || 'Unknown');
+   766→  }
+   767→  function frontMatterEnabled() { return safeStorageGet('uaice_fm') !== '0'; }
+   768→
+   769→  function toMarkdown(scraped, title) {
+   770→    const L = [];
+   771→    if (frontMatterEnabled()) {
+   772→      const dateTag = '#export-' + now().slice(0, 10);
+   773→      const platTag = '#' + String(platformName(scraped)).toLowerCase().replace(/[^a-zа-я0-9]+/gi, '');
+   774→      L.push('---',
+   775→        'title: ' + JSON.stringify(String(title || 'export')),
+   776→        'platform: ' + JSON.stringify(platformName(scraped)),
+   777→        'url: ' + JSON.stringify(location.href),
+   778→        'exported_at: ' + JSON.stringify(new Date().toISOString()),
+   779→        'exporter: ' + JSON.stringify('Universal AI Chat Exporter v' + SCRIPT_VER),
+   780→        'messages_count: ' + scraped.items.length,
+   781→        'tags: [' + JSON.stringify(platTag) + ', ' + JSON.stringify(dateTag) + ']',
+   782→        '---', '', '# ' + title, '');
+   783→    } else {
+   784→      L.push('# ' + title, '',
+   785→        '- **Platform:** ' + platformName(scraped), '- **URL:** ' + location.href,
+   786→        '- **Exported:** ' + now() + ' (v' + SCRIPT_VER + ')', '- **Messages:** ' + scraped.items.length, '', '---', '');
+   787→    }
+   788→    scraped.items.forEach((m) => {
+   789→      L.push('### ' + roleLabel(m.role), '', m.content || m.text, '');
+   790→      if (m.thinking && m.thinking.length) L.push('<details><summary>🧠 Thinking</summary>', '', m.thinking.join('\n\n'), '', '</details>', '');
+   791→    });
+   792→    return L.join('\n');
+   793→  }
+   794→  function toJSON(scraped, title) {
+   795→    return JSON.stringify({
+   796→      title: title, platform: platformName(scraped), exporter: 'Universal AI Chat Exporter v' + SCRIPT_VER,
+   797→      url: location.href, exported_at: new Date().toISOString(), messages_count: scraped.items.length,
+   798→      source_selector: scraped.source || null,
+   799→      messages: scraped.items.map((m, i) => ({ index: i, role: m.role, content_markdown: m.content, text: m.text, thinking: m.thinking || [] }))
+   800→    }, null, 2);
+   801→  }
+   802→  function toTXT(scraped, title) {
+   803→    const lines = [title, '='.repeat(Math.min(title.length, 70)), 'Platform: ' + platformName(scraped), 'URL: ' + location.href, 'Exported: ' + now() + ' (v' + SCRIPT_VER + ')', ''];
+   804→    scraped.items.forEach((m) => {
+   805→      lines.push('[' + String(m.role || 'unknown').toUpperCase() + ']');
+   806→      if (m.thinking && m.thinking.length) lines.push('[REASONING]', m.thinking.join('\n\n'), '');
+   807→      lines.push(m.text || m.content); lines.push('');
+   808→    });
+   809→    return lines.join('\n');
+   810→  }
+   811→  function htmlCss() {
+   812→    return 'body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:800px;margin:2rem auto;padding:0 1rem;line-height:1.6;color:#222}h1{border-bottom:2px solid #eee;padding-bottom:.5rem}.msg{margin:1.5rem 0;padding:1rem;border-radius:8px}.user{background:#e7f3ff;border-left:4px solid #1a73e8}.assistant{background:#f5f5f5;border-left:4px solid #666}.unknown{background:#fff8e1;border-left:4px solid #f0a500}.role{font-weight:600;margin-bottom:.5rem;color:#555}.meta{color:#888;font-size:.9rem;margin-bottom:2rem}.think{background:#fafafa;border:1px dashed #ccc;border-radius:6px;padding:.6rem;margin:.6rem 0;font-size:.92em;color:#555}';
+   813→  }
+   814→  function htmlBody(scraped, title) {
+   815→    const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+   816→    let h = '<h1>' + esc(title) + '</h1>';
+   817→    h += '<div class="meta">Platform: ' + esc(platformName(scraped)) + '<br>URL: ' + esc(location.href) + '<br>Exported: ' + now() + ' (v' + SCRIPT_VER + ')<br>Messages: ' + scraped.items.length + '</div>';
+   818→    scraped.items.forEach((m) => {
+   819→      h += '<div class="msg ' + esc(String(m.role || 'unknown')) + '">';
+   820→      h += '<div class="role">' + esc(roleLabel(m.role)) + '</div>';
+   821→      if (m.thinking && m.thinking.length) h += '<div class="think"><b>🧠 Thinking</b><br>' + esc(m.thinking.join('\n\n')).replace(/\n/g, '<br>') + '</div>';
+   822→      h += '<div>' + esc(m.text || m.content).replace(/\n/g, '<br>') + '</div></div>';
+   823→    });
+   824→    return h;
+   825→  }
+   826→  function toHTML(scraped, title) {
+   827→    const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+   828→    return '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + esc(title) + '</title><style>' + htmlCss() + '</style></head><body>' + htmlBody(scraped, title) + '</body></html>';
+   829→  }
+   830→  // ShareGPT: {title,url,conversations:[{from:'human'|'gpt'|'system', value}]}
+   831→  function sharegptFrom(role) {
+   832→    if (role === 'user') return 'human';
+   833→    if (role === 'assistant') return 'gpt';
+   834→    return 'system';
+   835→  }
+   836→  function toShareGPT(scraped, title) {
+   837→    return JSON.stringify({
+   838→      title: title,
+   839→      url: location.href,
+   840→      exported_at: new Date().toISOString(),
+   841→      conversations: scraped.items.map((m) => ({ from: sharegptFrom(m.role), value: m.text || m.content }))
+   842→    }, null, 2);
+   843→  }
+   844→  // JSONL: одна строка на сообщение
+   845→  function toJSONL(scraped, title) {
+   846→    return scraped.items.map((m, i) => JSON.stringify({
+   847→      chat: title, i: i, role: m.role, text: m.text || m.content
+   848→    })).join('\n');
+   849→  }
+   850→  // Alpaca: пары instruction(user) -> output(assistant)
+   851→  function toAlpaca(scraped, title) {
+   852→    const samples = [];
+   853→    let pending = null;
+   854→    scraped.items.forEach((m) => {
+   855→      if (m.role === 'user') {
+   856→        if (pending) samples.push({ instruction: pending, input: '', output: '' });
+   857→        pending = m.text || m.content;
+   858→      } else if (m.role === 'assistant') {
+   859→        samples.push({ instruction: pending || '', input: '', output: m.text || m.content });
+   860→        pending = null;
+   861→      } else if (pending) {
+   862→        samples.push({ instruction: pending, input: '', output: '' });
+   863→        pending = null;
+   864→      }
+   865→    });
+   866→    if (pending) samples.push({ instruction: pending, input: '', output: '' });
+   867→    return JSON.stringify({ chat: title, url: location.href, samples: samples }, null, 2);
+   868→  }
+   869→  function contentFor(format, scraped, title) {
+   870→    if (format === 'json') return { content: toJSON(scraped, title), ext: 'json', mime: 'application/json;charset=utf-8' };
+   871→    if (format === 'txt') return { content: toTXT(scraped, title), ext: 'txt', mime: 'text/plain;charset=utf-8' };
+   872→    if (format === 'html') return { content: toHTML(scraped, title), ext: 'html', mime: 'text/html;charset=utf-8' };
+   873→    if (format === 'sharegpt') return { content: toShareGPT(scraped, title), ext: 'sharegpt.json', mime: 'application/json;charset=utf-8' };
+   874→    if (format === 'jsonl') return { content: toJSONL(scraped, title), ext: 'jsonl', mime: 'application/x-ndjson;charset=utf-8' };
+   875→    if (format === 'alpaca') return { content: toAlpaca(scraped, title), ext: 'alpaca.json', mime: 'application/json;charset=utf-8' };
+   876→    return { content: toMarkdown(scraped, title), ext: 'md', mime: 'text/markdown;charset=utf-8' };
+   877→  }
+   878→
+   879→  // ============ ДОСТАВКА: BLOB / СОБСТВЕННЫЙ ZIP (без CDN) / PDF ============
+   880→  function downloadBlob(content, filename, mime) {
+   881→    const blob = (content instanceof Blob) ? content : new Blob([content], { type: mime || 'text/plain;charset=utf-8' });
+   882→    const url = URL.createObjectURL(blob);
+   883→    const a = document.createElement('a');
+   884→    a.href = url; a.download = filename; a.rel = 'noopener';
+   885→    (document.body || document.documentElement).appendChild(a);
+   886→    a.click(); a.remove();
+   887→    setTimeout(() => URL.revokeObjectURL(url), 1500);
+   888→  }
+   889→
+   890→  // Собственный ZIP-писатель (метод store, UTF-8 имена). Никаких внешних библиотек.
+   891→  const CRC_TABLE = (function () {
+   892→    const t = new Uint32Array(256);
+   893→    for (let n = 0; n < 256; n++) {
+   894→      let c = n;
+   895→      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+   896→      t[n] = c >>> 0;
+   897→    }
+   898→    return t;
+   899→  })();
+   900→  function crc32(u8) {
+   901→    let c = 0xFFFFFFFF;
+   902→    for (let i = 0; i < u8.length; i++) c = CRC_TABLE[(c ^ u8[i]) & 0xFF] ^ (c >>> 8);
+   903→    return (c ^ 0xFFFFFFFF) >>> 0;
+   904→  }
+   905→  function dosDateTime(d) {
+   906→    const time = ((d.getHours() << 11) | (d.getMinutes() << 5) | Math.floor(d.getSeconds() / 2)) & 0xFFFF;
+   907→    const date = (((d.getFullYear() - 1980) & 0x7f) << 9) | ((d.getMonth() + 1) << 5) | d.getDate();
+   908→    return { time: time, date: date };
+   909→  }
+   910→  // entries: [{name, data:string|Uint8Array, date?}] -> Blob (application/zip)
+   911→  function zipStore(entries) {
+   912→    const enc = new TextEncoder();
+   913→    const localChunks = [], centralChunks = [];
+   914→    let offset = 0;
+   915→    const d = new Date();
+   916→    const { time, date } = dosDateTime(d);
+   917→    for (const e of entries) {
+   918→      const name = enc.encode(e.name);
+   919→      const data = (e.data instanceof Uint8Array) ? e.data : enc.encode(String(e.data));
+   920→      const crc = crc32(data);
+   921→      const lh = new DataView(new ArrayBuffer(30));
+   922→      lh.setUint32(0, 0x04034b50, true);
+   923→      lh.setUint16(4, 20, true);
+   924→      lh.setUint16(6, 0x0800, true);
+   925→      lh.setUint16(8, 0, true);
+   926→      lh.setUint16(10, time, true);
+   927→      lh.setUint16(12, date, true);
+   928→      lh.setUint32(14, crc, true);
+   929→      lh.setUint32(18, data.length, true);
+   930→      lh.setUint32(22, data.length, true);
+   931→      lh.setUint16(26, name.length, true);
+   932→      lh.setUint16(28, 0, true);
+   933→      localChunks.push(new Uint8Array(lh.buffer), name, data);
+   934→      const ch = new DataView(new ArrayBuffer(46));
+   935→      ch.setUint32(0, 0x02014b50, true);
+   936→      ch.setUint16(4, 20, true);
+   937→      ch.setUint16(6, 20, true);
+   938→      ch.setUint16(8, 0x0800, true);
+   939→      ch.setUint16(10, 0, true);
+   940→      ch.setUint16(12, time, true);
+   941→      ch.setUint16(14, date, true);
+   942→      ch.setUint32(16, crc, true);
+   943→      ch.setUint32(20, data.length, true);
+   944→      ch.setUint32(24, data.length, true);
+   945→      ch.setUint16(28, name.length, true);
+   946→      ch.setUint16(30, 0, true);
+   947→      ch.setUint16(32, 0, true);
+   948→      ch.setUint16(34, 0, true);
+   949→      ch.setUint16(36, 0, true);
+   950→      ch.setUint32(38, 0, true);
+   951→      ch.setUint32(42, offset, true);
+   952→      centralChunks.push(new Uint8Array(ch.buffer), name);
+   953→      offset += 30 + name.length + data.length;
+   954→    }
+   955→    let cdSize = 0;
+   956→    for (const c of centralChunks) cdSize += c.length;
+   957→    const eocd = new DataView(new ArrayBuffer(22));
+   958→    eocd.setUint32(0, 0x06054b50, true);
+   959→    eocd.setUint16(4, 0, true);
+   960→    eocd.setUint16(6, 0, true);
+   961→    eocd.setUint16(8, entries.length, true);
+   962→    eocd.setUint16(10, entries.length, true);
+   963→    eocd.setUint32(12, cdSize, true);
+   964→    eocd.setUint32(16, offset, true);
+   965→    eocd.setUint16(20, 0, true);
+   966→    return new Blob(localChunks.concat(centralChunks, [new Uint8Array(eocd.buffer)]), { type: 'application/zip' });
+   967→  }
+   968→
+   969→  function blobToU8(blob) { return blob.arrayBuffer().then((ab) => new Uint8Array(ab)); }
+   970→  function extFromMime(mime) {
+   971→    const m = String(mime || '').toLowerCase();
+   972→    if (m.indexOf('jpeg') !== -1) return 'jpg';
+   973→    if (m.indexOf('png') !== -1) return 'png';
+   974→    if (m.indexOf('webp') !== -1) return 'webp';
+   975→    if (m.indexOf('gif') !== -1) return 'gif';
+   976→    if (m.indexOf('svg') !== -1) return 'svg';
+   977→    if (m.indexOf('bmp') !== -1) return 'bmp';
+   978→    return 'bin';
+   979→  }
+   980→  async function fetchImageU8(url) {
+   981→    const ctrl = (typeof AbortController === 'function') ? new AbortController() : null;
+   982→    const timer = ctrl ? setTimeout(() => { try { ctrl.abort(); } catch (e) {} }, CFG.IMG_TIMEOUT) : null;
+   983→    try {
+   984→      const resp = await fetch(url, { mode: 'cors', cache: 'force-cache', signal: ctrl ? ctrl.signal : undefined, credentials: 'omit' });
+   985→      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+   986→      const blob = await resp.blob();
+   987→      return { data: await blobToU8(blob), ext: extFromMime(blob.type) };
+   988→    } finally { if (timer) clearTimeout(timer); }
+   989→  }
+   990→
+   991→  function resolveInner() {
+   992→    const v = (safeStorageGet('uaice_zipinner') || 'md').toLowerCase();
+   993→    return ['md', 'json', 'txt', 'html', 'pdf'].indexOf(v) !== -1 ? v : 'md';
+   994→  }
+   995→  function imagesEnabled() { return safeStorageGet('uaice_images') !== '0'; }
+   996→
+   997→  // ZIP из результатов массового экспорта: chats/ + images/ + _index.json + _FAILURES.txt
+   998→  async function buildZipLocal(results, failures, innerFmt, statusFn) {
+   999→    const entries = [];
+  1000→    const index = [];
+  1001→    const imagesFailed = [];
+  1002→    const attachmentsAll = [];
+  1003→    let imgSeq = 0;
+  1004→    for (let i = 0; i < results.length; i++) {
+  1005→      if (CANCEL) break;
+  1006→      const r = results[i];
+  1007→      if (statusFn) statusFn('ZIP ' + progress(i, results.length, sanitize(r.title, 24)));
+  1008→      const base = String(i + 1).padStart(3, '0') + '-' + sanitize(r.title);
+  1009→      const rec = { file: '', title: r.title, url: r.url, messages: r.scraped.items.length };
+  1010→      if (innerFmt === 'pdf') {
+  1011→        try {
+  1012→          const blob = await renderPdfBlob(r.scraped, r.title);
+  1013→          rec.file = base + '.pdf';
+  1014→          entries.push({ name: 'chats/' + rec.file, data: await blobToU8(blob) });
+  1015→        } catch (e) {
+  1016→          rec.file = base + '.md'; rec.note = 'PDF недоступен (' + (e && e.message) + '), сохранён MD';
+  1017→          entries.push({ name: 'chats/' + rec.file, data: contentFor('md', r.scraped, r.title).content });
+  1018→        }
+  1019→      } else {
+  1020→        const f = contentFor(innerFmt, r.scraped, r.title);
+  1021→        rec.file = base + '.' + f.ext;
+  1022→        entries.push({ name: 'chats/' + rec.file, data: f.content });
+  1023→      }
+  1024→      if (imagesEnabled() && r.scraped && Array.isArray(r.scraped.images)) {
+  1025→        let perChat = 0;
+  1026→        for (const im of r.scraped.images) {
+  1027→          if (imgSeq >= CFG.IMG_TOTAL || perChat >= 20) break;
+  1028→          try {
+  1029→            const got = await fetchImageU8(im.src);
+  1030→            imgSeq++; perChat++;
+  1031→            entries.push({ name: 'images/' + String(i + 1).padStart(3, '0') + '-' + String(perChat).padStart(2, '0') + '.' + got.ext, data: got.data });
+  1032→            rec.images = (rec.images || 0) + 1;
+  1033→          } catch (e) { imagesFailed.push(im.src); }
+  1034→        }
+  1035→      }
+  1036→      if (r.scraped && Array.isArray(r.scraped.attachments)) {
+  1037→        r.scraped.attachments.forEach((a) => attachmentsAll.push({ chat: r.title, url: a.url, name: a.name }));
+  1038→      }
+  1039→      index.push(rec);
+  1040→    }
+  1041→    if (failures.length) entries.push({ name: '_FAILURES.txt', data: ['# Не удалось', ''].concat(failures.map((f) => '- ' + f.title + ': ' + f.error)).join('\n') });
+  1042→    if (attachmentsAll.length) entries.push({ name: '_attachments.txt', data: attachmentsAll.map((a) => '- [' + sanitize(a.chat, 40) + '] ' + a.name + ' — ' + a.url).join('\n') });
+  1043→    if (imagesFailed.length) entries.push({ name: '_images-failed.txt', data: ['# Не скачались (CORS/доступ)', ''].concat(imagesFailed).join('\n') });
+  1044→    entries.push({ name: '_index.json', data: JSON.stringify({ exporter: 'UACE v' + SCRIPT_VER, created: now(), format: innerFmt, chats: index, failures: failures, images_failed: imagesFailed.length }, null, 2) });
+  1045→    return zipStore(entries);
+  1046→  }
+  1047→
+  1048→  async function renderPdfBlob(scraped, title) {
+  1049→    await loadScript(LIBS.html2pdf, 'html2pdf');
+  1050→    const holder = document.createElement('div');
+  1051→    holder.style.cssText = 'position:fixed;left:-10000px;top:0;width:800px;background:#fff;';
+  1052→    holder.innerHTML = '<style>' + htmlCss() + '</style>' + htmlBody(scraped, title);
+  1053→    (document.body || document.documentElement).appendChild(holder);
+  1054→    try {
+  1055→      const pdf = await window.html2pdf().set({
+  1056→        margin: 10, image: { type: 'jpeg', quality: 0.98 },
+  1057→        html2canvas: { scale: 2, useCORS: true },
+  1058→        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+  1059→      }).from(holder).toPdf().get('pdf');
+  1060→      return pdf.output('blob');
+  1061→    } finally { holder.remove(); }
+  1062→  }
+  1063→  function printFallback(scraped, title) {
+  1064→    const w = window.open('', '_blank');
+  1065→    if (!w) { setStatusSafe('PDF: popup заблокирован, откройте окно печати вручную.'); return; }
+  1066→    w.document.open(); w.document.write(toHTML(scraped, title)); w.document.close();
+  1067→    setTimeout(() => { try { w.focus(); w.print(); } catch (e) {} }, 500);
+  1068→  }
+  1069→  function setStatusSafe(t) { try { console.warn('[UAICE] ' + t); } catch (e) {} }
+  1070→  async function exportAsPDF(scraped, title) {
+  1071→    try { const blob = await renderPdfBlob(scraped, title); downloadBlob(blob, sanitize(title) + '-' + ts() + '.pdf', 'application/pdf'); }
+  1072→    catch (e) { console.error('PDF error:', e); printFallback(scraped, title); }
+  1073→  }
+  1074→  async function saveInFormat(scraped, title, format) {
+  1075→    if (format === 'pdf') { await exportAsPDF(scraped, title); return; }
+  1076→    if (format === 'zip') {
+  1077→      const blob = await buildZipLocal([{ title: title, url: location.href, scraped: scraped }], [], resolveInner(), null);
+  1078→      downloadBlob(blob, sanitize(title) + '-' + ts() + '.zip', 'application/zip');
+  1079→      return;
+  1080→    }
+  1081→    const f = contentFor(format, scraped, title);
+  1082→    downloadBlob(f.content, sanitize(title) + '-' + ts() + '.' + f.ext, f.mime);
+  1083→  }
+  1084→
+  1085→  function buildMerged(results, innerFmt) {
+  1086→    if (innerFmt === 'json') return JSON.stringify({ exporter: 'UACE v' + SCRIPT_VER, created: now(), chats: results.map((r) => ({ title: r.title, url: r.url, platform: platformName(r.scraped), messages: r.scraped.items })) }, null, 2);
+  1087→    if (innerFmt === 'sharegpt') return JSON.stringify({ exporter: 'UACE v' + SCRIPT_VER, created: now(), chats: results.map((r) => ({ title: r.title, url: r.url, conversations: r.scraped.items.map((m) => ({ from: sharegptFrom(m.role), value: m.text || m.content })) })) }, null, 2);
+  1088→    if (innerFmt === 'alpaca') return JSON.stringify({ exporter: 'UACE v' + SCRIPT_VER, created: now(), chats: results.map((r) => JSON.parse(toAlpaca(r.scraped, r.title))) }, null, 2);
+  1089→    if (innerFmt === 'jsonl') return results.map((r) => toJSONL(r.scraped, r.title)).join('\n');
+  1090→    if (innerFmt === 'html') {
+  1091→      let h = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>AI Chats</title><style>' + htmlCss() + 'section{page-break-after:always}</style></head><body>';
+  1092→      results.forEach((r) => { h += '<section>' + htmlBody(r.scraped, r.title) + '</section>'; });
+  1093→      return h + '</body></html>';
+  1094→    }
+  1095→    const sep = '='.repeat(60);
+  1096→    return results.map((r, i) => {
+  1097→      const f = contentFor(innerFmt === 'pdf' ? 'md' : innerFmt, r.scraped, r.title);
+  1098→      return '\n\n' + sep + '\n' + (i + 1) + '. ' + r.title + '\n' + r.url + '\n' + sep + '\n\n' + f.content;
+  1099→    }).join('\n');
+  1100→  }
+  1101→
+  1102→  async function finalizeResults(results, failures, format, inner, statusFn) {
+  1103→    if (!results.length) {
+  1104→      if (failures.length) downloadBlob(['# Не удалось', ''].concat(failures.map((f) => '- ' + f.title + ': ' + f.error)).join('\n'), '_FAILURES-' + ts() + '.txt', 'text/plain;charset=utf-8');
+  1105→      return;
+  1106→    }
+  1107→    if (format === 'zip') {
+  1108→      try {
+  1109→        if (statusFn) statusFn('Собираю ZIP...');
+  1110→        const blob = await buildZipLocal(results, failures, inner, statusFn);
+  1111→        downloadBlob(blob, 'ai-chats-' + ts() + '.zip', 'application/zip');
+  1112→        return;
+  1113→      } catch (e) { console.error(e); if (statusFn) statusFn('⚠ ZIP не удался, объединённый файл'); }
+  1114→    }
+  1115→    if (inner === 'pdf') {
+  1116→      for (let i = 0; i < results.length; i++) {
+  1117→        if (CANCEL) break;
+  1118→        const r = results[i];
+  1119→        if (statusFn) statusFn('PDF ' + progress(i, results.length, sanitize(r.title, 24)));
+  1120→        try { await exportAsPDF(r.scraped, String(i + 1).padStart(3, '0') + '-' + r.title); } catch (e) {}
+  1121→        await sleep(700);
+  1122→      }
+  1123→    } else {
+  1124→      const merged = buildMerged(results, inner);
+  1125→      const f = contentFor(inner, results[0].scraped, results[0].title);
+  1126→      downloadBlob(merged, 'ai-chats-' + ts() + '.' + f.ext, f.mime);
+  1127→    }
+  1128→    if (failures.length) downloadBlob(['# Не удалось', ''].concat(failures.map((f) => '- ' + f.title + ': ' + f.error)).join('\n'), '_FAILURES-' + ts() + '.txt', 'text/plain;charset=utf-8');
+  1129→  }
+  1130→
+  1131→  // ============ САЙДБАР / СПИСОК ЧАТОВ (мерж v22 + v24) ============
+  1132→  const UUID_RE = /([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i;
+  1133→
+  1134→  function extractChatTarget(el) {
+  1135→    if (!el) return { href: null, id: null };
+  1136→    if (el.attributes) {
+  1137→      for (let i = 0; i < el.attributes.length; i++) {
+  1138→        const a = el.attributes[i];
+  1139→        const v = a.value || '';
+  1140→        if (a.name === 'href' && v) {
+  1141→          try { return { href: new URL(v, location.href).href, id: null }; } catch (e) {}
+  1142→        }
+  1143→        const m = v.match(UUID_RE);
+  1144→        if (m) return { href: null, id: m[1] };
+  1145→        if (/^(data-(chat|conversation|session|thread|id)|id)$/i.test(a.name) && v.length >= 6 && v.length <= 80) {
+  1146→          return { href: null, id: v };
+  1147→        }
+  1148→      }
+  1149→    }
+  1150→    const innerA = el.querySelector && el.querySelector('a[href]');
+  1151→    if (innerA && innerA.href) return { href: innerA.href, id: null };
+  1152→    const html = el.outerHTML || '';
+  1153→    const m1 = html.match(UUID_RE);
+  1154→    if (m1) return { href: null, id: m1[1] };
+  1155→    try {
+  1156→      const keys = Object.keys(el);
+  1157→      for (let ki = 0; ki < keys.length; ki++) {
+  1158→        const k = keys[ki];
+  1159→        if (k.indexOf('__reactProps$') !== 0 && k.indexOf('__reactFiber$') !== 0) continue;
+  1160→        let node = el[k];
+  1161→        for (let depth = 0; depth < 10 && node; depth++) {
+  1162→          const props = node.memoizedProps;
+  1163→          if (props && typeof props === 'object') {
+  1164→            const keys2 = Object.keys(props);
+  1165→            for (let pi = 0; pi < keys2.length; pi++) {
+  1166→              const pv = props[keys2[pi]];
+  1167→              if (typeof pv === 'string') {
+  1168→                const m = pv.match(UUID_RE);
+  1169→                if (m) return { href: null, id: m[1] };
+  1170→                if (/^(id|chatId|conversationId|sessionId|threadId|key)$/i.test(keys2[pi]) && pv.length >= 6 && pv.length <= 80) {
+  1171→                  return { href: null, id: pv };
+  1172→                }
+  1173→                if (/^href$|^to$|^url$/i.test(keys2[pi]) && pv.length > 1) {
+  1174→                  try { return { href: new URL(pv, location.href).href, id: null }; } catch (e) {}
+  1175→                }
+  1176→              } else if (pv && typeof pv === 'object') {
+  1177→                const innerKeys = Object.keys(pv);
+  1178→                for (let ii = 0; ii < innerKeys.length; ii++) {
+  1179→                  const ipv = pv[innerKeys[ii]];
+  1180→                  if (typeof ipv === 'string') {
+  1181→                    const m = ipv.match(UUID_RE);
+  1182→                    if (m) return { href: null, id: m[1] };
+  1183→                  }
+  1184→                }
+  1185→              }
+  1186→            }
+  1187→          }
+  1188→          node = node.return;
+  1189→        }
+  1190→      }
+  1191→    } catch (e) {}
+  1192→    return { href: null, id: null };
+  1193→  }
+  1194→
+  1195→  function buildChatUrl(id) {
+  1196→    if (!id) return null;
+  1197→    const platform = getPlatform();
+  1198→    if (platform && platform.chatUrlPattern) return location.origin + platform.chatUrlPattern.replace('{id}', id);
+  1199→    const m = location.pathname.match(/^(.*\/)(c|chat|conversation|app|thread)\/[^\/]+/i);
+  1200→    if (m) return location.origin + m[1] + m[2] + '/' + id;
+  1201→    return location.origin + '/c/' + id;
+  1202→  }
+  1203→
+  1204→  function tryReactOnClick(el) {
+  1205→    try {
+  1206→      const keys = Object.keys(el);
+  1207→      for (let i = 0; i < keys.length; i++) {
+  1208→        if (keys[i].indexOf('__reactProps$') !== 0) continue;
+  1209→        const props = el[keys[i]];
+  1210→        if (props && typeof props.onClick === 'function') {
+  1211→          const evt = {
+  1212→            type: 'click', target: el, currentTarget: el,
+  1213→            nativeEvent: { button: 0, ctrlKey: false, metaKey: false, shiftKey: false, altKey: false },
+  1214→            preventDefault: function () {}, stopPropagation: function () {},
+  1215→            isDefaultPrevented: function () { return false; },
+  1216→            isPropagationStopped: function () { return false; },
+  1217→            persist: function () {}, defaultPrevented: false, bubbles: true, cancelable: true
+  1218→          };
+  1219→          props.onClick(evt);
+  1220→          return true;
+  1221→        }
+  1222→      }
+  1223→    } catch (e) {}
+  1224→    return false;
+  1225→  }
+  1226→
+  1227→  // Строгий фильтр URL чата (мерж v22 + v24): сегменты + query-параметры + явные исключения
+  1228→  function isChatUrl(href) {
+  1229→    if (!href) return false;
+  1230→    try {
+  1231→      const u = new URL(href, location.href);
+  1232→      if (u.origin !== location.origin) return false;
+  1233→      if (/^\/(new|create|edit|settings|help|login|signup|logout|terms|privacy|about|contact|faq|legal|pricing|billing|account|profile|drive|create-image|cron-jobs|tasks|discover|explore|search|upgrade|download|auth|oauth|reset|verify)/i.test(u.pathname)) return false;
+  1234→      if (/\/(chat|work|code|c|conversation|thread|app|gem|s|share|session|talk|a)\/[a-zA-Z0-9][a-zA-Z0-9_\/-]{7,}/i.test(u.pathname)) return true;
+  1235→      if (/[?&](id|chat|conversation|thread|session)=/i.test(u.search)) return true;
+  1236→      return false;
+  1237→    } catch (e) { return false; }
+  1238→  }
+  1239→
+  1240→  const NAV_KEYWORDS = [
+  1241→    'проекты','проект','новая папка','новый проект','vibe','work','code','chat','projects',
+  1242→    'настройки','settings','профиль','profile','новый чат','new chat','помощь','help',
+  1243→    'сообщество','community','обновления','updates','поиск','search','архив','archive',
+  1244→    'избранное','library','библиотека','gpts','sora','explore','discover','temporary chat','временный чат',
+  1245→    '新对话','新建对话','新聊天','新建会话','设置','帮助',
+  1246→    'delete','удалить','rename','переименовать','pin','закрепить','share','поделиться',
+  1247→    'все чаты','all chats','история','history','activity','gemini','extensions','расширения','gems',
+  1248→    'notebooklm','new notebook','upgrade','обновить','попробовать','блокноты','недавние','artifacts',
+  1249→    'customize','pinned','new','claude','images','scheduled','plugins','health','codex',
+  1250→    'создание контента ии','запланированные задачи','диск','dola','поиск по чатам','новый блокнот','новая беседа'
+  1251→  ];
+  1252→  function normalizeNavKey(s) { return String(s || '').replace(/[\s.…,;:!?—–-]+$/g, '').toLowerCase().trim(); }
+  1253→  function isNavKeyword(s) {
+  1254→    if (!s) return false;
+  1255→    const low = normalizeNavKey(s);
+  1256→    if (!low || low.length > 40) return false;
+  1257→    return NAV_KEYWORDS.indexOf(low) !== -1;
+  1258→  }
+  1259→
+  1260→  function isClickable(el) {
+  1261→    if (!el) return false;
+  1262→    const tag = (el.tagName || '').toLowerCase();
+  1263→    if (tag === 'a' && el.hasAttribute && el.hasAttribute('href')) return true;
+  1264→    if (tag === 'button') return true;
+  1265→    const role = el.getAttribute ? (el.getAttribute('role') || '') : '';
+  1266→    if (role === 'button' || role === 'link' || role === 'listitem' || role === 'option' || role === 'tab') return true;
+  1267→    const tab = el.getAttribute ? el.getAttribute('tabindex') : null;
+  1268→    if (tab !== null && tab !== undefined && tab !== '-1') return true;
+  1269→    return false;
+  1270→  }
+  1271→  function isNavContainer(el) {
+  1272→    if (!el) return false;
+  1273→    const tag = (el.tagName || '').toLowerCase();
+  1274→    const role = el.getAttribute ? (el.getAttribute('role') || '') : '';
+  1275→    if (tag === 'mat-sidenav' || tag === 'bard-sidenav' || tag === 'side-navigation-v2') return true;
+  1276→    if (tag === 'aside' || tag === 'nav' || role === 'navigation') return true;
+  1277→    const c = (typeof el.className === 'string' ? el.className : '').toLowerCase();
+  1278→    if (/sidenav|sidebar|side-nav|drawer|history-list|chat-list|conversation-list|side-bar|chat-aside|chat-history/.test(c)) return true;
+  1279→    return false;
+  1280→  }
+  1281→  function isLeftSide(el) {
+  1282→    if (!el) return false;
+  1283→    try {
+  1284→      const r = el.getBoundingClientRect();
+  1285→      const vw = window.innerWidth || document.documentElement.clientWidth || 1920;
+  1286→      if (r.height < 100) return false;
+  1287→      if (r.width < 20) return false;
+  1288→      if (r.left > vw * 0.40) return false;
+  1289→      if (r.left + r.width > vw * 0.65) return false;
+  1290→      return true;
+  1291→    } catch (e) { return false; }
+  1292→  }
+  1293→  function looksLikeCode(s) {
+  1294→    if (!s) return true;
+  1295→    const t = s.trim();
+  1296→    if (t.length < 2) return true;
+  1297→    if (/\b(is not defined|is not a function|TypeError|ReferenceError|SyntaxError)\b/.test(t)) return true;
+  1298→    if (/^https?:\/\/\S+$/i.test(t)) return true;
+  1299→    if (/^Thought for \d+/i.test(t)) return true;
+  1300→    if (/^```/.test(t)) return true;
+  1301→    return false;
+  1302→  }
+  1303→  function looksLikeChatItem(el) {
+  1304→    if (!el || !isVisible(el)) return false;
+  1305→    if (el.closest && el.closest('#' + UI_ID)) return false;
+  1306→    if (isInChatArea(el)) return false;
+  1307→    let t = txt(el);
+  1308→    if (!t || t.length < 2) { const p = el.parentElement; if (p) t = txt(p); }
+  1309→    if (!t || t.length < 2 || t.length > 120) return false;
+  1310→    if (isNavKeyword(t) || isCssOrJs(t) || isSourceListing(t)) return false;
+  1311→    if (t.indexOf('\n') !== -1) return false;
+  1312→    if (looksLikeCode(t)) return false;
+  1313→    if (t.indexOf('::') !== -1) return false;
+  1314→    if (/^[#>*-]\s/.test(t)) return false;
+  1315→    if (/[.…]{2,}\s*$/.test(t)) return false;
+  1316→    if (/^[A-Za-z]{2,6}$/.test(t)) return false;
+  1317→    return true;
+  1318→  }
+  1319→
+  1320→  function findLeftPanel() {
+  1321→    const cands = [];
+  1322→    const sels = 'mat-sidenav, bard-sidenav, side-navigation-v2, aside, nav, [role="navigation"], [class*="sidenav"], [class*="sidebar"], [class*="sider"], [class*="side-bar"], [class*="history"], [class*="conversation"], [class*="chat-aside"], [class*="chat-history"], [class*="chat-list"], #flow_chat_sidebar, nav[class*="panel-"]';
+  1323→    let els = [];
+  1324→    try { els = document.querySelectorAll(sels); } catch (e) { els = []; }
+  1325→    els.forEach((el) => {
+  1326→      try {
+  1327→        if (el.closest && el.closest('#' + UI_ID)) return;
+  1328→        if (!isLeftSide(el)) return;
+  1329→        const r = el.getBoundingClientRect();
+  1330→        const st = getComputedStyle(el);
+  1331→        const scrollable = /auto|scroll/.test(st.overflowY) || /auto|scroll/.test(st.overflow);
+  1332→        let score = Math.max(r.height, 200) * (scrollable ? 2 : 1);
+  1333→        if (isNavContainer(el)) score *= 4;
+  1334→        const cc = el.querySelectorAll('a[href*="/a/chat/s/"], a[href*="/chat/"], a[href*="/c/"], [class*="conversation-item"]').length;
+  1335→        if (cc > 0) score *= 5;
+  1336→        cands.push({ el: el, score: score });
+  1337→      } catch (e) {}
+  1338→    });
+  1339→    cands.sort((a, b) => b.score - a.score);
+  1340→    return cands[0] ? cands[0].el : null;
+  1341→  }
+  1342→
+  1343→  function isDrawerOpen() {
+  1344→    return !!document.querySelector('mat-sidenav.mat-drawer-opened, mat-sidenav.mat-drawer-opening, bard-sidenav.mat-drawer-opened, bard-sidenav.mat-drawer-opening, aside.mat-drawer-opened');
+  1345→  }
+  1346→  function isSidebarOpen() {
+  1347→    if (isDrawerOpen()) return true;
+  1348→    const panel = findLeftPanel();
+  1349→    if (!panel) return false;
+  1350→    const r = panel.getBoundingClientRect();
+  1351→    return r.left >= -5 && r.width >= 20 && r.height >= 100;
+  1352→  }
+  1353→  async function waitForDrawerOpen(t) {
+  1354→    const s = Date.now();
+  1355→    while (Date.now() - s < t) {
+  1356→      if (isDrawerOpen()) { await sleep(600); return true; }
+  1357→      await sleep(150);
+  1358→    }
+  1359→    return isDrawerOpen();
+  1360→  }
+  1361→  async function dispatchFullClick(el) {
+  1362→    try { el.scrollIntoView({ block: 'center' }); } catch (e) {}
+  1363→    await sleep(120);
+  1364→    try { if (typeof el.focus === 'function') el.focus(); } catch (e) {}
+  1365→    let cx = 1, cy = 1;
+  1366→    try {
+  1367→      const r = el.getBoundingClientRect();
+  1368→      cx = Math.floor(r.left + r.width / 2) || 1;
+  1369→      cy = Math.floor(r.top + r.height / 2) || 1;
+  1370→    } catch (e) {}
+  1371→    const base = { bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy, button: 0, detail: 1 };
+  1372→    try { el.dispatchEvent(new PointerEvent('pointerover', Object.assign({}, base, { pointerId: 1, pointerType: 'mouse', buttons: 0, isPrimary: true }))); } catch (e) {}
+  1373→    try { el.dispatchEvent(new MouseEvent('mouseover', Object.assign({}, base, { buttons: 0 }))); } catch (e) {}
+  1374→    try { el.dispatchEvent(new PointerEvent('pointerenter', Object.assign({}, base, { pointerId: 1, pointerType: 'mouse', buttons: 0, isPrimary: true }))); } catch (e) {}
+  1375→    try { el.dispatchEvent(new MouseEvent('mouseenter', Object.assign({}, base, { buttons: 0 }))); } catch (e) {}
+  1376→    try { el.dispatchEvent(new MouseEvent('mousemove', base)); } catch (e) {}
+  1377→    try { el.dispatchEvent(new PointerEvent('pointerdown', Object.assign({}, base, { pointerId: 1, pointerType: 'mouse', buttons: 1, isPrimary: true }))); } catch (e) {}
+  1378→    try { el.dispatchEvent(new MouseEvent('mousedown', Object.assign({}, base, { buttons: 1 }))); } catch (e) {}
+  1379→    try { el.dispatchEvent(new PointerEvent('pointerup', Object.assign({}, base, { pointerId: 1, pointerType: 'mouse', buttons: 0, isPrimary: true }))); } catch (e) {}
+  1380→    try { el.dispatchEvent(new MouseEvent('mouseup', Object.assign({}, base, { buttons: 0 }))); } catch (e) {}
+  1381→    try { el.dispatchEvent(new MouseEvent('click', base)); } catch (e) {}
+  1382→    try { if (typeof el.click === 'function') el.click(); } catch (e) {}
+  1383→  }
+  1384→  async function tryOpenSidebar() {
+  1385→    if (isSidebarOpen()) return true;
+  1386→    const seen = new Set(), cands = [];
+  1387→    const pushC = (el) => { if (!el || seen.has(el)) return; if (!isVisible(el)) return; seen.add(el); cands.push(el); };
+  1388→    try { const q = document.querySelector('#sidebar-toggle-button'); if (q) pushC(q); } catch (e) {}
+  1389→    const sels = ['button[aria-label*="Main menu" i]','button[aria-label*="Side panel" i]','button[aria-label*="sidebar" i]','button[aria-label*="sidenav" i]','button[aria-label*="Toggle sidebar" i]','button[aria-label*="menu" i]','button[aria-label*="Open" i]','button[aria-label*="Открыть" i]','button[aria-label*="меню" i]','[class*="sidebar-toggle"]','[class*="menu-toggle"]','[class*="hamburger"]','.slide-switch'];
+  1390→    for (const sel of sels) {
+  1391→      try { document.querySelectorAll(sel).forEach(pushC); } catch (e) {}
+  1392→    }
+  1393→    for (const c of cands) {
+  1394→      try { await dispatchFullClick(c); if (await waitForDrawerOpen(2000)) return true; } catch (e) {}
+  1395→    }
+  1396→    return isSidebarOpen();
+  1397→  }
+  1398→  async function ensureSidebar() {
+  1399→    let ok = await tryOpenSidebar();
+  1400→    if (!ok) { await sleep(800); ok = await tryOpenSidebar(); }
+  1401→    if (!ok) { await sleep(1200); ok = await tryOpenSidebar(); }
+  1402→    return ok;
+  1403→  }
+  1404→
+  1405→  function extractItemsFromPanel(panel) {
+  1406→    if (!panel) return [];
+  1407→    const groups = {};
+  1408→    panel.querySelectorAll('*').forEach((el) => {
+  1409→      try {
+  1410→        if (el.closest && el.closest('#' + UI_ID)) return;
+  1411→        if (!looksLikeChatItem(el)) return;
+  1412→        if (el.children.length > 10) return;
+  1413→        let clickable = isClickable(el);
+  1414→        if (!clickable) { const anc = el.closest && el.closest('a[href], button, [role="button"], [role="listitem"]'); if (anc) clickable = true; }
+  1415→        if (!clickable) return;
+  1416→        const key = el.tagName;
+  1417→        (groups[key] = groups[key] || []).push(el);
+  1418→      } catch (e) {}
+  1419→    });
+  1420→    let best = null;
+  1421→    Object.keys(groups).forEach((key) => {
+  1422→      const els = groups[key];
+  1423→      if (els.length < 2) return;
+  1424→      const cleanList = els.filter((el) => !els.some((o) => o !== el && o.contains(el)));
+  1425→      if (cleanList.length < 2) return;
+  1426→      if (!best || cleanList.length > best.items.length) best = { key: key, items: cleanList };
+  1427→    });
+  1428→    if (!best) return [];
+  1429→    return best.items.map((el) => {
+  1430→      const ex = extractChatTarget(el);
+  1431→      const title = txt(el).slice(0, 120);
+  1432→      return { el: el, href: (ex && ex.href) || '', title: title, dataId: (ex && ex.id) || null };
+  1433→    });
+  1434→  }
+  1435→
+  1436→  function collectChatLinks(rootEl) {
+  1437→    const root = rootEl || document;
+  1438→    const out = [];
+  1439→    const seen = new Set();
+  1440→    const curUrl = location.href.split('?')[0].replace(/\/$/, '');
+  1441→    const push = (item) => {
+  1442→      if (!item || !item.el) return;
+  1443→      if (seen.has(item.el)) return;
+  1444→      for (let i = 0; i < out.length; i++) {
+  1445→        if (out[i].el === item.el) return;
+  1446→        if (out[i].el.contains(item.el) || item.el.contains(out[i].el)) return;
+  1447→      }
+  1448→      seen.add(item.el);
+  1449→      out.push(item);
+  1450→    };
+  1451→    const platform = getPlatform();
+  1452→    const hints = platform && platform.chatUrlHints;
+  1453→    // A) платформенные URL-подсказки
+  1454→    if (hints && hints.length) {
+  1455→      try {
+  1456→        root.querySelectorAll('a[href]').forEach((a) => {
+  1457→          if (!isVisible(a)) return;
+  1458→          const href = a.getAttribute('href') || '';
+  1459→          let matched = false;
+  1460→          for (const h of hints) { try { if (h.test(href)) { matched = true; break; } } catch (e) {} }
+  1461→          if (!matched) return;
+  1462→          if (!isChatUrl(a.href)) return;
+  1463→          const t = txt(a);
+  1464→          if (!t || t.length < 2 || t.length > 200) return;
+  1465→          if (looksLikeCode(t) || isNavKeyword(t)) return;
+  1466→          push({ el: a, href: a.href || '', title: t.slice(0, 120), dataId: null });
+  1467→        });
+  1468→      } catch (e) {}
+  1469→    }
+  1470→    // B) известные селекторы элементов чата
+  1471→    try {
+  1472→      const sel = 'a[aria-label="chat-item"], a.chat-item-drag-link, [class*="conversation-item"], [class*="chat-item"], [class*="history-item"], [class*="session-item"], [data-chat-id], [data-conversation-id], [data-session-id], [data-thread-id]';
+  1473→      root.querySelectorAll(sel).forEach((el) => {
+  1474→        if (!isVisible(el)) return;
+  1475→        const t = txt(el);
+  1476→        if (!t || t.length < 2 || t.length > 200) return;
+  1477→        if (looksLikeCode(t) || isNavKeyword(t)) return;
+  1478→        const extracted = extractChatTarget(el);
+  1479→        const innerA = el.querySelector('a[href]');
+  1480→        const dataId = el.getAttribute('data-chat-id') || el.getAttribute('data-conversation-id') || el.getAttribute('data-session-id') || el.getAttribute('data-thread-id') || (extracted && extracted.id) || null;
+  1481→        const href = (innerA && innerA.href) || (extracted && extracted.href) || '';
+  1482→        if (!href && !dataId) return;
+  1483→        if (href && href.split('?')[0].replace(/\/$/, '') === curUrl) return;
+  1484→        push({ el: el, href: href, title: t.slice(0, 120), dataId: dataId });
+  1485→      });
+  1486→    } catch (e) {}
+  1487→    // C) все ссылки того же origin, похожие на чат
+  1488→    try {
+  1489→      root.querySelectorAll('a[href]').forEach((a) => {
+  1490→        if (isInChatArea(a)) return;
+  1491→        if (!isVisible(a)) return;
+  1492→        const t = txt(a);
+  1493→        if (!t || t.length < 2 || t.length > 200) return;
+  1494→        if (isNavKeyword(t) || isCssOrJs(t) || isSourceListing(t) || looksLikeCode(t)) return;
+  1495→        try { const u = new URL(a.href, location.href); if (u.origin !== location.origin) return; } catch (e) { return; }
+  1496→        if (!isChatUrl(a.href)) return;
+  1497→        if (a.href.split('?')[0].replace(/\/$/, '') === curUrl) return;
+  1498→        push({ el: a, href: a.href || '', title: t.slice(0, 120), dataId: null });
+  1499→      });
+  1500→    } catch (e) {}
+  1501→    // D) элементы левой панели (группировка по тегу)
+  1502→    try {
+  1503→      const panel = (root === document) ? findLeftPanel() : root;
+  1504→      if (panel) extractItemsFromPanel(panel).forEach((it) => {
+  1505→        if (it.href && it.href.split('?')[0].replace(/\/$/, '') === curUrl) return;
+  1506→        push(it);
+  1507→      });
+  1508→    } catch (e) {}
+  1509→    return out;
+  1510→  }
+  1511→
+  1512→  function scanContainers(selector) {
+  1513→    let containers;
+  1514→    try { containers = document.querySelectorAll(selector); } catch (e) { return null; }
+  1515→    const cands = [];
+  1516→    for (const c of containers) {
+  1517→      if (c.closest && c.closest('#' + UI_ID)) continue;
+  1518→      if (!isLeftSide(c)) continue;
+  1519→      const links = collectChatLinks(c);
+  1520→      if (links.length >= 2) cands.push({ container: c, items: links, score: links.length, via: 'container' });
+  1521→    }
+  1522→    cands.sort((a, b) => b.score - a.score);
+  1523→    return cands[0] || null;
+  1524→  }
+  1525→  function findStructuralChatItems() {
+  1526→    const panel = findLeftPanel();
+  1527→    if (!panel) return null;
+  1528→    const items = extractItemsFromPanel(panel);
+  1529→    return items.length >= 2 ? { container: panel, items: items, score: items.length, via: 'left-panel' } : null;
+  1530→  }
+  1531→  function findClickableChatItems() {
+  1532→    const panel = findLeftPanel();
+  1533→    if (!panel) return null;
+  1534→    const items = [];
+  1535→    const curUrl = location.href.split('?')[0].replace(/\/$/, '');
+  1536→    let nl = [];
+  1537→    try { nl = panel.querySelectorAll('[role="button"], [role="link"], [role="listitem"], [tabindex]:not([tabindex="-1"]), button, li, a[aria-label="chat-item"], a.chat-item-drag-link, [class*="conversation-item"]'); } catch (e) {}
+  1538→    for (const el of nl) {
+  1539→      if (el.closest && el.closest('#' + UI_ID)) continue;
+  1540→      if (!isVisible(el)) continue;
+  1541→      if (el.children.length > 6) continue;
+  1542→      const t = txt(el);
+  1543→      if (!t || t.length < 2 || t.length > 120) continue;
+  1544→      if (looksLikeCode(t) || isNavKeyword(t) || isCssOrJs(t)) continue;
+  1545→      if (t.indexOf('\n') !== -1) continue;
+  1546→      const href = el.href || '';
+  1547→      if (href && href.split('?')[0].replace(/\/$/, '') === curUrl) continue;
+  1548→      items.push({ el: el, href: href, title: t.slice(0, 120), dataId: null });
+  1549→    }
+  1550→    if (items.length >= 2) return { container: panel, items: items, score: items.length, via: 'click-items' };
+  1551→    return null;
+  1552→  }
+  1553→  function findList() {
+  1554→    const platform = getPlatform();
+  1555→    const strategies = [];
+  1556→    if (platform && platform.sidebarSelectors && platform.sidebarSelectors.length) {
+  1557→      strategies.push({ name: 'platform', fn: () => scanContainers(platform.sidebarSelectors.join(',')) });
+  1558→    }
+  1559→    strategies.push({ name: 'generic', fn: () => scanContainers('nav,aside,[role="navigation"],[class*="sidebar"],[class*="history"],[class*="chat-list"],[class*="conversation-list"],[class*="sider"]') });
+  1560→    strategies.push({ name: 'conversation-item', fn: () => {
+  1561→      const items = [];
+  1562→      try {
+  1563→        document.querySelectorAll('[class*="conversation-item"], a[id^="conversation_"]').forEach((el) => {
+  1564→          const t = txt(el);
+  1565→          if (!t || t.length < 2) return;
+  1566→          const href = el.href || '';
+  1567→          if (href && href.split('?')[0] === location.href.split('?')[0]) return;
+  1568→          items.push({ el: el, href: href, title: t.slice(0, 120), dataId: null });
+  1569→        });
+  1570→      } catch (e) {}
+  1571→      return items.length >= 2 ? { container: null, items: items, score: items.length, via: 'conversation-item' } : null;
+  1572→    } });
+  1573→    strategies.push({ name: 'structural', fn: findStructuralChatItems });
+  1574→    strategies.push({ name: 'click-items', fn: findClickableChatItems });
+  1575→    for (const st of strategies) {
+  1576→      try {
+  1577→        const r = st.fn();
+  1578→        if (r && r.items && r.items.length >= 2) return r;
+  1579→      } catch (e) {}
+  1580→    }
+  1581→    // последний шанс: все ссылки документа
+  1582→    const docLinks = collectChatLinks(document).filter((it) => it.href || it.dataId);
+  1583→    if (docLinks.length >= 2) return { container: null, items: docLinks, score: docLinks.length, via: 'doc-links', fallback: true };
+  1584→    return null;
+  1585→  }
+  1586→  async function prescrollList(container) {
+  1587→    if (!container) return;
+  1588→    const step = Math.max(200, Math.floor(container.clientHeight * 0.8));
+  1589→    for (let k = 0; k < 4; k++) {
+  1590→      container.scrollTop = 0; await sleep(150);
+  1591→      for (let y = 0; y < container.scrollHeight; y += step) { container.scrollTop = y; await sleep(120); }
+  1592→      container.scrollTop = container.scrollHeight; await sleep(200);
+  1593→    }
+  1594→    container.scrollTop = 0; await sleep(150);
+  1595→  }
+  1596→
+  1597→  // ============ МАНИФЕСТ (onlyNew) И СЕССИЯ (RESUME) ============
+  1598→  const MANIFEST_KEY = 'uaice_manifest_v1';
+  1599→  const SESSION_KEY = 'uaice_bulk_v1';
+  1600→  function loadManifest() { try { return JSON.parse(safeStorageGet(MANIFEST_KEY) || '{}'); } catch (e) { return {}; } }
+  1601→  function saveManifest(m) { safeStorageSet(MANIFEST_KEY, JSON.stringify(m)); }
+  1602→  function chatHash(s) { return s.items.map((x) => x.role + ':' + (x.text || '').length).join('|'); }
+  1603→  function loadSession() { try { const s = JSON.parse(safeStorageGet(SESSION_KEY) || 'null'); return (s && Array.isArray(s.items)) ? s : null; } catch (e) { return null; } }
+  1604→  function saveSession(s) { safeStorageSet(SESSION_KEY, JSON.stringify(s)); }
+  1605→  function clearSession() { safeStorageRemove(SESSION_KEY); }
+  1606→
+  1607→  function askOptions() {
+  1608→    return {
+  1609→      filter: (safeStorageGet('uaice_filter') || '').toLowerCase(),
+  1610→      onlyNew: safeStorageGet('uaice_onlynew') === '1',
+  1611→      exportThinking: safeStorageGet('uaice_think') === '1',
+  1612→      stripThinking: safeStorageGet('uaice_strip') === '1'
+  1613→    };
+  1614→  }
+  1615→
+  1616→  // ============ КОПИРОВАНИЕ ============
+  1617→  async function copyTextToClipboard(text) {
+  1618→    if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(text); return; }
+  1619→    const ta = document.createElement('textarea');
+  1620→    ta.value = text; ta.style.cssText = 'position:fixed;left:-9999px;top:0;';
+  1621→    (document.body || document.documentElement).appendChild(ta);
+  1622→    ta.select(); document.execCommand('copy'); ta.remove();
+  1623→  }
+  1624→  async function copyCurrentMd(options) {
+  1625→    await autoScroll(null);
+  1626→    const scraped = scrape(options);
+  1627→    if (!scraped.items.length) throw new Error('Сообщения не найдены');
+  1628→    await copyTextToClipboard(toMarkdown(scraped, pageTitle()));
+  1629→    return scraped.items.length;
+  1630→  }
+  1631→  // Промпт-перенос: диалог в формате для продолжения в другом AI (фича v24)
+  1632→  async function copyContinuePrompt(options) {
+  1633→    await autoScroll(null);
+  1634→    const scraped = scrape(options);
+  1635→    if (!scraped.items.length) throw new Error('Сообщения не найдены');
+  1636→    const L = ['# Перенос диалога в другой AI', '', 'Продолжи диалог ниже. История от другого AI-ассистента:', ''];
+  1637→    scraped.items.forEach((m) => {
+  1638→      L.push(m.role === 'user' ? 'USER:' : 'ASSISTANT:');
+  1639→      L.push(m.text || m.content);
+  1640→      L.push('');
+  1641→    });
+  1642→    L.push('---', 'Продолжи с этого места. Не пересказывай, отвечай как продолжение.');
+  1643→    await copyTextToClipboard(L.join('\n'));
+  1644→    return scraped.items.length;
+  1645→  }
+  1646→
+  1647→  // ============ ЭКСПОРТ ТЕКУЩЕГО ЧАТА ============
+  1648→  async function exportCurrent(format, options, statusFn) {
+  1649→    if (statusFn) statusFn('Ищу сообщения...');
+  1650→    await autoScroll(statusFn);
+  1651→    let scraped = scrape(options);
+  1652→    if (!scraped.items.length) {
+  1653→      for (let i = 0; i < 20; i++) {
+  1654→        await sleep(500);
+  1655→        if (statusFn) statusFn('Жду текста... (' + (i + 1) + ')');
+  1656→        scraped = scrape(options);
+  1657→        if (scraped.items.length > 0) break;
+  1658→      }
+  1659→    }
+  1660→    if (!scraped.items.length) {
+  1661→      const snap = snapshotScrape();
+  1662→      if (snap) {
+  1663→        await saveInFormat(snap, pageTitle() + '-snapshot', format === 'zip' ? 'md' : format);
+  1664→        return { count: 1, snapshot: true };
+  1665→      }
+  1666→      debugDump();
+  1667→      throw new Error('Сообщения не найдены. F12 → Console.');
+  1668→    }
+  1669→    await saveInFormat(scraped, pageTitle(), format);
+  1670→    return { count: scraped.items.length };
+  1671→  }
+  1672→
+  1673→  // ============ МАССОВЫЙ ЭКСПОРТ (тот же таб) ============
+  1674→  async function exportAllSameTab(format, options, statusFn, session) {
+  1675→    let items = null, startIdx = 0;
+  1676→    if (session && Array.isArray(session.items) && session.items.length) {
+  1677→      items = session.items;
+  1678→      startIdx = Math.max(0, Math.min(session.idx || 0, items.length - 1));
+  1679→      if (statusFn) statusFn('▶ Продолжаю с ' + (startIdx + 1) + '/' + items.length);
+  1680→      await ensureSidebar();
+  1681→    } else {
+  1682→      await ensureSidebar();
+  1683→      let list = findList();
+  1684→      if (list && list.container) { await prescrollList(list.container); list = findList() || list; }
+  1685→      if (!list) throw new Error('Список чатов не найден.');
+  1686→      const deduped = [], seen = new Set();
+  1687→      list.items.forEach((it) => {
+  1688→        const key = it.href || it.dataId || it.el;
+  1689→        if (!key || seen.has(key)) return;
+  1690→        if (!it.title || it.title.length < 2) return;
+  1691→        seen.add(key);
+  1692→        let id = it.dataId, href = it.href;
+  1693→        if (!id && it.el) {
+  1694→          const ex = extractChatTarget(it.el);
+  1695→          if (ex.id) id = ex.id;
+  1696→          if (!href && ex.href) href = ex.href;
+  1697→        }
+  1698→        deduped.push({ title: it.title, href: href || '', dataId: id || null, el: it.el });
+  1699→      });
+  1700→      if (deduped.length < 2) {
+  1701→        console.log('[UAICE] Сырых элементов списка: ' + (list.items ? list.items.length : 0) + ', после дедупа: ' + deduped.length);
+  1702→        throw new Error('В списке меньше двух чатов.');
+  1703→      }
+  1704→      items = deduped;
+  1705→    }
+  1706→    if (options && options.filter) {
+  1707→      items = items.filter((it) => (it.title || '').toLowerCase().indexOf(options.filter) !== -1);
+  1708→      if (!items.length) { clearSession(); throw new Error('Фильтр "' + options.filter + '" не дал совпадений.'); }
+  1709→    }
+  1710→    if (statusFn) statusFn('Найдено ' + items.length + ' чатов.');
+  1711→    if (!session) saveSession({ mode: 'same', fmt: format, items: items.map((x) => ({ title: x.title, href: x.href, dataId: x.dataId })), idx: 0 });
+  1712→
+  1713→    const results = [], failures = [];
+  1714→    const manifest = loadManifest();
+  1715→    let lastChatFp = '', skipped = 0;
+  1716→
+  1717→    for (let i = startIdx; i < items.length; i++) {
+  1718→      if (CANCEL) { if (statusFn) statusFn('⏹ Остановлено. ' + progress(i, items.length, 'Продолжите кнопкой ▶')); saveSession({ mode: 'same', fmt: format, items: items.map((x) => ({ title: x.title, href: x.href, dataId: x.dataId })), idx: i }); return { results, failures, total: items.length, skipped, stopped: true }; }
+  1719→      const it = items[i];
+  1720→      if (statusFn) statusFn(progress(i, items.length, it.title.slice(0, 30)));
+  1721→      try {
+  1722→        const beforeHref = location.href;
+  1723→        const fpBefore = fingerprint();
+  1724→        const activated = await activateChatItem(it);
+  1725→        if (!activated) throw new Error('клик не сработал — используйте "🗂 Все (вкладками)"');
+  1726→        const ok = await waitStable(fpBefore, beforeHref);
+  1727→        if (!ok) throw new Error('контент не догрузился');
+  1728→        await autoScroll(statusFn);
+  1729→        await sleep(500);
+  1730→        const scraped = scrape(options);
+  1731→        if (!scraped.items.length) throw new Error('сообщения не найдены');
+  1732→        const chatFp = chatHash(scraped);
+  1733→        if (options && options.onlyNew) {
+  1734→          const mkey = it.href || it.dataId || it.title;
+  1735→          if (manifest[mkey] && manifest[mkey].hash === chatFp) {
+  1736→            skipped++;
+  1737→            console.log('  ⏭ ' + it.title + ' (уже экспортирован)');
+  1738→            continue;
+  1739→          }
+  1740→        }
+  1741→        if (chatFp === lastChatFp && location.href === beforeHref) throw new Error('дубликат');
+  1742→        lastChatFp = chatFp;
+  1743→        results.push({ title: it.title, scraped: scraped, url: location.href });
+  1744→        const mk2 = it.href || location.href;
+  1745→        manifest[mk2] = { hash: chatFp, exported_at: new Date().toISOString(), title: it.title };
+  1746→        saveManifest(manifest);
+  1747→        console.log('  ✓ ' + it.title + ' — ' + scraped.items.length);
+  1748→      } catch (e) {
+  1749→        console.warn('  ✗ ' + it.title + ': ' + e.message);
+  1750→        failures.push({ title: it.title, url: it.href || '', error: e.message });
+  1751→      }
+  1752→      saveSession({ mode: 'same', fmt: format, items: items.map((x) => ({ title: x.title, href: x.href, dataId: x.dataId })), idx: i + 1 });
+  1753→      await sleep(300);
+  1754→    }
+  1755→    clearSession();
+  1756→    return { results, failures, total: items.length, skipped };
+  1757→  }
+  1758→
+  1759→  // ============ МАССОВЫЙ ЭКСПОРТ (ДОЧЕРНИЕ ВКЛАДКИ) ============
+  1760→  window.addEventListener('message', (event) => {
+  1761→    if (event.source === window) return;
+  1762→    const d = event.data;
+  1763→    if (!d || d.type !== MSG_REQ || !d.nonce) return;
+  1764→    if (tabsExportRunning) return;
+  1765→    const respond = (payload) => {
+  1766→      try { event.source.postMessage(Object.assign({ type: MSG_RES, nonce: d.nonce }, payload), event.origin === 'null' ? '*' : event.origin); } catch (e) {}
+  1767→    };
+  1768→    (async () => {
+  1769→      try {
+  1770→        await autoScroll(null);
+  1771→        await waitStable(fingerprint(), location.href);
+  1772→        const scraped = scrape(d.options || {});
+  1773→        respond({ ok: scraped.items.length > 0, url: location.href, title: pageTitle() || document.title, data: scraped });
+  1774→      } catch (e) { respond({ ok: false, url: location.href, title: document.title, error: String(e && e.message || e) }); }
+  1775→    })();
+  1776→  });
+  1777→
+  1778→  function waitForChildResult(child, nonce, timeout, options) {
+  1779→    return new Promise((resolve) => {
+  1780→      let done = false, timer = null, pingTimer = null;
+  1781→      const finish = (v) => {
+  1782→        if (done) return; done = true;
+  1783→        try { window.removeEventListener('message', listener); } catch (e) {}
+  1784→        if (timer) clearTimeout(timer);
+  1785→        if (pingTimer) clearInterval(pingTimer);
+  1786→        resolve(v);
+  1787→      };
+  1788→      const listener = (event) => {
+  1789→        const d = event.data;
+  1790→        if (!d || d.type !== MSG_RES || d.nonce !== nonce) return;
+  1791→        if (event.source !== child) return;
+  1792→        finish(d);
+  1793→      };
+  1794→      window.addEventListener('message', listener);
+  1795→      timer = setTimeout(() => finish({ ok: false, error: 'тайм-аут дочерней вкладки' }), timeout);
+  1796→      const ping = () => {
+  1797→        try { child.postMessage({ type: MSG_REQ, nonce: nonce, options: options || {} }, '*'); }
+  1798→        catch (e) { finish({ ok: false, error: String(e && e.message || e) }); }
+  1799→      };
+  1800→      ping();
+  1801→      pingTimer = setInterval(() => { if (!done) ping(); }, 1500);
+  1802→    });
+  1803→  }
+  1804→
+  1805→  async function exportAllTabs(format, options, statusFn, session) {
+  1806→    let items = null, startIdx = 0;
+  1807→    if (session && Array.isArray(session.items) && session.items.length) {
+  1808→      items = session.items;
+  1809→      startIdx = Math.max(0, Math.min(session.idx || 0, items.length - 1));
+  1810→      await ensureSidebar();
+  1811→    } else {
+  1812→      await ensureSidebar();
+  1813→      let list = findList();
+  1814→      if (list && list.container) { await prescrollList(list.container); list = findList() || list; }
+  1815→      if (!list) throw new Error('Список чатов не найден.');
+  1816→      const deduped = [], seen = new Set();
+  1817→      list.items.forEach((it) => {
+  1818→        let href = it.href;
+  1819→        if (!href && it.dataId) href = buildChatUrl(it.dataId);
+  1820→        if (!href && it.el) {
+  1821→          const ex = extractChatTarget(it.el);
+  1822→          if (ex.href) href = ex.href;
+  1823→          else if (ex.id) href = buildChatUrl(ex.id);
+  1824→        }
+  1825→        if (!href) return;
+  1826→        if (seen.has(href)) return;
+  1827→        if (!it.title || it.title.length < 2) return;
+  1828→        seen.add(href);
+  1829→        deduped.push({ title: it.title, href: href, dataId: it.dataId || null });
+  1830→      });
+  1831→      if (deduped.length < 2) throw new Error('Меньше двух чатов с URL.');
+  1832→      items = deduped;
+  1833→    }
+  1834→    if (options && options.filter) {
+  1835→      items = items.filter((it) => (it.title || '').toLowerCase().indexOf(options.filter) !== -1);
+  1836→      if (!items.length) { clearSession(); throw new Error('Фильтр "' + options.filter + '" не дал совпадений.'); }
+  1837→    }
+  1838→    if (!session) saveSession({ mode: 'tabs', fmt: format, items: items.map((x) => ({ title: x.title, href: x.href, dataId: x.dataId || null })), idx: 0 });
+  1839→
+  1840→    tabsExportRunning = true;
+  1841→    const results = [], failures = [];
+  1842→    const manifest = loadManifest();
+  1843→    let skipped = 0;
+  1844→    try {
+  1845→      for (let i = startIdx; i < items.length; i++) {
+  1846→        if (CANCEL) {
+  1847→          if (statusFn) statusFn('⏹ Остановлено. ' + progress(i, items.length, 'Продолжите кнопкой ▶'));
+  1848→          saveSession({ mode: 'tabs', fmt: format, items: items.map((x) => ({ title: x.title, href: x.href, dataId: x.dataId || null })), idx: i });
+  1849→          return { results, failures, total: items.length, skipped, stopped: true };
+  1850→        }
+  1851→        const it = items[i];
+  1852→        if (statusFn) statusFn('Вкладки ' + progress(i, items.length, it.title.slice(0, 26)));
+  1853→        const nonce = Date.now() + '-' + Math.random().toString(36).slice(2);
+  1854→        let child = null;
+  1855→        try {
+  1856→          child = window.open(it.href, '_blank');
+  1857→          if (!child) throw new Error('POPUP_BLOCKED');
+  1858→          await sleep(800);
+  1859→          const response = await waitForChildResult(child, nonce, CFG.TAB_CHILD_TIMEOUT, options);
+  1860→          if (!response.ok) throw new Error(response.error || 'нет данных');
+  1861→          if (!response.data || !Array.isArray(response.data.items) || !response.data.items.length) throw new Error('пусто');
+  1862→          const chatFp = chatHash(response.data);
+  1863→          if (options && options.onlyNew) {
+  1864→            if (manifest[it.href] && manifest[it.href].hash === chatFp) { skipped++; continue; }
+  1865→          }
+  1866→          results.push({ title: response.title || it.title, url: response.url || it.href, scraped: response.data });
+  1867→          manifest[it.href] = { hash: chatFp, exported_at: new Date().toISOString(), title: it.title };
+  1868→          saveManifest(manifest);
+  1869→        } catch (e) {
+  1870→          const msg = e.message === 'POPUP_BLOCKED' ? 'popup заблокирован' : String(e && e.message || e);
+  1871→          failures.push({ title: it.title, url: it.href, error: msg });
+  1872→          if (e.message === 'POPUP_BLOCKED' && results.length === 0 && i === 0) throw new Error('Всплывающие окна заблокированы.');
+  1873→        } finally { try { if (child) child.close(); } catch (e) {} }
+  1874→        saveSession({ mode: 'tabs', fmt: format, items: items.map((x) => ({ title: x.title, href: x.href, dataId: x.dataId || null })), idx: i + 1 });
+  1875→        await sleep(200);
+  1876→      }
+  1877→    } finally { tabsExportRunning = false; }
+  1878→    clearSession();
+  1879→    return { results, failures, total: items.length, skipped };
+  1880→  }
+  1881→
+  1882→  async function exportAll(format, mode, options, statusFn, session) {
+  1883→    const inner = format === 'zip' ? resolveInner() : format;
+  1884→    const outcome = (mode === 'tabs')
+  1885→      ? await exportAllTabs(format, options, statusFn, session)
+  1886→      : await exportAllSameTab(format, options, statusFn, session);
+  1887→    await finalizeResults(outcome.results, outcome.failures, format, inner, statusFn);
+  1888→    return { ok: outcome.results.length, fail: outcome.failures.length, total: outcome.total, skipped: outcome.skipped || 0, stopped: !!outcome.stopped };
+  1889→  }
+  1890→
+  1891→  // ============ ДИАГНОСТИКА ============
+  1892→  function debugDump() {
+  1893→    try { console.groupCollapsed('%c[UAICE v' + SCRIPT_VER + '] DEBUG', 'color:#4af;font-weight:bold'); } catch (e) {}
+  1894→    console.log('URL:', location.href);
+  1895→    const platform = getPlatform();
+  1896→    console.log('Платформа:', platform ? platform.name : 'не определена');
+  1897→    const s = scrape({ exportThinking: true });
+  1898→    console.log('Найдено:', s.items.length, 'источник:', s.source, '| картинок:', s.images.length, '| вложений:', s.attachments.length);
+  1899→    s.items.slice(0, 20).forEach((m, i) => console.log('  [' + i + '] role=' + m.role + ' len=' + (m.text || '').length + ' text="' + (m.text || '').slice(0, 120) + '..."'));
+  1900→    const sc = findScrollContainer();
+  1901→    console.log('Скролл-контейнер:', sc ? { clientHeight: sc.clientHeight, scrollHeight: sc.scrollHeight } : null);
+  1902→    const list = findList();
+  1903→    console.log('Список чатов:', list ? list.items.length + ' (via ' + list.via + ')' : 'НЕ НАЙДЕН');
+  1904→    if (list) console.table(list.items.slice(0, 30).map((x, i) => ({ idx: i, title: String(x.title || '').slice(0, 50), href: String(x.href || '').slice(0, 70), dataId: x.dataId || '' })));
+  1905→    const sess = loadSession();
+  1906→    if (sess) console.log('Незавершённый экспорт:', sess.idx + '/' + sess.items.length, 'формат:', sess.fmt, 'режим:', sess.mode);
+  1907→    try { console.groupEnd(); } catch (e) {}
+  1908→    return s;
+  1909→  }
+  1910→
+  1911→  function exportDebugReport() {
+  1912→    const platform = getPlatform();
+  1913→    const report = {
+  1914→      meta: { exporter: 'UACE v' + SCRIPT_VER, generated_at: new Date().toISOString(), url: location.href, userAgent: navigator.userAgent },
+  1915→      environment: {
+  1916→        hostname: location.hostname, pathname: location.pathname,
+  1917→        platform: platform ? platform.name : null,
+  1918→        msgSelectors: platform ? platform.msgSelectors : [],
+  1919→        sidebarSelectors: platform ? (platform.sidebarSelectors || []) : []
+  1920→      },
+  1921→      dom: {
+  1922→        totalNodes: document.querySelectorAll('*').length,
+  1923→        links: document.querySelectorAll('a[href]').length,
+  1924→        shadowRoots: collectShadowRoots().length,
+  1925→        chatClassEls: document.querySelectorAll('[class*="chat"],[class*="message"]').length
+  1926→      },
+  1927→      scrape: (function () { try { const s = scrape({}); return { items_count: s.items.length, source: s.source, images: s.images.length }; } catch (e) { return { error: String(e && e.message || e) }; } })(),
+  1928→      list: (function () { try { const l = findList(); return l ? { via: l.via, count: l.items.length } : null; } catch (e) { return { error: String(e && e.message || e) }; } })(),
+  1929→      session: loadSession()
+  1930→    };
+  1931→    downloadBlob(JSON.stringify(report, null, 2), 'uaice-debug-' + ts() + '.json', 'application/json;charset=utf-8');
+  1932→  }
+  1933→
+  1934→  function debugSniffer() {
+  1935→    function snap(el, depth, maxDepth) {
+  1936→      if (!el || depth > maxDepth) return null;
+  1937→      let r;
+  1938→      try { r = el.getBoundingClientRect(); } catch (e) { r = { width: 0, height: 0, left: 0, top: 0 }; }
+  1939→      const vis = r.width > 0 && r.height > 0;
+  1940→      let t = '';
+  1941→      if (el.children.length === 0) { try { t = dedupeText((el.textContent || '').trim()).slice(0, 100); } catch (e) {} }
+  1942→      const attrs = {};
+  1943→      for (let i = 0; i < el.attributes.length; i++) {
+  1944→        const a = el.attributes[i];
+  1945→        if (/^data-|^aria-|^role$|^href$|^id$|^class$/i.test(a.name)) attrs[a.name] = String(a.value).slice(0, 120);
+  1946→      }
+  1947→      const kids = [];
+  1948→      if (depth < maxDepth) for (let j = 0; j < el.children.length && j < 30; j++) { const s = snap(el.children[j], depth + 1, maxDepth); if (s) kids.push(s); }
+  1949→      return { tag: el.tagName.toLowerCase(), cls: (typeof el.className === 'string' ? el.className : '').slice(0, 200), id: el.id || '', attrs: attrs, rect: [Math.round(r.width), Math.round(r.height), Math.round(r.left), Math.round(r.top)], vis: vis, text: t, childCount: el.children.length, children: kids };
+  1950→    }
+  1951→    const platform = getPlatform();
+  1952→    const report = { meta: { url: location.href, hostname: location.hostname, ver: SCRIPT_VER, ts: now() }, platform: platform ? platform.name : null, leftPanel: null, chatItemCandidates: [], messageCandidates: [], summary: {} };
+  1953→    try { const lp = findLeftPanel(); if (lp) report.leftPanel = snap(lp, 0, 3); } catch (e) {}
+  1954→    try { const l = findList(); if (l) report.chatItemCandidates = l.items.slice(0, 40).map((it) => ({ title: (it.title || '').slice(0, 80), href: (it.href || '').slice(0, 120) })); } catch (e) {}
+  1955→    try {
+  1956→      const m = findMessages();
+  1957→      if (m) report.messageCandidates = m.items.slice(0, 40).map((el) => ({ tag: el.tagName.toLowerCase(), cls: (typeof el.className === 'string' ? el.className : '').slice(0, 120), textLen: (txt(el) || '').length, text: (txt(el) || '').slice(0, 100) }));
+  1958→    } catch (e) {}
+  1959→    report.summary = { chatItems: report.chatItemCandidates.length, messageCandidates: report.messageCandidates.length, sidebarDetected: !!report.leftPanel };
+  1960→    downloadBlob(JSON.stringify(report, null, 2), 'uaice-sniffer-' + sanitize(location.hostname) + '-' + ts() + '.json', 'application/json;charset=utf-8');
+  1961→  }
+  1962→
+  1963→  // ============ UI (стиль v20 + drag + настройки + бейдж) ============
+  1964→  function buildUI() {
+  1965→    if (document.getElementById(UI_ID)) return;
+  1966→    if (!document.body) return;
+  1967→    injectModernStyles();
+  1968→
+  1969→    const w = document.createElement('div');
+  1970→    w.id = UI_ID;
+  1971→
+  1972→    const box = document.createElement('div');
+  1973→    box.className = 'box';
+  1974→    w.appendChild(box);
+  1975→
+  1976→    const st = document.createElement('div');
+  1977→    st.className = 'status';
+  1978→
+  1979→    const badge = document.createElement('button');
+  1980→    badge.textContent = '🤖';
+  1981→    badge.title = 'Universal AI Chat Exporter v' + SCRIPT_VER + ' — клик, чтобы развернуть';
+  1982→    badge.style.cssText = 'display:none;padding:8px 11px;border-radius:50%;background:#1f2937;color:#fff;font-size:16px;line-height:1;cursor:pointer;border:0;';
+  1983→
+  1984→    const mini = document.createElement('div');
+  1985→    mini.className = 'mini';
+  1986→
+  1987→    function btn(label) {
+  1988→      const b = document.createElement('button');
+  1989→      b.textContent = label;
+  1990→      return b;
+  1991→    }
+  1992→
+  1993→    // Grip-заголовок: название + кнопка сворачивания, служит ручкой перетаскивания.
+  1994→    const grip = document.createElement('div');
+  1995→    grip.className = 'grip';
+  1996→    const gripTitle = document.createElement('span');
+  1997→    gripTitle.className = 'title';
+  1998→    gripTitle.textContent = '≡ UACE v' + SCRIPT_VER + ' ULTIMATE';
+  1999→    const b0 = btn('—');
+  2000→    b0.title = 'Свернуть в 🤖';
+
+[showing lines 1-2000 of 2304; use offset=2001 with limit to continue reading]

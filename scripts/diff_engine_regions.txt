@@ -1,0 +1,47 @@
+====================================================================================================
+### activateChatItem  (v27.1 @1965+57  vs  v27.2.0 @2394+56)
+--- v271
++++ v272
+@@ -48,9 +48,8 @@
+     }
+-    // ПОСЛЕДНИЙ РЕЗЕРВ: прямая навигация по href/dataId (полная перезагрузка;
+-    // сессия уже сохранена — продолжение кнопкой «▶ Продолжить» после рестарта)
++    // ПОСЛЕДНИЙ РЕЗЕРВ (v26.1): прямая навигация по href/dataId (полная перезагрузка).
++    // Сессия сохранена; перед переходом ставится флаг uaice_nav — после рестарта
++    // boot продолжит масс-сбор сам (авто-резюм), без ручного «▶ Продолжить».
+     let url = it.href || '';
+     if (!url && it.dataId) { try { url = buildChatUrl(it.dataId) || ''; } catch (e) {} }
+-    if (url && url.split('#')[0] !== location.href.split('#')[0]) {
+-      try { location.href = url; await sleep(1200); return true; } catch (e) {}
+-    }
++    if (url && navByURL(url)) { await sleep(1200); return true; }
+     return false;
+====================================================================================================
+### exportAllSameTab  (v27.1 @2024+96  vs  v27.2.0 @2452+96)
+ИДЕНТИЧНЫ
+====================================================================================================
+### exportAllTabs  (v27.1 @2167+78  vs  v27.2.0 @2607+78)
+ИДЕНТИЧНЫ
+====================================================================================================
+### boot-region  (v27.1 @3156+14  vs  v27.2.0 @3416+27)
+--- v271
++++ v272
+@@ -4,4 +4,17 @@
+     const p = getPlatform();
+-    console.log('[UAICE v' + SCRIPT_VER + ' HUMAN-FIRST] Готов. Платформа: ' + (p ? p.name : 'универсальный режим') + '. Форматы: ' + FORMATS.join('/') + '. Хранилище манифеста: ' + (HAS_IDB ? 'IndexedDB' : 'localStorage'));
++    console.log('[UAICE v' + SCRIPT_VER + ' STYLES] Готов. Платформа: ' + (p ? p.name : 'универсальный режим') + '. Форматы: ' + FORMATS.join('/') + '. Стилей PDF/HTML: ' + Object.keys(TPL_STYLES).length + ' (дефолт: Имперский — тёмный фон + золото, выбор в панели). Хранилище манифеста: ' + (HAS_IDB ? 'IndexedDB' : 'localStorage') + '. Забота: контраст ≥4.5:1, цели ≥44px, строка ≤66ch, тёплый вечер, ноль прерываний.');
+     getManifest().catch(() => {});
++    // v26.1 (из RESTORED): автопродолжение после перехода по URL. navByURL ставит
++    // флаг uaice_nav перед location.assign; после перезагрузки докручиваем сессию сами.
++    if (safeStorageGet('uaice_nav') === '1') {
++      safeStorageRemove('uaice_nav');
++      if (safeStorageGet('uaice_cancel') === '1') {
++        safeStorageRemove('uaice_cancel');
++        console.log('[UAICE] Переход после ручной остановки — автопродолжение отменено (сессия сохранена, кнопка ▶).');
++        return;
++      }
++      setTimeout(() => {
++        try { if (window.__UAICE_UI__ && window.__UAICE_UI__.autoResume) window.__UAICE_UI__.autoResume(); } catch (e) {}
++      }, 2500);
++    }
+   }

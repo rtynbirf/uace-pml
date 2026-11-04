@@ -1,0 +1,39 @@
+# UACE × PML — Universal AI Chat Exporter
+
+Userscript-экспортёр диалогов ИИ (36 платформ: ChatGPT, Claude, Gemini, DeepSeek,
+Kimi, Qwen, Grok, Copilot и др.) по канонам **PML-PANEL 1.0** и **PML-STRUCT r1+r2**.
+
+Главный принцип — **Evidence First**: каждый результат несёт
+`{value, evidence, confidence, source, strategy}`; «не уверен» → `unknown`, догадки запрещены.
+
+## Текущий финал
+
+| Сборка | Файл | md5 | Проверки |
+|---|---|---|---|
+| **v29.0.1-evidence** (HOTFIX H1–H13) | `download/uace-pml-v29.0.1-evidence.user.js` | `8e267bf454c08cdaabf183aa24d0d7ad` | node --check PASS · core 195/195 · статик 21/21 · смоук 10/10 |
+| v29.0.0 (база) | `download/uace-pml-v29.0.0-evidence.user.js` | `1472df4fbebea1d5d7917d04cfb28b6c` | core 110/110 · статик 15/15 |
+| v28.3.0 (откат) | `download/uace-pml-v28.3.0-unified.user.js` | `c2508271b9927e82652af4dbc718da07` | стабильная |
+
+ZIP-доставка: `download/UACE-PML-v29.0.1-HOTFIX.zip` (сборка + МАНИФЕСТ-md5 + 00-ПРОЧТИ-МЕНЯ).
+
+## Структура
+
+- `download/` — деливераблы: сборки `.user.js`, ZIP-архивы, скриншоты смоука, документы линии (PML-*).
+- `scripts/v29/` — исходники слоёв `p1_header_core → p2_runtime_evidence → p3_platforms → p4_capture_storage → p5_orchestrator → p6_ui_pml` (склейка строго в этом порядке).
+- `scripts/` — тесты и инструменты: `test_v291_core.mjs` (195), `verify_v291.py` (статик 21), `build_v291_package.py` (воспроизводимый сборщик пакета), смоук-стенды.
+- `scripts/final-stage/` — задание на v29.0.1 и контрольные копии.
+- `worklog.md` — журнал задач (Task ID + Work Log + Stage Summary).
+
+## Как проверить / собрать
+
+```bash
+node --check download/uace-pml-v29.0.1-evidence.user.js
+node scripts/test_v291_core.mjs          # CORE: 195 PASS, 0 FAIL
+python3 scripts/verify_v291.py           # 21/21 PASS
+python3 scripts/build_v291_package.py    # полная пересборка ZIP с самопроверкой
+```
+
+## Приватность
+
+`upload/` и `.env` вне репо (в `.gitignore`). Экспортёр по умолчанию делает
+0 внешних запросов; сеть — только по явной опции с журналом (см. §3/§4 аудита в шапке сборки).

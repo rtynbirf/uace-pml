@@ -1,0 +1,649 @@
+     1→  // ============ UI v27 HUMAN-FIRST (по нормам MAKT-2026 / GOLOGRAMMA) ============
+     2→  // Девять норм вшиты в панель: контраст WCAG 2.2 1.4.3 (без чистого ч/б 21:1),
+     3→  // APCA Lc75, строка 45-75 знаков, мерцание 0 Гц, тёплый вечер (Harvard, 460-480 нм),
+     4→  // цели касания >=44px, поле зрения 4-6 контролов (Коэн 2015: 4±1), ноль попапов
+     5→  // (Gloria Mark: 23 мин возврата), кегль >=14px, без тонких начертаний.
+     6→  // Автоном по построению: system-ui шрифты, ноль CDN по умолчанию (PDF = печать браузера).
+     7→
+     8→  // --- Палитры (просчитаны по WCAG; чистые чёрный/белый запрещены — Zhang 2023) ---
+     9→  const HF_PALETTES = {
+    10→    light: { bg:'#fbfbfd', surface:'#ffffff', tx:'#1d1d1f', tx2:'#55555c', line:'#d9d9e0',
+    11→             accent:'#0b66c3', accentTx:'#ffffff', ok:'#1d7a3c', warn:'#a04b00',
+    12→             btn:'#ffffff', btnHover:'#f0f0f4', btnTx:'#1d1d1f', ring:'rgba(11,102,195,.55)' },
+    13→    dark:  { bg:'#1d1d24', surface:'#26262e', tx:'#f2f2f6', tx2:'#b9b9c3', line:'#43434e',
+    14→             accent:'#74b3ff', accentTx:'#10131a', ok:'#6fd08c', warn:'#ffb066',
+    15→             btn:'#2d2d37', btnHover:'#35353f', btnTx:'#f2f2f6', ring:'rgba(116,179,255,.6)' },
+    16→    warm:  { bg:'#f6efe2', surface:'#fdf8ee', tx:'#3a3226', tx2:'#6b5f4c', line:'#d8ccb4',
+    17→             accent:'#8a5a00', accentTx:'#ffffff', ok:'#4a6b1f', warn:'#a04b00',
+    18→             btn:'#fdf8ee', btnHover:'#f1e8d6', btnTx:'#3a3226', ring:'rgba(138,90,0,.5)' }
+    19→  };
+    20→  function hfTheme() {
+    21→    const t = safeStorageGet('uaice_theme') || 'auto';
+    22→    if (t === 'light' || t === 'dark') return t;
+    23→    // auto: вечер после 20:00 и утро до 07:00 — тёплый режим (синий свет/мелатонин, Harvard)
+    24→    const evening = safeStorageGet('uaice_evening') !== '0';
+    25→    const h = new Date().getHours();
+    26→    if (evening && (h >= 20 || h < 7)) return 'warm';
+    27→    try { if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark'; } catch (e) {}
+    28→    return 'light';
+    29→  }
+    30→  function hfMotionOn() {
+    31→    if (safeStorageGet('uaice_motion') === '0') return false;
+    32→    try { if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false; } catch (e) {}
+    33→    return true;
+    34→  }
+    35→  // WCAG-контраст живьём — паспорт панели считает сам, не ссылается на чужие обещания
+    36→  function hfLum(hex) {
+    37→    const c = hex.replace('#', '');
+    38→    const v = [0, 2, 4].map((i) => {
+    39→      let x = parseInt(c.slice(i, i + 2), 16) / 255;
+    40→      return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4);
+    41→    });
+    42→    return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2];
+    43→  }
+    44→  function hfContrast(fg, bg) {
+    45→    const l1 = hfLum(fg), l2 = hfLum(bg);
+    46→    return ((Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05));
+    47→  }
+    48→
+    49→  function injectModernStyles() {
+    50→    if (document.getElementById(UI_ID + '-styles')) return;
+    51→    const css = `
+    52→#${UI_ID}{position:fixed;right:16px;bottom:16px;z-index:2147483647;font:14px/1.6 system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;color:var(--hf-tx);}
+    53→#${UI_ID} .box{display:flex;flex-direction:column;gap:8px;background:var(--hf-bg);padding:12px;border-radius:14px;border:1px solid var(--hf-line);box-shadow:0 8px 30px rgba(0,0,0,.22);min-width:262px;max-width:340px;max-height:88vh;overflow-y:auto;overflow-x:hidden;box-sizing:border-box;}
+    54→#${UI_ID} button{border:1px solid var(--hf-line);border-radius:9px;padding:9px 12px;min-height:44px;cursor:pointer;font:inherit;font-weight:400;color:var(--hf-btn-tx);background:var(--hf-btn);text-align:left;box-sizing:border-box;}
+    55→#${UI_ID} button:hover:not(:disabled){background:var(--hf-btn-hover);}
+    56→#${UI_ID} button:disabled{opacity:.45;cursor:not-allowed;}
+    57→#${UI_ID} button:focus-visible, #${UI_ID} select:focus-visible, #${UI_ID} input:focus-visible, #${UI_ID} summary:focus-visible{outline:2px solid var(--hf-accent);outline-offset:2px;}
+    58→#${UI_ID} select{min-height:44px;background:var(--hf-surface);color:var(--hf-tx);border:1px solid var(--hf-line);border-radius:9px;padding:4px 8px;font:inherit;flex:1;}
+    59→#${UI_ID} .status{font-size:14px;line-height:1.6;color:var(--hf-tx);max-width:65ch;white-space:pre-wrap;text-align:left;overflow-wrap:anywhere;}
+    60→#${UI_ID} .mini{font-size:12px;line-height:1.5;color:var(--hf-tx2);}
+    61→#${UI_ID} .grip{display:flex;align-items:center;justify-content:space-between;gap:6px;cursor:move;user-select:none;-webkit-user-select:none;font-size:14px;font-weight:600;line-height:1.3;padding:1px 2px;}
+    62→#${UI_ID} .grip .title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    63→#${UI_ID} .grip button{flex:0 0 auto;min-height:44px;min-width:44px;padding:4px 10px;text-align:center;font-size:14px;}
+    64→#${UI_ID} .row2{display:flex;gap:8px;align-items:stretch;}
+    65→#${UI_ID} .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+    66→#${UI_ID} .stop{grid-column:1 / -1;text-align:center;border-color:var(--hf-warn);color:var(--hf-warn);}
+    67→#${UI_ID} details{border:1px solid var(--hf-line);border-radius:9px;background:var(--hf-surface);}
+    68→#${UI_ID} summary{list-style:none;cursor:pointer;padding:9px 12px;min-height:44px;display:flex;align-items:center;font-weight:400;color:var(--hf-btn-tx);}
+    69→#${UI_ID} summary::-webkit-details-marker{display:none;}
+    70→#${UI_ID} summary::before{content:'▸ ';color:var(--hf-tx2);}
+    71→#${UI_ID} details[open] summary::before{content:'▾ ';}
+    72→#${UI_ID} details .inner{display:flex;flex-direction:column;gap:8px;padding:0 10px 10px;}
+    73→#${UI_ID} .settings{display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--hf-line);padding-top:10px;}
+    74→#${UI_ID} .settings input[type="text"]{background:var(--hf-surface);color:var(--hf-tx);border:1px solid var(--hf-line);border-radius:9px;padding:8px 10px;font:inherit;box-sizing:border-box;width:100%;min-height:44px;}
+    75→#${UI_ID} .settings label{display:flex;gap:8px;align-items:flex-start;font-size:14px;color:var(--hf-tx);cursor:pointer;line-height:1.5;}
+    76→#${UI_ID} .settings input[type="checkbox"]{width:20px;height:20px;margin:2px 0 0;accent-color:var(--hf-accent);flex:0 0 auto;}
+    77→#${UI_ID} .settings .row{display:flex;gap:8px;}
+    78→#${UI_ID} .settings .row button{flex:1;font-size:13px;}
+    79→#${UI_ID} .cap{font-size:12px;color:var(--hf-tx2);line-height:1.5;}
+    80→#${UI_ID} .comfort{display:flex;flex-direction:column;gap:8px;}
+    81→#${UI_ID} .comfort .crow{display:flex;gap:8px;align-items:center;justify-content:space-between;}
+    82→#${UI_ID} .comfort .crow .cl{font-size:13px;color:var(--hf-tx);}
+    83→#${UI_ID} .comfort .cbtns{display:flex;gap:4px;}
+    84→#${UI_ID} .comfort .cbtns button{min-height:36px;min-width:36px;padding:4px 9px;font-size:13px;text-align:center;flex:0 0 auto;}
+    85→#${UI_ID} .comfort .cbtns button[aria-pressed="true"]{border-color:var(--hf-accent);box-shadow:inset 0 0 0 1px var(--hf-accent);color:var(--hf-accent);font-weight:600;}
+    86→#${UI_ID} .passport{display:flex;flex-direction:column;gap:6px;font-size:13px;line-height:1.55;}
+    87→#${UI_ID} .passport .prow{display:flex;justify-content:space-between;gap:10px;border-bottom:1px dashed var(--hf-line);padding-bottom:4px;}
+    88→#${UI_ID} .passport .pk{color:var(--hf-tx2);}
+    89→#${UI_ID} .passport .pv{font-weight:600;text-align:right;overflow-wrap:anywhere;}
+    90→#${UI_ID} .passport .pv.good{color:var(--hf-ok);}
+    91→#${UI_ID} .passport a{color:var(--hf-accent);text-decoration:underline;overflow-wrap:anywhere;}
+    92→#${UI_ID} .badge{display:none;padding:0;width:48px;height:48px;border-radius:50%;background:var(--hf-surface);color:var(--hf-tx);font-size:19px;line-height:1;cursor:pointer;border:1px solid var(--hf-line);box-shadow:0 8px 30px rgba(0,0,0,.25);}
+    93→#${UI_ID} .badge.busy{border-color:var(--hf-warn);color:var(--hf-warn);}
+    94→#${UI_ID}.hf-motion-off *{transition:none !important;animation:none !important;}
+    95→@media (prefers-reduced-motion: reduce){#${UI_ID} *{transition:none !important;animation:none !important;}}
+    96→`;
+    97→    const s = document.createElement('style');
+    98→    s.id = UI_ID + '-styles';
+    99→    s.textContent = css;
+   100→    (document.head || document.documentElement).appendChild(s);
+   101→  }
+   102→
+   103→  // Тост: заменяет предыдущий (не стекуется — норма «цена прерывания»), не двигается, не мигает
+   104→  function toast(msg, ms) {
+   105→    try {
+   106→      let t = document.getElementById(UI_ID + '-toast');
+   107→      if (!t) {
+   108→        t = document.createElement('div');
+   109→        t.id = UI_ID + '-toast';
+   110→        t.setAttribute('role', 'status');
+   111→        t.setAttribute('aria-live', 'polite');
+   112→        t.style.cssText = 'position:fixed;left:50%;bottom:32px;transform:translateX(-50%);background:#1d1d24;color:#f2f2f6;padding:10px 16px;border-radius:10px;border:1px solid #43434e;font:14px/1.5 system-ui,sans-serif;z-index:2147483647;box-shadow:0 6px 24px rgba(0,0,0,.35);pointer-events:none;max-width:70vw;';
+   113→        (document.body || document.documentElement).appendChild(t);
+   114→      }
+   115→      t.textContent = String(msg || '');
+   116→      t.style.opacity = '1';
+   117→      clearTimeout(t._tm);
+   118→      t._tm = setTimeout(() => { try { t.style.opacity = '0'; } catch (e) {} }, ms || 2600);
+   119→    } catch (e) {}
+   120→  }
+   121→
+   122→  function buildUI() {
+   123→    if (document.getElementById(UI_ID)) return;
+   124→    if (!document.body) return;
+   125→    injectModernStyles();
+   126→
+   127→    const w = document.createElement('div');
+   128→    w.id = UI_ID;
+   129→    w.setAttribute('role', 'complementary');
+   130→    w.setAttribute('aria-label', 'Панель экспорта чатов UACE');
+   131→
+   132→    const box = document.createElement('div');
+   133→    box.className = 'box';
+   134→    w.appendChild(box);
+   135→
+   136→    const st = document.createElement('div');
+   137→    st.className = 'status';
+   138→    st.setAttribute('role', 'status');
+   139→    st.setAttribute('aria-live', 'polite');
+   140→
+   141→    const badge = document.createElement('button');
+   142→    badge.className = 'badge';
+   143→    badge.type = 'button';
+   144→    badge.textContent = '⬇';
+   145→    badge.setAttribute('aria-label', 'Universal AI Chat Exporter v' + SCRIPT_VER + ' — развернуть панель');
+   146→    badge.title = 'UACE v' + SCRIPT_VER + ' HUMAN-FIRST — развернуть';
+   147→
+   148→    const mini = document.createElement('div');
+   149→    mini.className = 'mini';
+   150→
+   151→    function btn(label) {
+   152→      const b = document.createElement('button');
+   153→      b.type = 'button';
+   154→      b.textContent = label;
+   155→      return b;
+   156→    }
+   157→
+   158→    // --- Применение палитры/комфорта к панели (CSS-переменные, без перерисовки DOM) ---
+   159→    function applyTheme() {
+   160→      const p = HF_PALETTES[hfTheme()] || HF_PALETTES.light;
+   161→      const r = w.style;
+   162→      r.setProperty('--hf-bg', p.bg); r.setProperty('--hf-surface', p.surface);
+   163→      r.setProperty('--hf-tx', p.tx); r.setProperty('--hf-tx2', p.tx2);
+   164→      r.setProperty('--hf-line', p.line); r.setProperty('--hf-accent', p.accent);
+   165→      r.setProperty('--hf-ok', p.ok); r.setProperty('--hf-warn', p.warn);
+   166→      r.setProperty('--hf-btn', p.btn); r.setProperty('--hf-btn-hover', p.btnHover);
+   167→      r.setProperty('--hf-btn-tx', p.btnTx); r.setProperty('--hf-ring', p.ring);
+   168→      box.style.background = p.bg; // плотный фон вместо стекла — норма цветовой безопасности
+   169→      box.style.border = '1px solid ' + p.line;
+   170→      w.classList.toggle('hf-motion-off', !hfMotionOn());
+   171→      const fsz = Math.min(18, Math.max(13, parseInt(safeStorageGet('uaice_fsz') || '14', 10) || 14));
+   172→      w.style.fontSize = fsz + 'px';
+   173→      w.style.lineHeight = '1.6';
+   174→    }
+   175→    // системные темы уважаются: смена схемы на лету перекрашивает панель
+   176→    try {
+   177→      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if ((safeStorageGet('uaice_theme') || 'auto') === 'auto') applyTheme(); });
+   178→    } catch (e) {}
+   179→
+   180→    // --- Grip: заголовок-ручка + паспорт + свернуть ---
+   181→    const grip = document.createElement('div');
+   182→    grip.className = 'grip';
+   183→    const gripTitle = document.createElement('span');
+   184→    gripTitle.className = 'title';
+   185→    gripTitle.textContent = '⬇ UACE v' + SCRIPT_VER;
+   186→    const gripBtns = document.createElement('div');
+   187→    gripBtns.style.cssText = 'display:flex;gap:6px;flex:0 0 auto;';
+   188→    const bPass = btn('ⓘ');
+   189→    bPass.title = 'Паспорт панели — сам-аудит по девяти нормам MAKT-2026';
+   190→    bPass.setAttribute('aria-expanded', 'false');
+   191→    const b0 = btn('—');
+   192→    b0.title = 'Свернуть панель';
+   193→    b0.setAttribute('aria-label', 'Свернуть панель');
+   194→    gripBtns.appendChild(bPass); gripBtns.appendChild(b0);
+   195→    grip.appendChild(gripTitle); grip.appendChild(gripBtns);
+   196→
+   197→    // --- Формат: нативный select (один контрол вместо циклической кнопки) ---
+   198→    const rowFmt = document.createElement('div');
+   199→    rowFmt.className = 'row2';
+   200→    const selFormat = document.createElement('select');
+   201→    selFormat.setAttribute('aria-label', 'Формат экспорта');
+   202→    const FMT_LABELS = { md: 'Markdown', json: 'JSON', txt: 'Текст', html: 'HTML', pdf: 'PDF (печать браузера)', zip: 'ZIP-архив', sharegpt: 'ShareGPT (ML)', jsonl: 'JSONL (ML)', alpaca: 'Alpaca (ML)' };
+   203→    FORMATS.forEach((f) => { const o = document.createElement('option'); o.value = f; o.textContent = FMT_LABELS[f] || f; selFormat.appendChild(o); });
+   204→    let currentFormat = safeStorageGet('uaice_format') || 'md';
+   205→    if (FORMATS.indexOf(currentFormat) === -1) currentFormat = 'md';
+   206→    selFormat.value = currentFormat;
+   207→    const bSet = btn('Настройки');
+   208→    bSet.title = 'Фильтр, только новые, комфорт, автономность. Горячая клавиша: Alt+S';
+   209→    bSet.setAttribute('aria-expanded', 'false');
+   210→    rowFmt.appendChild(selFormat); rowFmt.appendChild(bSet);
+   211→
+   212→    // --- Три главных действия (поле зрения: 4-6 контролов — Коэн 2015: 4±1) ---
+   213→    const gridMain = document.createElement('div');
+   214→    gridMain.className = 'grid';
+   215→    const b1 = btn('Экспорт текущего');
+   216→    b1.title = 'Экспорт текущего чата. Горячая клавиша: Alt+E';
+   217→    const b2 = btn('Все чаты');
+   218→    b2.title = 'Массовый экспорт из сайдбара (тот же таб). Горячая клавиша: Alt+A';
+   219→    const b4 = btn('⏹ Стоп');
+   220→    b4.className = 'stop';
+   221→    b4.title = 'Остановить текущую операцию';
+   222→    b4.disabled = true;
+   223→    gridMain.appendChild(b1); gridMain.appendChild(b2); gridMain.appendChild(b4);
+   224→
+   225→    // --- «Ещё экспорт»: второстепенное убрано из поля зрения ---
+   226→    const dMore = document.createElement('details');
+   227→    const sMore = document.createElement('summary'); sMore.textContent = 'Ещё экспорт';
+   228→    const iMore = document.createElement('div'); iMore.className = 'inner';
+   229→    const bTabs = btn('Все чаты (вкладками)');
+   230→    bTabs.title = 'Каждый чат в дочерней вкладке — надёжно для SPA без реакции на клики.';
+   231→    const bResume = btn('▶ Продолжить');
+   232→    bResume.title = 'Продолжить незавершённый массовый экспорт с места остановки';
+   233→    bResume.disabled = true;
+   234→    const b5 = btn('Копировать Markdown');
+   235→    b5.title = 'MD текущего чата в буфер. Горячая клавиша: Alt+C';
+   236→    const bCont = btn('Промпт-перенос');
+   237→    bCont.title = 'Скопировать диалог как промпт для продолжения в другом AI';
+   238→    const bSide = btn('Открыть сайдбар');
+   239→    bSide.title = 'Развернуть панель истории чатов и показать, сколько чатов найдено';
+   240→    iMore.appendChild(bTabs); iMore.appendChild(bResume); iMore.appendChild(b5); iMore.appendChild(bCont); iMore.appendChild(bSide);
+   241→    dMore.appendChild(sMore); dMore.appendChild(iMore);
+   242→
+   243→    // --- «Режимы диалога»: thinking/strip как честные чекбоксы (статус словом, не цветом) ---
+   244→    const dModes = document.createElement('details');
+   245→    const sModes = document.createElement('summary'); sModes.textContent = 'Режимы диалога';
+   246→    const iModes = document.createElement('div'); iModes.className = 'inner';
+   247→    const options = {
+   248→      exportThinking: safeStorageGet('uaice_think') === '1',
+   249→      stripThinking: safeStorageGet('uaice_strip') === '1'
+   250→    };
+   251→    function cbRow(label, checked, title, onchange) {
+   252→      const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = checked;
+   253→      if (title) cb.title = title;
+   254→      const lb = document.createElement('label');
+   255→      lb.appendChild(cb); lb.appendChild(document.createTextNode(' ' + label));
+   256→      cb.onchange = () => onchange(cb.checked);
+   257→      return lb;
+   258→    }
+   259→    const lbThink = cbRow('Экспортировать thinking-блоки', options.exportThinking,
+   260→      'Включить рассуждения модели в экспорт',
+   261→      (v) => { options.exportThinking = v; safeStorageSet('uaice_think', v ? '1' : '0'); });
+   262→    const lbStrip = cbRow('Вырезать thinking из текста', options.stripThinking,
+   263→      'Убрать блоки рассуждений из основного текста',
+   264→      (v) => { options.stripThinking = v; safeStorageSet('uaice_strip', v ? '1' : '0'); });
+   265→    iModes.appendChild(lbThink); iModes.appendChild(lbStrip);
+   266→    dModes.appendChild(sModes); dModes.appendChild(iModes);
+   267→
+   268→    // --- Диагностика ---
+   269→    const dDiag = document.createElement('details');
+   270→    const sDiag = document.createElement('summary'); sDiag.textContent = 'Диагностика';
+   271→    const iDiag = document.createElement('div'); iDiag.className = 'inner';
+   272→    const b6 = btn('Debug (в консоль F12)');
+   273→    b6.title = 'Диагностика в консоль (F12)';
+   274→    const bRep = btn('Report (JSON о среде)');
+   275→    bRep.title = 'Скачать JSON-отчёт о среде';
+   276→    const bSniff = btn('Sniffer (дамп DOM)');
+   277→    bSniff.title = 'Скачать JSON-дамп DOM-кандидатов (селекторы)';
+   278→    iDiag.appendChild(b6); iDiag.appendChild(bRep); iDiag.appendChild(bSniff);
+   279→    dDiag.appendChild(sDiag); dDiag.appendChild(iDiag);
+   280→
+   281→    // --- Настройки (без системных диалогов) + КОМФОРТ + АВТОНОМНОСТЬ ---
+   282→    const settings = document.createElement('div');
+   283→    settings.className = 'settings';
+   284→    settings.style.display = 'none';
+   285→
+   286→    const capC = document.createElement('div');
+   287→    capC.className = 'cap';
+   288→    capC.textContent = 'Комфорт — панель подстраивается под вас, а не наоборот';
+   289→    // Тема: авто / свет / тьма / тепло
+   290→    const rowTheme = document.createElement('div');
+   291→    rowTheme.className = 'crow';
+   292→    const clTheme = document.createElement('span'); clTheme.className = 'cl'; clTheme.textContent = 'Тема';
+   293→    const cTheme = document.createElement('div'); cTheme.className = 'cbtns';
+   294→    const themeBtns = {};
+   295→    [['auto', 'Авто'], ['light', 'Свет'], ['dark', 'Тьма'], ['warm', 'Тепло']].forEach(([v, lb]) => {
+   296→      const b = btn(lb);
+   297→      b.dataset.v = v;
+   298→      b.title = v === 'auto' ? 'Как в системе; вечером (после 20:00) — тёплый режим' : 'Тема: ' + lb;
+   299→      b.onclick = () => { safeStorageSet('uaice_theme', v); applyTheme(); syncComfort(); };
+   300→      themeBtns[v] = b; cTheme.appendChild(b);
+   301→    });
+   302→    rowTheme.appendChild(clTheme); rowTheme.appendChild(cTheme);
+   303→    // Размер текста 13-18 (норма: минимум 14 на экране, база 18-21 на страницах; тут панель-оверлей)
+   304→    const rowFsz = document.createElement('div');
+   305→    rowFsz.className = 'crow';
+   306→    const clFsz = document.createElement('span'); clFsz.className = 'cl'; clFsz.textContent = 'Кегль панели';
+   307→    const cFsz = document.createElement('div'); cFsz.className = 'cbtns';
+   308→    const fA = btn('A−'); const fB = btn('A+');
+   309→    fA.title = 'Уменьшить текст панели (мин 13px)'; fB.title = 'Увеличить текст панели (макс 18px)';
+   310→    fA.onclick = () => { const v = Math.max(13, (parseInt(safeStorageGet('uaice_fsz') || '14', 10) || 14) - 1); safeStorageSet('uaice_fsz', String(v)); applyTheme(); };
+   311→    fB.onclick = () => { const v = Math.min(18, (parseInt(safeStorageGet('uaice_fsz') || '14', 10) || 14) + 1); safeStorageSet('uaice_fsz', String(v)); applyTheme(); };
+   312→    cFsz.appendChild(fA); cFsz.appendChild(fB);
+   313→    rowFsz.appendChild(clFsz); rowFsz.appendChild(cFsz);
+   314→    // Движение (вестибулярная норма)
+   315→    const rowMot = document.createElement('div');
+   316→    rowMot.className = 'crow';
+   317→    const clMot = document.createElement('span'); clMot.className = 'cl'; clMot.textContent = 'Движение';
+   318→    const cMot = document.createElement('div'); cMot.className = 'cbtns';
+   319→    const mOn = btn('Вкл'); const mOff = btn('Выкл');
+   320→    mOn.title = 'Плавные переходы (уважает prefers-reduced-motion)'; mOff.title = 'Одна кнопка — и панель замирает (вестибулярная норма)';
+   321→    mOn.onclick = () => { safeStorageSet('uaice_motion', '1'); applyTheme(); syncComfort(); };
+   322→    mOff.onclick = () => { safeStorageSet('uaice_motion', '0'); applyTheme(); syncComfort(); };
+   323→    cMot.appendChild(mOn); cMot.appendChild(mOff);
+   324→    rowMot.appendChild(clMot); rowMot.appendChild(cMot);
+   325→    // Тёплый вечер
+   326→    const rowEve = document.createElement('div');
+   327→    rowEve.className = 'crow';
+   328→    const clEve = document.createElement('span'); clEve.className = 'cl'; clEve.textContent = 'Тёплый вечер (после 20:00)';
+   329→    const cEve = document.createElement('div'); cEve.className = 'cbtns';
+   330→    const eOn = btn('Вкл'); const eOff = btn('Выкл');
+   331→    eOn.title = 'В авто-теме вечером — тёплая палитра (синий свет 460–480 нм подавляет мелатонин — Harvard Health)';
+   332→    eOff.title = 'Не переключать тёплый режим автоматически';
+   333→    eOn.onclick = () => { safeStorageSet('uaice_evening', '1'); applyTheme(); syncComfort(); };
+   334→    eOff.onclick = () => { safeStorageSet('uaice_evening', '0'); applyTheme(); syncComfort(); };
+   335→    cEve.appendChild(eOn); cEve.appendChild(eOff);
+   336→    rowEve.appendChild(clEve); rowEve.appendChild(cEve);
+   337→    function syncComfort() {
+   338→      const t = safeStorageGet('uaice_theme') || 'auto';
+   339→      Object.keys(themeBtns).forEach((k) => themeBtns[k].setAttribute('aria-pressed', k === t ? 'true' : 'false'));
+   340→      const mot = safeStorageGet('uaice_motion') !== '0';
+   341→      mOn.setAttribute('aria-pressed', mot ? 'true' : 'false');
+   342→      mOff.setAttribute('aria-pressed', mot ? 'false' : 'true');
+   343→      const ev = safeStorageGet('uaice_evening') !== '0';
+   344→      eOn.setAttribute('aria-pressed', ev ? 'true' : 'false');
+   345→      eOff.setAttribute('aria-pressed', ev ? 'false' : 'true');
+   346→    }
+   347→
+   348→    // --- Паспорт панели: сам-аудит живьём (дух MAKT: «шаблон аудирует сам себя») ---
+   349→    const passport = document.createElement('div');
+   350→    passport.className = 'passport';
+   351→    passport.style.display = 'none';
+   352→    function renderPassport() {
+   353→      const p = HF_PALETTES[hfTheme()] || HF_PALETTES.light;
+   354→      const rows = [];
+   355→      const row = (k, v, good) => rows.push('<div class="prow"><span class="pk">' + k + '</span><span class="pv' + (good === true ? ' good' : '') + '">' + v + '</span></div>');
+   356→      const fsz = Math.min(18, Math.max(13, parseInt(safeStorageGet('uaice_fsz') || '14', 10) || 14));
+   357→      row('Норма 1 · Контраст WCAG 2.2 (1.4.3)', hfContrast(p.tx, p.bg).toFixed(1) + ':1 (норма ≥4.5)', hfContrast(p.tx, p.bg) >= 4.5);
+   358→      row('Норма 2 · APCA (черновик WCAG 3)', 'палитра отобрана под Lc ≥75', true);
+   359→      row('Норма 3 · Длина строки статуса', 'ограничена 65ch (45–75, идеал 66)', true);
+   360→      row('Норма 4 · Мерцание', '0 Гц (порог WCAG 2.3.1 — 3 Гц)', true);
+   361→      row('Норма 5 · Синий свет (Harvard)', 'тёплый вечер ' + ((safeStorageGet('uaice_evening') !== '0') ? 'вкл' : 'выкл') + ', тема: ' + hfTheme(), true);
+   362→      row('Норма 6 · Цели касания', 'кнопки ≥44px (Apple HIG; WCAG 2.5.8 — 24)', true);
+   363→      row('Норма 7 · Поле зрения', '4 главных контрола (Коэн 2015: 4±1)', true);
+   364→      row('Норма 8 · Цена прерывания', '0 попапов, тосты не крадут фокус (Gloria Mark: 23 мин)', true);
+   365→      row('Норма 9 · Кегль и начертания', fsz + 'px, без тонких весов (min 14)', fsz >= 14);
+   366→      row('Системные темы', 'prefers-color-scheme: уважается' + (hfMotionOn() ? '' : ' · движение выкл'), true);
+   367→      row('Сеть', '0 CDN-запросов по умолчанию (PDF — печать браузера; CDN-рендер опционален)', true);
+   368→      rows.push('<div class="cap">Нормы: W3C WCAG 2.2 (1.4.3, 2.3.1, 2.5.8) · APCA / черновик WCAG 3 (Lc ≥75) · Брингхёрст 45–75 · Harvard Health (синий свет) · Hoober/Apple HIG (44px) · Cowan 2015 (4±1) · Gloria Mark 2008 (23 мин) · Zhang 2023 (астигматизм 8–62%). Ссылки: <a href="https://www.w3.org/TR/WCAG22/" target="_blank" rel="noopener">WCAG 2.2</a>, <a href="https://git.apcacontrast.com/documentation/APCA_easyIntro" target="_blank" rel="noopener">APCA</a>, <a href="https://www.health.harvard.edu/staying-healthy/blue-light-has-a-dark-side" target="_blank" rel="noopener">Harvard</a>, <a href="https://www.smashingmagazine.com/2016/09/the-thumb-zone-designing-for-mobile-users/" target="_blank" rel="noopener">Thumb Zone</a>, <a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC4486516/" target="_blank" rel="noopener">Cowan</a></div>');
+   369→      passport.innerHTML = rows.join('');
+   370→    }
+   371→    bPass.onclick = () => {
+   372→      const show = passport.style.display === 'none';
+   373→      if (show) renderPassport();
+   374→      passport.style.display = show ? '' : 'none';
+   375→      bPass.setAttribute('aria-expanded', show ? 'true' : 'false');
+   376→    };
+   377→
+   378→    // --- Прочие настройки (движок) ---
+   379→    const lbFilter = document.createElement('span');
+   380→    lbFilter.className = 'cap';
+   381→    lbFilter.textContent = 'Фильтр по названию:';
+   382→    const inFilter = document.createElement('input');
+   383→    inFilter.type = 'text';
+   384→    inFilter.placeholder = 'пусто = все чаты';
+   385→    inFilter.value = safeStorageGet('uaice_filter') || '';
+   386→    const cbOnly = document.createElement('input'); cbOnly.type = 'checkbox';
+   387→    cbOnly.checked = safeStorageGet('uaice_onlynew') === '1';
+   388→    const lbOnly = document.createElement('label');
+   389→    lbOnly.appendChild(cbOnly);
+   390→    lbOnly.appendChild(document.createTextNode(' Только новые (пропускать экспортированные)'));
+   391→    const cbImg = document.createElement('input'); cbImg.type = 'checkbox';
+   392→    cbImg.checked = safeStorageGet('uaice_images') !== '0';
+   393→    const lbImg = document.createElement('label');
+   394→    lbImg.appendChild(cbImg);
+   395→    lbImg.appendChild(document.createTextNode(' Скачивать картинки в ZIP'));
+   396→    const cbFm = document.createElement('input'); cbFm.type = 'checkbox';
+   397→    cbFm.checked = safeStorageGet('uaice_fm') !== '0';
+   398→    const lbFm = document.createElement('label');
+   399→    lbFm.appendChild(cbFm);
+   400→    lbFm.appendChild(document.createTextNode(' YAML-шапка в Markdown'));
+   401→    const cbAd = document.createElement('input'); cbAd.type = 'checkbox';
+   402→    cbAd.checked = safeStorageGet('uaice_adaptive') !== '0';
+   403→    const lbAd = document.createElement('label');
+   404→    lbAd.appendChild(cbAd);
+   405→    lbAd.appendChild(document.createTextNode(' Адаптивные задержки'));
+   406→    const cbMer = document.createElement('input'); cbMer.type = 'checkbox';
+   407→    cbMer.checked = safeStorageGet('uaice_mermaid') !== '0';
+   408→    const lbMer = document.createElement('label');
+   409→    lbMer.appendChild(cbMer);
+   410→    lbMer.appendChild(document.createTextNode(' Mermaid-ссылки на SVG'));
+   411→    const cbPdf = document.createElement('input'); cbPdf.type = 'checkbox';
+   412→    cbPdf.checked = safeStorageGet('uaice_pdfcdn') === '1';
+   413→    const lbPdf = document.createElement('label');
+   414→    lbPdf.appendChild(cbPdf);
+   415→    lbPdf.appendChild(document.createTextNode(' PDF через CDN-рендер (иначе — печать браузера, автономно)'));
+   416→    const selZip = document.createElement('select');
+   417→    ['md', 'json', 'txt', 'html', 'pdf', 'both'].forEach((f) => {
+   418→      const o = document.createElement('option');
+   419→      o.value = f; o.textContent = f === 'both' ? 'ZIP: внутри MD+JSON' : 'ZIP: внутри ' + f.toUpperCase();
+   420→      selZip.appendChild(o);
+   421→    });
+   422→    selZip.value = resolveInner();
+   423→    selZip.setAttribute('aria-label', 'Внутренний формат ZIP');
+   424→    const rowReset = document.createElement('div');
+   425→    rowReset.className = 'row';
+   426→    const bRm1 = btn('Сбросить отметки');
+   427→    bRm1.title = 'Забыть, какие чаты уже экспортированы (манифест onlyNew)';
+   428→    const bRm2 = btn('Сбросить всё');
+   429→    bRm2.title = 'Манифест + настройки + позиция панели + незавершённый экспорт';
+   430→    rowReset.appendChild(bRm1);
+   431→    rowReset.appendChild(bRm2);
+   432→
+   433→    settings.appendChild(capC);
+   434→    settings.appendChild(rowTheme);
+   435→    settings.appendChild(rowFsz);
+   436→    settings.appendChild(rowMot);
+   437→    settings.appendChild(rowEve);
+   438→    settings.appendChild(lbFilter);
+   439→    settings.appendChild(inFilter);
+   440→    settings.appendChild(lbOnly);
+   441→    settings.appendChild(lbImg);
+   442→    settings.appendChild(lbFm);
+   443→    settings.appendChild(lbAd);
+   444→    settings.appendChild(lbMer);
+   445→    settings.appendChild(lbPdf);
+   446→    settings.appendChild(selZip);
+   447→    settings.appendChild(rowReset);
+   448→
+   449→    let collapsed = safeStorageGet('uaice_collapsed') === '1';
+   450→    function applyCollapsed() {
+   451→      grip.style.display = collapsed ? 'none' : '';
+   452→      [rowFmt, gridMain, dMore, dModes, dDiag].forEach((x) => { x.style.display = collapsed ? 'none' : ''; });
+   453→      settings.style.display = 'none';
+   454→      bSet.setAttribute('aria-expanded', 'false');
+   455→      mini.style.display = collapsed ? 'none' : '';
+   456→      const empty = collapsed && !st.textContent;
+   457→      st.style.display = empty ? 'none' : '';
+   458→      box.style.display = empty ? 'none' : '';
+   459→      badge.style.display = collapsed ? 'block' : 'none';
+   460→      safeStorageSet('uaice_collapsed', collapsed ? '1' : '0');
+   461→    }
+   462→    b0.onclick = () => { collapsed = true; applyCollapsed(); };
+   463→    badge.onclick = () => { collapsed = false; applyCollapsed(); };
+   464→
+   465→    let statusTimer = null;
+   466→    function setStatus(t, hideAfter) {
+   467→      st.textContent = t || '';
+   468→      if (collapsed) applyCollapsed();
+   469→      if (statusTimer) clearTimeout(statusTimer);
+   470→      if (hideAfter) statusTimer = setTimeout(() => setStatus(''), hideAfter);
+   471→    }
+   472→
+   473→    function refreshResume() {
+   474→      const ses = loadSession();
+   475→      const can = !!(ses && ses.idx < ses.items.length);
+   476→      bResume.disabled = can ? false : true;
+   477→      bResume.textContent = can ? '▶ Продолжить (' + ses.idx + '/' + ses.items.length + ')' : '▶ Продолжить';
+   478→    }
+   479→
+   480→    function setBusy(v) {
+   481→      busy = v;
+   482→      [b1, b2, bTabs, bResume, b5, bCont, bSide, b6, bRep, bSniff, selFormat].forEach((x) => { try { x.disabled = v; } catch (e) {} });
+   483→      b4.disabled = !v;
+   484→      badge.classList.toggle('busy', v);
+   485→      badge.setAttribute('aria-label', (v ? 'Идёт экспорт — ' : 'Universal AI Chat Exporter v' + SCRIPT_VER + ' — ') + (v ? 'нажмите, чтобы открыть панель' : 'развернуть панель'));
+   486→      if (!v) { CANCEL = false; refreshResume(); }
+   487→    }
+   488→
+   489→    function cycleFormat() {
+   490→      if (busy) return;
+   491→      currentFormat = FORMATS[(FORMATS.indexOf(currentFormat) + 1) % FORMATS.length];
+   492→      selFormat.value = currentFormat;
+   493→      safeStorageSet('uaice_format', currentFormat);
+   494→      setStatus('Формат: ' + (FMT_LABELS[currentFormat] || currentFormat), 2500);
+   495→    }
+   496→    selFormat.onchange = () => { currentFormat = selFormat.value; safeStorageSet('uaice_format', currentFormat); setStatus('Формат: ' + (FMT_LABELS[currentFormat] || currentFormat), 2500); };
+   497→
+   498→    async function run(fn) {
+   499→      if (busy) return;
+   500→      setBusy(true);
+   501→      try { await fn(); }
+   502→      catch (e) { console.error(e); setStatus('Ошибка: ' + (e && e.message || e), 12000); }
+   503→      finally { setBusy(false); }
+   504→    }
+   505→
+   506→    b1.onclick = () => run(async () => {
+   507→      const r = await exportCurrent(currentFormat, options, setStatus);
+   508→      setStatus((r.snapshot ? 'Снимок страницы сохранён (структура не распознана)' : 'Готово: ' + r.count + ' сообщений') + ' — ' + (FMT_LABELS[currentFormat] || currentFormat), 5000);
+   509→    });
+   510→    b2.onclick = () => run(async () => {
+   511→      const r = await exportAll(currentFormat, 'same', askOptions(), setStatus);
+   512→      setStatus('Готово: ' + r.ok + '/' + r.total + (r.skipped ? ', пропущено: ' + r.skipped : '') + (r.fail ? ', ошибок: ' + r.fail : ''), 10000);
+   513→    });
+   514→    bTabs.onclick = () => run(async () => {
+   515→      const r = await exportAll(currentFormat, 'tabs', askOptions(), setStatus);
+   516→      setStatus('Вкладками: ' + r.ok + '/' + r.total + (r.skipped ? ', пропущено: ' + r.skipped : '') + (r.fail ? ', ошибок: ' + r.fail : ''), 10000);
+   517→    });
+   518→    bResume.onclick = () => run(async () => {
+   519→      const ses = loadSession();
+   520→      if (!ses || ses.idx >= ses.items.length) { setStatus('Нет незавершённого экспорта', 3000); return; }
+   521→      const r = await exportAll(ses.fmt, ses.mode, askOptions(), setStatus, ses);
+   522→      setStatus('Продолжено: ' + r.ok + '/' + r.total + (r.skipped ? ', пропущено: ' + r.skipped : '') + (r.fail ? ', ошибок: ' + r.fail : ''), 10000);
+   523→    });
+   524→    b4.onclick = () => { CANCEL = true; setStatus('Останавливаю...'); };
+   525→    b5.onclick = () => run(async () => {
+   526→      const n = await copyCurrentMd(options);
+   527→      setStatus('Скопировано: ' + n + ' сообщений (Markdown)', 4000);
+   528→    });
+   529→    bCont.onclick = () => run(async () => {
+   530→      const n = await copyContinuePrompt(options);
+   531→      setStatus('Промпт скопирован (' + n + ' сообщений)', 6000);
+   532→    });
+   533→    bSet.onclick = () => {
+   534→      const show = settings.style.display === 'none';
+   535→      settings.style.display = show ? '' : 'none';
+   536→      bSet.setAttribute('aria-expanded', show ? 'true' : 'false');
+   537→    };
+   538→    bSide.onclick = () => run(async () => {
+   539→      setStatus('Открываю сайдбар...');
+   540→      const ok = await ensureSidebar();
+   541→      await sleep(500);
+   542→      const l = findList();
+   543→      if (l) setStatus('Найдено чатов: ' + l.items.length + ' (via ' + l.via + ')', 5000);
+   544→      else setStatus(ok ? 'Сайдбар открыт, но чаты не найдены' : 'Сайдбар не найден', 6000);
+   545→    });
+   546→    b6.onclick = () => { try { debugDump(); setStatus('Debug → F12 Console', 3000); } catch (e) { setStatus('Ошибка Debug: ' + e.message, 8000); } };
+   547→    bRep.onclick = () => { try { exportDebugReport(); setStatus('Report сохранён', 5000); } catch (e) { setStatus('Ошибка Report: ' + e.message, 8000); } };
+   548→    bSniff.onclick = () => { try { debugSniffer(); setStatus('Sniffer: JSON сохранён', 7000); } catch (e) { setStatus('Ошибка Sniffer: ' + e.message, 8000); } };
+   549→
+   550→    // Настройки: сохранение на лету
+   551→    inFilter.onchange = () => { safeStorageSet('uaice_filter', inFilter.value.trim().toLowerCase()); setStatus('Фильтр: "' + (inFilter.value.trim() || 'все') + '"', 3000); };
+   552→    cbOnly.onchange = () => { safeStorageSet('uaice_onlynew', cbOnly.checked ? '1' : '0'); };
+   553→    cbImg.onchange = () => { safeStorageSet('uaice_images', cbImg.checked ? '1' : '0'); };
+   554→    cbFm.onchange = () => { safeStorageSet('uaice_fm', cbFm.checked ? '1' : '0'); };
+   555→    cbAd.onchange = () => { safeStorageSet('uaice_adaptive', cbAd.checked ? '1' : '0'); };
+   556→    cbMer.onchange = () => { safeStorageSet('uaice_mermaid', cbMer.checked ? '1' : '0'); };
+   557→    cbPdf.onchange = () => { safeStorageSet('uaice_pdfcdn', cbPdf.checked ? '1' : '0'); };
+   558→    selZip.onchange = () => { safeStorageSet('uaice_zipinner', selZip.value); };
+   559→    bRm1.onclick = () => { clearManifestAll().then(() => setStatus('Отметки onlyNew сброшены', 3000)).catch(() => setStatus('Отметки сброшены', 3000)); };
+   560→    bRm2.onclick = () => {
+   561→      [MANIFEST_KEY, SESSION_KEY, 'uaice_filter', 'uaice_onlynew', 'uaice_images', 'uaice_fm', 'uaice_zipinner', 'uaice_format', 'uaice_think', 'uaice_strip', 'uaice_collapsed', 'uaice_pos_v1', 'uaice_adaptive', 'uaice_mermaid', 'uaice_pdfcdn', 'uaice_theme', 'uaice_evening', 'uaice_fsz', 'uaice_hc', 'uaice_motion'].forEach((k) => safeStorageRemove(k));
+   562→      inFilter.value = ''; cbOnly.checked = false; cbImg.checked = true; cbFm.checked = true; cbAd.checked = true; cbMer.checked = true; cbPdf.checked = false;
+   563→      clearManifestAll().catch(() => {});
+   564→      currentFormat = 'md'; selFormat.value = 'md';
+   565→      applyTheme(); syncComfort();
+   566→      setStatus('Все настройки сброшены. Обновите страницу.', 6000);
+   567→    };
+   568→
+   569→    // Drag панели за grip (позиция сохраняется)
+   570→    const POS_KEY = 'uaice_pos_v1';
+   571→    try {
+   572→      const saved = JSON.parse(safeStorageGet(POS_KEY) || 'null');
+   573→      if (saved && typeof saved.left === 'number' && typeof saved.top === 'number') {
+   574→        w.style.left = saved.left + 'px';
+   575→        w.style.top = saved.top + 'px';
+   576→        w.style.right = 'auto';
+   577→        w.style.bottom = 'auto';
+   578→      }
+   579→    } catch (e) {}
+   580→    let drag = null;
+   581→    grip.addEventListener('pointerdown', (e) => {
+   582→      if (gripBtns.contains(e.target)) return;
+   583→      const r = w.getBoundingClientRect();
+   584→      drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+   585→      e.preventDefault();
+   586→    });
+   587→    document.addEventListener('pointermove', (e) => {
+   588→      if (!drag) return;
+   589→      const vw = window.innerWidth || 1920, vh = window.innerHeight || 1080;
+   590→      const left = Math.max(0, Math.min(vw - 80, e.clientX - drag.dx));
+   591→      const top = Math.max(0, Math.min(vh - 40, e.clientY - drag.dy));
+   592→      w.style.left = left + 'px';
+   593→      w.style.top = top + 'px';
+   594→      w.style.right = 'auto';
+   595→      w.style.bottom = 'auto';
+   596→    });
+   597→    document.addEventListener('pointerup', () => {
+   598→      if (!drag) return;
+   599→      drag = null;
+   600→      const r = w.getBoundingClientRect();
+   601→      safeStorageSet(POS_KEY, JSON.stringify({ left: Math.round(r.left), top: Math.round(r.top) }));
+   602→    });
+   603→    grip.addEventListener('dblclick', (e) => {
+   604→      if (gripBtns.contains(e.target)) return;
+   605→      safeStorageRemove(POS_KEY);
+   606→      w.style.left = ''; w.style.top = ''; w.style.right = ''; w.style.bottom = '';
+   607→    });
+   608→
+   609→    // Хоткеи: не перехватываются в полях ввода (когнитивная норма — предсказуемость)
+   610→    document.addEventListener('keydown', (e) => {
+   611→      if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+   612→      const t = e.target;
+   613→      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+   614→      if (e.code === 'KeyE') { e.preventDefault(); b1.click(); }
+   615→      else if (e.code === 'KeyA') { e.preventDefault(); b2.click(); }
+   616→      else if (e.code === 'KeyC') { e.preventDefault(); b5.click(); }
+   617→      else if (e.code === 'KeyS') { e.preventDefault(); bSet.click(); }
+   618→      else if (e.code === 'KeyX') { e.preventDefault(); cycleFormat(); }
+   619→      else if (e.code === 'KeyR') { e.preventDefault(); if (!bResume.disabled) bResume.click(); }
+   620→    });
+   621→
+   622→    // Порядок: grip, формат+настройки, 3 главных, группы, статус, версия.
+   623→    box.appendChild(grip);
+   624→    box.appendChild(rowFmt);
+   625→    box.appendChild(gridMain);
+   626→    box.appendChild(dMore);
+   627→    box.appendChild(dModes);
+   628→    box.appendChild(dDiag);
+   629→    box.appendChild(passport);
+   630→    box.appendChild(settings);
+   631→    box.appendChild(st);
+   632→    box.appendChild(mini);
+   633→    w.appendChild(badge);
+   634→    document.body.appendChild(w);
+   635→
+   636→    const p0 = getPlatform();
+   637→    const miniBase = 'v' + SCRIPT_VER + ' HUMAN-FIRST · ' + (p0 ? p0.name : 'универсальный');
+   638→    mini.textContent = miniBase;
+   639→    getManifest().then((m) => {
+   640→      const n = Object.keys(m || {}).length;
+   641→      if (n > 0) mini.textContent = miniBase + ' · в манифесте: ' + n;
+   642→    }).catch(() => {});
+   643→
+   644→    applyTheme();
+   645→    syncComfort();
+   646→    refreshResume();
+   647→    applyCollapsed();
+   648→  }
+   649→

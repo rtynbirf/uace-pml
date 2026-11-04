@@ -1,0 +1,358 @@
+// ==UserScript==
+// @name         UACE · PML-PANEL 1.0 (вариант B · UACE v27.4 core)
+// @namespace    uace.pml.b
+// @version      27.4.2
+// @description  Референс-реализация замороженного мастера PML-PANEL 1.0 (§1–17) + Модуль I (struct r1 + guards вердикта B) + реестр действий. Вариант сессии B для сверки с ЧК-1; канон UPOLY ведёт сессия A. Экспорт-действия UACE (Alt+D/S) — этап B.
+// @author       session B (UACE-main)
+// @match        *://*/*
+// @grant        none
+// @run-at       document-idle
+// @noframes
+// ==/UserScript==
+
+/* UACE v27.4.1 · вариант B · 2026-09-19
+   Реализует: мастер PML-PANEL 1.0 §1–17; PML-STRUCT r1 (+ guards 0-a…0-d, 0-e вариант A, 1-a…1-e из вердикта B).
+   Статус сборки: node --check PASS; тесты чистого ядра 51/51 (FNV-1a по референс-векторам; P1-аудит всех пар трёх палитр;
+   two-pass солвер §6; OKLab round-trip; кросс-чек дефекта Тёплой 2.30 и кандидата STP-2 5.18 — совпал с check_warm_uap.py);
+   smoke-тест build() в jsdom (boot без исключений, хост+ShadowRoot+бейдж на месте).
+   Рантайм-фикс 27.4.1 (найден живой сессией 19.09): у прямого ребёнка ShadowRoot parentElement === null — бейдж крепится
+   через (root.parentElement || sh || root); zscan/head защищены от null body/head; чужой хост под нашим ID снимается
+   всегда (защита от дубля ID); takeover-пинг требует живого UI (>1 ребёнка), не голого хоста.
+   Объём: 310 строк кода (347 физических) — потолок §17 «260 строк» превышен на 50: данные R3 для r2
+   (раскладка 150–170/60/30 не вмещает полный §1–17 с движком акцента + Модуль I + реестр; вопрос потолка — STP-2/r2).
+   Отмечено для r2: mut.window = фактическое окно 10 с (минимум приёмки, ответ A №8; r1-текст номинирует 60 с);
+   streamCandidate = null (критерий не выдумываю до прогонов — 1-e вердикта).
+   Канон: fallback Тёплой #4da3ff по замороженному §6 (дефект 2.30:1 — заявка №1 в STP-2: #8a5a00).
+   Приватность: 0 внешних запросов, 0 чтения текста страницы — только структурные агрегаты (§15). */
+(() => {
+'use strict';
+const T0 = performance.now(); // 0-d: старт сессии — первая исполняемая строка
+if (typeof document === 'undefined' || !document.documentElement) return;
+
+/*PML-PURE-BEGIN*/
+const FNV1a32 = s => { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return h >>> 0; };
+const hash8 = s => FNV1a32('pml-s1' + s).toString(16).padStart(8, '0'); // 0-a: соль-префикс, lowercase hex 8
+const hx = n => Math.round(n * 100) / 100; // 0-c: числа-доли — 2 знака
+const lum = (r, g, b) => { const f = c => (c /= 255) <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+const ratio = (a, b) => { const x = lum(a[0], a[1], a[2]), y = lum(b[0], b[1], b[2]); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+const rgb2ok = (r, g, b) => { const f = c => (c /= 255) <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); const R = f(r), G = f(g), B = f(b);
+  const l = Math.cbrt(0.4122214708 * R + 0.5363325363 * G + 0.0514459929 * B), m = Math.cbrt(0.2119034982 * R + 0.6806995451 * G + 0.1073969566 * B), s2 = Math.cbrt(0.0883024619 * R + 0.2817188376 * G + 0.6299787005 * B);
+  return [0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s2, 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s2, 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s2]; };
+const ok2rgb = (L, a, b) => { const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3, m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3, s2 = (L - 0.0894841775 * a - 1.2914855480 * b) ** 3;
+  const g = c => Math.max(0, Math.min(255, Math.round(255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055))));
+  return [g(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s2), g(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s2), g(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s2)]; };
+const parseRgb = v => { if (!v) return null; const m = /rgba?\(([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/i.exec(v); if (m) return [+m[1], +m[2], +m[3]];
+  const h = v.trim(); const n = h.length === 4 ? h.slice(1).split('').map(c => c + c).join('') : h.slice(1);
+  return /^[\da-f]{6}$/i.test(n) ? [0, 2, 4].map(i => parseInt(n.slice(i, i + 2), 16)) : null; };
+const guardSat = rgb => { if (!rgb) return false; const [L, a, b] = rgb2ok(rgb[0], rgb[1], rgb[2]); return Math.hypot(a, b) >= 0.02 && L > 0.05 && L < 0.95; }; // сатурационный страж §6
+const solveAccent = (bg, a, b) => { for (let i = 1; i < 100; i++) { const L = i / 100, rgb = ok2rgb(L, a, b);
+  if (ratio(rgb, bg) >= 4.5 && Math.max(ratio(rgb, [255, 255, 255]), ratio(rgb, [24, 24, 24])) >= 4.5) return rgb; } return null; }; // двухпроходная подгонка §6
+const pickTx = rgb => ratio(rgb, [255, 255, 255]) >= 4.5 ? [255, 255, 255] : [24, 24, 24]; // текст-на-акценте §6
+const PAL = { // канон линии B; все пары ≥4.5:1 (P1); fb — fallback акцента по замороженному §6
+  dark:  { bg: [18, 24, 33],    fg: [230, 235, 242], dim: [154, 168, 186], line: [42, 52, 65],    ring: [122, 184, 255], fb: [77, 163, 255], ok: [62, 190, 120],  warn: [255, 180, 84], crit: [255, 107, 107] },
+  light: { bg: [247, 245, 241], fg: [28, 36, 48],    dim: [86, 97, 118],   line: [217, 212, 203], ring: [11, 98, 196],   fb: [11, 98, 196],  ok: [10, 122, 61],   warn: [138, 90, 0],   crit: [179, 38, 30] },
+  warm:  { bg: [246, 239, 226], fg: [51, 41, 26],    dim: [107, 93, 66],   line: [227, 216, 194], ring: [138, 90, 0],    fb: [77, 163, 255], ok: [27, 94, 32],    warn: [138, 90, 0],   crit: [179, 38, 30] } };
+/*PML-PURE-END*/
+
+const VER = '27.4.2', OWNER = 'uace@' + VER, HOST_ID = 'pml-host';
+const S = { theme: 'system', fs: 14, motion: true, collapsed: false }; // pml_panel_v1, белый список §14
+const J = []; const HK = {}; const Q = []; const clean = [];
+let host = null, root = null, mounted = false, busy = false, badge = 'ok', uid = 0;
+let effTheme = 'dark', ACC = null, lastStruct = null, reconN = 0, mountMs = 0, stT = 0, cfgInfo = { name: 'UACE', version: VER };
+const els = {};
+const ce = (tag, cls, txt) => { const n = document.createElement(tag); if (cls) n.className = cls; if (txt != null) n.textContent = txt; return n; };
+const bind = (t, fn, tgt) => { const w = tgt || window; w.addEventListener(t, fn); clean.push(['l', t, fn, w]); };
+const store = {
+  load() { try { const o = JSON.parse(localStorage.getItem('pml_panel_v1') || '{}'); for (const k of ['theme', 'fs', 'motion', 'collapsed']) if (k in o) S[k] = o[k]; } catch (e) {} },
+  save() { try { const s = JSON.stringify({ theme: S.theme, fs: S.fs, motion: S.motion, collapsed: S.collapsed, hotkeys: Object.keys(HK) }); if (s.length > 512) throw new Error('>512B'); localStorage.setItem('pml_panel_v1', s); } catch (e) { console.warn('[pml] store skip:', e && e.message); } } };
+
+const CSS = `
+.pml-root{position:fixed;right:16px;top:16px;width:360px;min-width:320px;max-width:480px;max-height:80vh;min-height:360px;display:flex;flex-direction:column;font-family:-apple-system,"Segoe UI",Roboto,"Noto Sans",Arial,sans-serif;font-size:var(--pml-fs);line-height:1.5;font-weight:400;background:var(--pml-bg);color:var(--pml-fg);border:1px solid var(--pml-line);border-radius:var(--pml-radius);box-shadow:0 8px 32px rgba(0,0,0,.25);z-index:2147483000;overflow:hidden}
+.pml-badge44{position:fixed;right:16px;top:16px;width:44px;height:44px;border-radius:50%;border:2px solid var(--pml-ok);background:var(--pml-bg);color:var(--pml-fg);cursor:pointer;font:inherit;font-weight:600;display:flex;align-items:center;justify-content:center;z-index:2147483000}
+.pml-hd{display:flex;gap:8px;align-items:center;padding:8px;border-bottom:1px solid var(--pml-line)}.pml-dot{width:10px;height:10px;border-radius:50%;background:var(--pml-ok);flex:none}
+.pml-dot.run{background:var(--pml-accent)}.pml-dot.warn{background:var(--pml-warn)}.pml-dot.err{background:var(--pml-crit)}.pml-title{font-weight:600;margin-right:auto;max-width:48ch}
+.pml-seg{display:flex;border:1px solid var(--pml-line);border-radius:8px;overflow:hidden}.pml-seg button{min-width:44px;min-height:44px;border:0;background:transparent;color:var(--pml-fg);cursor:pointer;font:inherit;padding:0 8px}
+.pml-seg button[aria-checked="true"]{background:var(--pml-accent);color:var(--pml-accent-tx)}
+.pml-btn{min-height:44px;min-width:44px;border:1px solid var(--pml-line);border-radius:8px;background:transparent;color:var(--pml-fg);cursor:pointer;font:inherit;padding:0 12px;text-align:left}.pml-btn:hover{border-color:var(--pml-accent)}.pml-btn:disabled{opacity:.5;cursor:default}
+.pml-btn:focus-visible,.pml-seg button:focus-visible,.pml-tab:focus-visible,.pml-badge44:focus-visible{outline:2px solid var(--pml-ring);outline-offset:2px}
+.pml-tabs{display:flex;border-bottom:1px solid var(--pml-line)}.pml-tab{flex:1;min-height:44px;border:0;background:transparent;color:var(--pml-fg-dim);font:inherit;cursor:pointer}
+.pml-tab[aria-selected="true"]{color:var(--pml-accent);box-shadow:inset 0 -2px var(--pml-accent)}.pml-bd{flex:1;overflow:auto;padding:8px}.pml-sec{margin:8px 0 4px;font-weight:600}
+.pml-row{display:flex;gap:8px;font-size:calc(var(--pml-fs) - 2px)}.pml-k{color:var(--pml-fg-dim);flex:none;max-width:48ch}.pml-v{word-break:break-all}
+.pml-act{display:flex;flex-direction:column;gap:8px;padding:4px 0}.pml-log{display:flex;gap:8px;align-items:baseline;font-size:calc(var(--pml-fs) - 2px)}
+.pml-lg{width:8px;height:8px;border-radius:50%;flex:none;align-self:center}.pml-lg.info{background:var(--pml-fg-dim)}.pml-lg.ok{background:var(--pml-ok)}.pml-lg.warn{background:var(--pml-warn)}.pml-lg.err{background:var(--pml-crit)}
+.pml-ft{border-top:1px solid var(--pml-line);padding:4px 8px;display:flex;flex-direction:column;gap:4px}.pml-status{font-size:calc(var(--pml-fs) - 2px);min-height:1.4em}
+.pml-ft details,.pml-bd details{font-size:calc(var(--pml-fs) - 2px)}.pml-ft summary,.pml-bd summary{cursor:pointer;min-height:28px;display:flex;align-items:center}
+.pml-root,.pml-btn,.pml-seg button,.pml-tab{transition:background-color .15s,color .15s,border-color .15s}.pml-motion-off *{transition:none!important;animation:none!important}
+input[type=range]{accent-color:var(--pml-accent);min-height:44px}input[type=checkbox]{width:44px;height:44px;accent-color:var(--pml-accent)}
+`;
+
+const pathOf = el => { // 0-e вариант A: тег:nth-of-type(k) от html, без классов/id
+  const segs = []; let n = el;
+  while (n && n.nodeType === 1 && n !== document.documentElement) {
+    const p = n.parentElement; if (!p) break;
+    let k = 1, tot = 0; for (const c of p.children) { if (c.tagName === n.tagName) { tot++; if (c === n) k = tot; } }
+    segs.push(n.tagName.toLowerCase() + (k > 1 ? ':nth-of-type(' + k + ')' : '')); n = p;
+  }
+  segs.push('html'); let p = segs.reverse().join('>');
+  if (p.length > 120) { while (p.length > 119 && p.indexOf('>') >= 0) p = p.slice(p.indexOf('>') + 1); p = '…' + p; } // обрезка со стороны корня
+  return p;
+};
+const sig3 = el => el.tagName.toLowerCase() + '>' + [...el.children].map(c => c.tagName.toLowerCase() + '(' + [...c.children].map(g => g.tagName.toLowerCase()).join(',') + ')').join(';'); // сигнатура глубины 3
+
+const scanStatic = () => { // I-1/I-2/I-4a за один обход
+  const de = document.documentElement, VH = innerHeight;
+  let maxDepth = 1, blockCount = 0;
+  const scrolls = [], mounts = [], landmarks = [], groups = [];
+  (function walk(el, d) {
+    if (d > maxDepth) maxDepth = d;
+    let s = null; try { s = getComputedStyle(el); } catch (e) {}
+    if (s) { const disp = s.display;
+      if (disp !== 'none' && disp.indexOf('inline') !== 0) blockCount++;
+      const pos = s.position;
+      if (pos === 'fixed' || pos === 'sticky') { const r = el.getBoundingClientRect();
+        if (r.top < VH * 0.15 && r.height >= 32 && r.height <= 96 && r.width >= 120) mounts.push({ path: pathOf(el), mode: pos, h: Math.round(r.height) }); }
+      if (/(auto|scroll)/.test(s.overflowY) && el.scrollHeight > el.clientHeight + 4 && el.clientHeight > 40)
+        scrolls.push({ path: pathOf(el), scrollHeight: el.scrollHeight, clientHeight: el.clientHeight, _a: el.clientWidth * el.clientHeight }); }
+    const role = el.getAttribute('role'), tag = el.tagName.toLowerCase();
+    if (['banner', 'main', 'navigation', 'complementary', 'contentinfo', 'search', 'region', 'form'].indexOf(role) >= 0 || ['header', 'nav', 'main', 'aside', 'footer'].indexOf(tag) >= 0)
+      landmarks.push({ tag, role: role || null, path: pathOf(el) });
+    if (el.children.length >= 3) { const sigs = new Map();
+      for (const c of el.children) { const sg = sig3(c); sigs.set(sg, (sigs.get(sg) || 0) + 1); }
+      const top = [...sigs.entries()].sort((x, y) => y[1] - x[1])[0];
+      if (top[1] >= 3 && top[1] / el.children.length >= 0.6) { const mem = [...el.children].filter(c => sig3(c) === top[0]);
+        groups.push({ sigHash: hash8(top[0]), count: top[1], depth: d, uniformity: hx(mem.length / el.children.length), samplePath: pathOf(mem[0]) }); } }
+    for (const c of el.children) walk(c, d + 1);
+  })(de, 1);
+  return { maxDepth, blockCount, scrolls, mounts, landmarks, groups };
+};
+
+const mutWin = ms => new Promise(res => { // I-3: окно только по явному запуску (§2)
+  const tA = [], remM = new Map(); let remC = 0, rec = 0;
+  const mo = new MutationObserver(ms2 => { for (const m of ms2) {
+    for (const n of m.removedNodes) if (n.nodeType === 1) { remC++; const h = hash8(sig3(n)); remM.set(h, (remM.get(h) || 0) + 1); }
+    for (const n of m.addedNodes) if (n.nodeType === 1) { tA.push(performance.now()); const h = hash8(sig3(n)); if (remM.get(h)) { rec++; remM.delete(h); } } } });
+  mo.observe(document.documentElement, { childList: true, subtree: true });
+  setTimeout(() => { mo.disconnect(); const iv = []; for (let i = 1; i < tA.length; i++) iv.push(tA[i] - tA[i - 1]);
+    iv.sort((a, b) => a - b); const med = iv.length ? Math.round(iv[Math.floor(iv.length / 2)]) : null;
+    res({ window: Math.round(ms / 1000), adds: tA.length, removes: remC, recycles: rec, medianIntervalMs: med, streamCandidate: null }); }, ms);
+});
+
+const snapWin = async () => { // I-4b: N≥10 снапшотов, шаг 200–250 мс (1-d)
+  const N = 10, st = 220, seen = new Map(), samp = [];
+  (function c(p, d) { if (d > 4 || samp.length >= 80) return; for (const k of p.children) { samp.push(k); c(k, d + 1); } })(document.documentElement, 0);
+  for (let i = 0; i < N; i++) { const set = new Set(samp.filter(x => x.isConnected).map(pathOf));
+    for (const p of set) seen.set(p, (seen.get(p) || 0) + 1); if (i < N - 1) await new Promise(r => setTimeout(r, st)); }
+  const per = [...seen.entries()].filter(([, c]) => c >= Math.ceil(N * 0.9)).map(e => e[0]);
+  return { snapshots: N, persistent: per.slice(0, 8), trunc: per.length > 8 };
+};
+
+const runRecon = async () => { // сборка struct r1
+  const t0 = performance.now(); setBadge('run'); status('Разведка: каркас и скролл…');
+  const R = scanStatic();
+  status('Разведка: мутации 10 с…');
+  const mu = await mutWin(10000); const an = await snapWin();
+  const gm = new Map(); for (const g of R.groups) { const o = gm.get(g.sigHash); if (!o || g.count > o.count) gm.set(g.sigHash, g); }
+  const groups = [...gm.values()].sort((a, b) => b.count - a.count || b.uniformity - a.uniformity).slice(0, 12); // 1-e порядок
+  const sc = R.scrolls.sort((a, b) => b.scrollHeight - a.scrollHeight).slice(0, 5);
+  const prim = R.scrolls.slice().sort((a, b) => b._a - a._a)[0];
+  const mps = R.mounts.slice(0, 8);
+  const trunc = []; if (R.landmarks.length > 20) trunc.push('landmarks'); if (gm.size > 12) trunc.push('groups'); // 0-b
+  const struct = { structVersion: 'r1',
+    meta: { ts: Math.round(performance.now() - T0), viewport: { w: innerWidth, h: innerHeight }, dpr: hx(devicePixelRatio), urlHash: hash8(location.href) },
+    dom: { maxDepth: R.maxDepth, blockCount: R.blockCount, landmarks: R.landmarks.slice(0, 20), groups, ...(trunc.length ? { truncated: trunc } : {}) },
+    scroll: { primary: prim ? { path: prim.path, scrollHeight: prim.scrollHeight, clientHeight: prim.clientHeight, ratio: hx(Math.min(1, prim.clientHeight / (prim.scrollHeight || 1))) } : 'no-scroll-container', containers: sc, ...(R.scrolls.length > 5 ? { truncated: ['scroll'] } : {}) }, // 1-a: FIX 27.4.2 — канон C1/B-5: scroll объект ВСЕГДА, строка на уровне primary; truncated — список 0-b
+    mut: mu,
+    anchors: { mountPoints: mps, persistentPaths: an.persistent, stability: mps.length ? hx(Math.min(1, an.persistent.length / mps.length)) : 0, snapshots: an.snapshots, ...(an.trunc ? { truncated: ['persistentPaths'] } : {}) } }; // 1-c/1-d
+  reconN++; mountMs = Math.round(performance.now() - t0);
+  renderRecon(struct); setBadge('ok'); status('Разведка готова: ' + mountMs + ' мс');
+  log('ok', 'Разведка: групп ' + groups.length + ', контейнеров ' + sc.length + ', мутаций +' + mu.adds);
+};
+
+const renderRecon = st => { // рендер-контракт §2: известные секции, неизвестные ключи игнор
+  lastStruct = st; const box = els.recon; box.textContent = '';
+  const row = (k, v) => { const r = ce('div', 'pml-row'); r.append(ce('span', 'pml-k', k), ce('span', 'pml-v', String(v))); box.append(r); };
+  if (!st || typeof st !== 'object') { row('struct', 'нет данных'); return; }
+  const found = x => x && x.source === 'backup' ? ' · резерв ' + x.confidence : '';
+  box.append(ce('div', 'pml-sec', 'Каркас (I-1)'));
+  if (!st.dom) row('dom', 'нет данных'); else {
+    row('maxDepth', st.dom.maxDepth); row('blockCount', st.dom.blockCount);
+    (st.dom.landmarks || []).forEach(l => row('landmark', l.tag + (l.role ? '[' + l.role + ']' : '') + ' ' + l.path));
+    (st.dom.groups || []).forEach(g => row('group', g.sigHash + ' ×' + g.count + ' глуб.' + g.depth + ' однород.' + g.uniformity + (g.found ? found(g.found) : '')));
+    (st.dom.groups || []).slice(0, 1).forEach(g => row('образец', g.samplePath));
+    if (st.dom.truncated && st.dom.truncated.length) row('усечено', st.dom.truncated.join(', ')); }
+  box.append(ce('div', 'pml-sec', 'Скролл (I-2)'));
+  if (!st.scroll) row('scroll', 'нет данных'); // FIX 27.4.2 — страж на обоих уровнях: канон C1 (объект, строка на primary) + терпимость к строке на уровне scroll (легаси UPOLY)
+  else if (st.scroll === 'no-scroll-container' || st.scroll.primary === 'no-scroll-container') row('primary', 'no-scroll-container');
+  else if (st.scroll.primary && st.scroll.primary.path) { row('primary', st.scroll.primary.path + ' ratio ' + st.scroll.primary.ratio);
+    (st.scroll.containers || []).forEach(c => row('container', c.path + ' ' + c.scrollHeight + '/' + c.clientHeight + found(c.found))); }
+  else row('scroll', 'нет данных');
+  box.append(ce('div', 'pml-sec', 'Мутации (I-3)'));
+  if (!st.mut) row('mut', 'нет данных'); else { row('окно, с', st.mut.window); row('добавлено', st.mut.adds); row('удалено', st.mut.removes);
+    row('рецикл', st.mut.recycles); row('медиана, мс', st.mut.medianIntervalMs == null ? 'нет данных' : st.mut.medianIntervalMs);
+    row('поток?', st.mut.streamCandidate == null ? 'нет данных' : String(st.mut.streamCandidate)); }
+  box.append(ce('div', 'pml-sec', 'Якоря (I-4)'));
+  if (!st.anchors) row('anchors', 'нет данных'); else { row('точек монтажа', (st.anchors.mountPoints || []).length);
+    (st.anchors.mountPoints || []).forEach(m => row('точка', m.path + ' ' + m.mode + ' h' + m.h));
+    row('стойких путей', (st.anchors.persistentPaths || []).length); row('стабильность', st.anchors.stability); row('снапшотов', st.anchors.snapshots); }
+};
+
+const passportText = () => ['Скрипт: ' + cfgInfo.name + ' ' + cfgInfo.version, 'Панель: PML-PANEL 1.0',
+  'Тема: ' + S.theme + ' (эфф. ' + effTheme + ')',
+  'Акцент: ' + (ACC ? 'rgb(' + ACC.rgb + ')' : '—') + ' / ' + (ACC ? ACC.source : '—') + ' / фон ' + (ACC ? ACC.ratioBg : '—') + ':1, текст ' + (ACC ? hx(ratio(ACC.rgb, ACC.tx)) : '—') + ':1',
+  'Движение: ' + (S.motion ? 'вкл' : 'выкл') + '; кегль ' + S.fs,
+  'Разведка: ' + (lastStruct ? 'ts ' + lastStruct.meta.ts + ' мс' : 'не выполнялась'),
+  'Метрики: журнал ' + J.length + ', прогонов ' + reconN + ', монтирование ' + mountMs + ' мс',
+  'Хоткеи: ' + (Object.keys(HK).map(k => 'Alt+' + k + ' — ' + HK[k].label).join('; ') || 'нет')];
+
+const REG = [ // реестр ядра; Alt+D/S — резерв экспорта UACE (этап B)
+  { id: 'copylog', label: 'Скопировать журнал', hint: 'Полный лог info/ok/warn/err — канал отчётов беты', run: async () => {
+      try { await navigator.clipboard.writeText(J.map(j => '[' + j.t + '] ' + j.lv + ': ' + j.msg).join('\n')); status('Журнал скопирован'); log('ok', 'Журнал скопирован'); }
+      catch (e) { status('Копирование недоступно — журнал во вкладке'); log('warn', 'clipboard: ' + (e && e.message)); } } },
+  { id: 'collapse', label: 'Свернуть панель', run: async () => setCollapsed(true) },
+  { id: 'passport', label: 'Открыть паспорт', run: async () => { els.pf.open = true; els.pf.scrollIntoView({ block: 'nearest' }); } }];
+
+const runAct = a => async () => { if (busy) return; busy = true; setBadge('run');
+  els.acts.querySelectorAll('button').forEach(b => { b.disabled = true; });
+  try { await a.run(); } catch (e) { log('err', String(e && e.message || e)); status('Ошибка действия'); }
+  finally { busy = false; setBadge('ok'); els.acts.querySelectorAll('button').forEach(b => { b.disabled = false; }); } };
+
+const addActions = list => (list || []).forEach(a => { if (!a || els.acts.querySelector('[data-id="' + a.id + '"]')) return;
+  const b = ce('button', 'pml-btn', a.label); b.type = 'button'; b.dataset.id = a.id; if (a.hint) b.title = a.hint; b.disabled = !!a.disabled;
+  b.onclick = runAct(a); els.acts.append(b); });
+
+const regHotkeys = cfg => { let added = 0; ((cfg && cfg.hotkeys) || []).forEach(h => { const k = String(h.key || '').toUpperCase();
+  if ('EDCSXI'.indexOf(k) < 0) return;
+  if (HK[k]) { console.warn('[pml] Alt+' + k + ' занят («' + HK[k].label + '» побеждает)'); addActions([{ id: 'hk-' + k + '-' + (++uid), label: h.label + ' (без хоткея)', run: h.run }]); }
+  else { HK[k] = { label: h.label, run: h.run }; added++; } });
+  store.save(); return { attached: true, owner: OWNER }; }; // хедер/паспорт не переписываем (§1)
+
+const setBadge = s => { badge = s; if (els.dot) els.dot.className = 'pml-dot ' + s; // бейдж красим напрямую: var() не достаёт вне поддерева root
+  if (els.badge && PAL[effTheme]) { const map = { ok: 'ok', warn: 'warn', err: 'crit', run: null }[s];
+    els.badge.style.borderColor = 'rgb(' + (map ? PAL[effTheme][map] : ACC ? ACC.rgb : PAL[effTheme].fb) + ')'; } };
+const log = (lv, msg) => { J.unshift({ t: Math.round(performance.now() - T0), lv, msg: String(msg).slice(0, 120) }); if (J.length > 200) J.pop(); // §9: свежее сверху
+  els.log.textContent = ''; J.forEach(j => { const r = ce('div', 'pml-log'); r.append(ce('span', 'pml-lg ' + j.lv), ce('span', '', '[' + j.t + '] ' + j.msg)); els.log.append(r); }); };
+const status = m => { els.status.textContent = String(m).slice(0, 80); clearTimeout(stT); stT = setTimeout(() => { els.status.textContent = ''; }, 4000); clean.push(['t', stT]); }; // §12
+const setCollapsed = v => { S.collapsed = !!v; store.save(); root.hidden = !!v; els.badge.hidden = !v; };
+
+const syncTheme = () => { // §5–§6
+  const h = new Date().getHours();
+  effTheme = S.theme === 'system' ? (h >= 20 || h < 6 ? 'warm' : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : S.theme;
+  const P = PAL[effTheme];
+  let probe = null; try { const i = ce('input'); i.type = 'checkbox'; i.style.accentColor = 'auto'; document.body.append(i);
+    probe = parseRgb(getComputedStyle(i).accentColor); i.remove(); } catch (e) {}
+  const sat = guardSat(probe); // сатурационный страж
+  const c = sat ? rgb2ok(probe[0], probe[1], probe[2]) : rgb2ok(P.fb[0], P.fb[1], P.fb[2]);
+  const rgb = (sat && solveAccent(P.bg, c[1], c[2])) || P.fb; // отказ стража → детерминированный дефолт
+  ACC = { rgb, source: sat ? 'system' : 'fallback', ratioBg: hx(ratio(rgb, P.bg)), tx: pickTx(rgb) };
+  const st = root.style, T = { 'pml-bg': P.bg, 'pml-fg': P.fg, 'pml-fg-dim': P.dim, 'pml-line': P.line, 'pml-accent': rgb, 'pml-accent-tx': ACC.tx, 'pml-ring': P.ring, 'pml-ok': P.ok, 'pml-warn': P.warn, 'pml-crit': P.crit };
+  for (const k in T) st.setProperty('--pml-' + k, 'rgb(' + T[k] + ')');
+  st.setProperty('--pml-radius', '12px'); st.setProperty('--pml-fs', S.fs + 'px');
+  if (els.badge) { els.badge.style.background = 'rgb(' + P.bg + ')'; els.badge.style.color = 'rgb(' + P.fg + ')'; }
+  root.className = 'pml-root' + (S.motion ? '' : ' pml-motion-off');
+  [...els.seg.children].forEach(b => b.setAttribute('aria-checked', String(b.dataset.v === S.theme)));
+};
+
+const zscan = () => { // §3: разведка перед монтажом
+  let z = 1000; const bars = [];
+  for (const el of (document.body || document.documentElement).querySelectorAll('*')) { let s = null; try { s = getComputedStyle(el); } catch (e) {}
+    if (!s || (s.position !== 'fixed' && s.position !== 'sticky')) continue;
+    const r = el.getBoundingClientRect(); const zz = +s.zIndex; if (zz > z) z = Math.min(zz + 1, 2147483000);
+    if (r.top < innerHeight * 0.15 && r.height >= 32 && r.height <= 96 && r.width >= 120) bars.push(r); }
+  let top = 16, bottom = null;
+  if (bars.length) { const maxB = Math.max.apply(null, bars.map(r => r.bottom)); if (maxB + 8 + 360 < innerHeight * 0.8) top = Math.round(maxB + 8); else bottom = 16; }
+  return { z, top, bottom };
+};
+
+const build = () => {
+  let h = document.getElementById(HOST_ID); if (h) h.remove(); // takeover: под нашим ID снимаем ЛЮБОЙ прежний хост (анти-дубль ID)
+  host = ce('div'); host.id = HOST_ID; host.__pml = 1; document.documentElement.appendChild(host);
+  let sh = null; try { sh = host.attachShadow({ mode: 'open' }); } catch (e) {}
+  const style = ce('style'); style.textContent = CSS;
+  if (sh) { root = ce('div'); sh.append(style, root); } else { root = host; (document.head || document.documentElement).append(style); clean.push(['n', style]); } // fallback §2
+  const hd = ce('div', 'pml-hd');
+  els.dot = ce('span', 'pml-dot'); els.title = ce('span', 'pml-title', cfgInfo.name + ' v' + cfgInfo.version.split('.').slice(0, 2).join('.'));
+  els.seg = ce('div', 'pml-seg'); els.seg.setAttribute('role', 'radiogroup'); els.seg.setAttribute('aria-label', 'Тема');
+  [['system', 'Авто'], ['light', 'Свет'], ['dark', 'Тьма'], ['warm', 'Тепло']].forEach((v, i) => {
+    const b = ce('button', '', v[1]); b.type = 'button'; b.dataset.v = v[0]; b.setAttribute('role', 'radio'); b.tabIndex = i === 0 ? 0 : -1;
+    b.onclick = () => { S.theme = b.dataset.v; store.save(); syncTheme(); status('Тема: ' + b.dataset.v); };
+    b.onkeydown = e => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].indexOf(e.key) < 0) return; e.preventDefault();
+      const bs = [...els.seg.children], i2 = bs.indexOf(e.target);
+      const j = e.key === 'ArrowLeft' ? i2 - 1 : e.key === 'ArrowRight' ? i2 + 1 : e.key === 'Home' ? 0 : bs.length - 1;
+      const jj = (j + bs.length) % bs.length; bs.forEach((x, xi) => { x.tabIndex = xi === jj ? 0 : -1; }); bs[jj].focus(); bs[jj].click(); }; // roving tabindex §9
+    els.seg.append(b); });
+  const col = ce('button', 'pml-btn', '⌃'); col.type = 'button'; col.title = 'Свернуть'; col.setAttribute('aria-label', 'Свернуть панель'); col.onclick = () => setCollapsed(true);
+  hd.append(els.dot, els.title, els.seg, col);
+  const tabs = ce('div', 'pml-tabs'); const bd = ce('div', 'pml-bd'); els.panels = {};
+  const ids = ['recon', 'actions', 'log'], names = ['Разведка', 'Действия', 'Журнал'];
+  ids.forEach((id, i) => { const t = ce('button', 'pml-tab', names[i]); t.type = 'button'; t.setAttribute('role', 'tab');
+    t.setAttribute('aria-selected', String(i === 0)); t.onclick = () => ids.forEach((id2, i2) => { tabs.children[i2].setAttribute('aria-selected', String(i2 === i)); els.panels[id2].hidden = i2 !== i; });
+    tabs.append(t); const p = ce('div'); p.hidden = i !== 0; els.panels[id] = p; bd.append(p); });
+  const rb = ce('button', 'pml-btn', 'Запустить разведку'); rb.type = 'button'; rb.onclick = runAct({ id: 'recon', run: runRecon });
+  els.recon = ce('div'); els.panels.recon.append(rb, els.recon);
+  els.acts = ce('div', 'pml-act'); els.panels.actions.append(els.acts);
+  els.log = ce('div'); els.panels.log.append(els.log);
+  const ft = ce('div', 'pml-ft'); els.status = ce('div', 'pml-status'); els.status.setAttribute('role', 'status'); els.status.setAttribute('aria-live', 'polite');
+  const cm = ce('details'); cm.append(ce('summary', '', 'Комфорт'));
+  const mv = ce('label'); const mc = ce('input'); mc.type = 'checkbox'; mc.checked = !S.motion;
+  mc.onchange = () => { S.motion = !mc.checked; store.save(); syncTheme(); }; mv.append(mc, ' Движение выкл');
+  const fv = ce('label'); const fr = ce('input'); fr.type = 'range'; fr.min = '12'; fr.max = '20'; fr.step = '1'; fr.value = String(S.fs);
+  fr.oninput = () => { S.fs = +fr.value; store.save(); syncTheme(); }; fv.append(fr, ' Кегль ' + S.fs);
+  cm.append(mv, fv);
+  els.pf = ce('details'); els.pf.append(ce('summary', '', 'Паспорт')); els.pp = ce('pre'); els.pf.append(els.pp);
+  ft.append(els.status, cm, els.pf);
+  root.append(hd, tabs, bd, ft);
+  els.badge = ce('button', 'pml-badge44', cfgInfo.name.slice(0, 2)); els.badge.type = 'button'; els.badge.title = 'Развернуть панель';
+  els.badge.onclick = () => setCollapsed(false); (root.parentElement || sh || root).append(els.badge); // FIX 27.4.1: у ребёнка ShadowRoot parentElement === null
+  const z = zscan(); root.style.zIndex = z.z;
+  if (z.bottom != null) { root.style.top = 'auto'; root.style.bottom = '16px'; } else root.style.top = z.top + 'px'; // §3 каскад
+  els.pf.addEventListener('toggle', () => { if (els.pf.open) els.pp.textContent = passportText().join('\n'); });
+};
+
+const CONFIG = { name: 'UACE', version: VER, hotkeys: [
+  { key: 'E', label: 'Разведка', run: () => els.panels.recon.querySelector('button').click() },
+  { key: 'C', label: 'Скопировать журнал', run: () => REG[0].run() },
+  { key: 'X', label: 'Свернуть/развернуть', run: () => setCollapsed(!S.collapsed) },
+  { key: 'I', label: 'Паспорт', run: () => { els.pf.open = true; els.pp.textContent = passportText().join('\n'); } }] };
+
+const api = Object.freeze({ // §1: синглтон API
+  version: '1.0',
+  ping: () => ({ version: '1.0', alive: true, owner: OWNER }),
+  mount(c) { if (!mounted) { Q.push(['mount', c]); return { queued: true }; } return regHotkeys(c); },
+  setBadge(s) { if (!mounted) { Q.push(['setBadge', s]); return; } setBadge(s); },
+  log(lv, msg) { if (!mounted) { Q.push(['log', lv, msg]); return; } log(lv, msg); },
+  renderRecon(st) { if (!mounted) { Q.push(['renderRecon', st]); return; } renderRecon(st); }, // прямая совместимость с r1
+  renderActions(list) { if (!mounted) { Q.push(['renderActions', list]); return; } addActions(list); },
+  getPassport() { return passportText().join('\n'); } });
+
+const init = () => {
+  const t0 = performance.now(); store.load(); build();
+  syncTheme(); els.badge.hidden = !S.collapsed; root.hidden = !!S.collapsed;
+  regHotkeys(CONFIG); addActions(REG);
+  const wd = setInterval(() => { try { if (!host.isConnected) document.documentElement.appendChild(host); } catch (e) {} }, 2000); // watchdog §2
+  clean.push(['i', wd]);
+  bind('keydown', e => { if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return; // §13
+    const t = e.target; if (t && ((t.matches && t.matches('input,textarea,select')) || t.isContentEditable)) return; // P5
+    const h = HK[String(e.key || '').toUpperCase()]; if (!h) return; e.preventDefault(); h.run(); });
+  bind('focus', syncTheme); bind('visibilitychange', syncTheme, document); // §5–§6 переспрос
+  bind('pagehide', () => { clean.forEach(c => { try { if (c[0] === 'l') c[3].removeEventListener(c[1], c[2]); else if (c[0] === 'i') clearInterval(c[1]);
+    else if (c[0] === 't') clearTimeout(c[1]); else if (c[0] === 'n') c[1].remove(); } catch (e) {} }); if (host) host.remove(); }); // самоочистка §2
+  mounted = true;
+  while (Q.length) { const q = Q.shift(); try { if (q[0] === 'mount') regHotkeys(q[1]); else if (q[0] === 'renderRecon') renderRecon(q[1]);
+    else if (q[0] === 'renderActions') addActions(q[1]); else if (q[0] === 'log') log(q[1], q[2]); else if (q[0] === 'setBadge') setBadge(q[1]); } catch (e) {} }
+  mountMs = Math.round(performance.now() - t0);
+  setBadge('ok'); log('ok', 'Панель PML-PANEL 1.0 · UACE ' + VER + ' · монтирование ' + mountMs + ' мс');
+  status('Панель готова');
+};
+
+const prev = window.__PML_PANEL_API__;
+if (prev) { // P13: синглтон; takeover >5 с (§1)
+  let tries = 0;
+  const chk = () => { let alive = false; try { const hh = document.getElementById(HOST_ID); // FIX 27.4.1: alive = живой UI, не голый хост
+    const sr = hh && hh.shadowRoot; const ui = sr ? sr.childElementCount > 1 : !!(hh && hh.childElementCount);
+    alive = !!ui && !!hh && hh.isConnected && prev.ping().alive; } catch (e) {}
+    if (alive) { try { prev.mount(CONFIG); } catch (e) {} console.info('[pml] attached:', OWNER, '← владелец', prev.ping && prev.ping().owner); return; }
+    if (++tries < 5) { setTimeout(chk, 1000); return; }
+    console.warn('[pml] takeover: панель не отвечает >5 с — пересоздаю'); init(); };
+  try { chk(); } catch (e) { console.warn('[pml] chk', e); init(); }
+} else { window.__PML_PANEL_API__ = api; try { init(); } catch (e) { console.warn('[pml] init', e); } }
+})();

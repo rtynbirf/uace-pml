@@ -1,0 +1,912 @@
+     1→/* ============================================================================
+     2→ * UACE × PML — v29.0.0 «EVIDENCE» — архитектурная сборка (перестройка v28.3.0)
+     3→ * ----------------------------------------------------------------------------
+     4→ * Реагирует на аудит v28.3.0 (STATIC SYNTAX: PASS → ARCHITECTURAL AUDIT).
+     5→ * Слои: L0 CORE (чистое ядро, Node-тестируемое) → L1 RUNTIME → L2 EVIDENCE →
+     6→ * L3 PLATFORMS → L4 CAPTURE (ChatDocument) → L5 STORAGE → L6 RENDERERS/
+     7→ * ORCHESTRATOR → L7 UI/PML. Главный принцип: EVIDENCE FIRST — каждый результат
+     8→ * несёт {value, evidence, confidence, source, strategy}; «не уверен» → unknown,
+     9→ * НЕ догадка. Слежу за каноном PML-STRUCT r1+r2 §5 (соль PMLSTRUCT) и
+    10→ * PML-PANEL 1.0 §13 (хоткеи только E/D/C/S/X/I), §15 (приватность — честно).
+    11→ *
+    12→ * КАРТА ИСПРАВЛЕНИЙ АУДИТА (§ → где в коде):
+    13→ *  §2/§10 renderPdfBlob()→true + blobToU8(true) — УДАЛЕНО: экспорт возвращает
+    14→ *      типизированный ExportResult {kind:'file'|'print'|'print-html'|'failed'};
+    15→ *      ZIP принимает ТОЛЬКО Blob; PDF = печать браузера, ZIP-член = .print.html.
+    16→ *  §3/§4 сеть — широковещательный connect-грант УДАЛЁН (согласие на домен
+    17→ *      запрашивает Tampermonkey); изображения ВЫКЛ по умолчанию; GM_xhr только
+    18→ *      с anonymous:true, HTTPS, блок приватных адресов, журнал сети.
+    19→ *  §5 роли — parity-догадка УДАЛЕНА; лестница улик attribute → platform-selector
+    20→ *      → semantic-class → ancestor → (structural-order только при доказанном
+    21→ *      strictAlternation платформы; в v29 ни одна не заявлена) → unknown.
+    22→ *  §6 выбор списка сообщений — не max-count, а validated score ≥ 0.55.
+    23→ *  §7 dedupeNested — O(n×depth) (сортировка по глубине + проход по предкам).
+    24→ *  §8/§9 TreeWalker + бюджеты узлов/времени + единый планировщик Sched.
+    25→ *  §11 размеры ZIP — только UTF-8 байты (TextEncoder ДО любого расчёта).
+    26→ *  §12 Mermaid — режимы off/inline; внешние mermaid-сервисы больше не вызываются.
+    27→ *  §13 Trusted Types — именованные политики uace-static/uace-export
+    28→ *      (createHTML с запретом raw <script>); default-политика УДАЛЕНА.
+    29→ *  §14/§15 postMessage/window.open — IPC-канал дочерних вкладок удалён
+    30→ *      полностью (same-tab активация), поверхность атаки устранена; печать —
+    31→ *      окно с opener=null.
+    32→ *  §17 snapshot — captureMode:'snapshot', confidence 0, честные warnings.
+    33→ *  §18 канонический ключ platform|origin|chatId.
+    34→ *  §19 resume — idx∈[0..n]; idx===n → сессия ЗАВЕРШЕНА (не откат на n-1).
+    35→ *  §20 журнал — 5 уровней (debug/info/warn/error/security), кольцо 500,
+    36→ *      Debug-отчёт включает журнал; пустые catch в значимых путях запрещены.
+    37→ *  §22–§26 слои, Evidence First, ChatDocument, конвейер рендереров.
+    38→ *  §27 СОХРАНЕНО: 36 платформ, 5 стилей PDF/HTML (ИМПЕРСКИЙ С ЗОЛОТОМ и др.),
+    39→ *      темы Авто/Свет/Тьма/Тепло, подсказки, «? Справка» слева от «ⓘ Паспорт»,
+    40→ *      PML-наблюдение 60 с, ZIP DEFLATE, resume/onlyNew, самовосстановление UI.
+    41→ * ========================================================================== */
+    42→// ==UserScript==
+    43→// @name         UACE × PML — Universal AI Chat Exporter (29.0.0 EVIDENCE)
+    44→// @namespace    uace.pml.sessionB
+    45→// @version      29.0.0
+    46→// @description  Архитектурная сборка по аудиту v28.3.0: Evidence First, каноническая модель ChatDocument, типизированные контракты экспорта, честная приватность (изображения выключены по умолчанию, журнал сети), роли без догадок (roleEvidence), ZIP с байтовой точностью UTF-8, PDF = печать браузера (ZIP получает .print.html, никогда не Boolean), Mermaid без внешних ссылок, именованные Trusted Types политики, journal 5 уровней. 36 платформ, 9 форматов, 5 стилей PDF/HTML (Имперский с золотом), темы Авто/Свет/Тьма/Тепло, подсказки, Справка, PML-наблюдение 60 с, resume/onlyNew, самовосстановление UI. Хоткеи канона: Alt+E/D/C/S/X/I.
+    47→// @author       Session B (UACE-main)
+    48→// @match        https://chatgpt.com/*
+    49→// @match        https://chat.openai.com/*
+    50→// @match        https://claude.ai/*
+    51→// @match        https://gemini.google.com/*
+    52→// @match        https://bard.google.com/*
+    53→// @match        https://aistudio.google.com/*
+    54→// @match        https://chat.deepseek.com/*
+    55→// @match        https://deepseek.com/*
+    56→// @match        https://chat.qwen.ai/*
+    57→// @match        https://qwen.ai/*
+    58→// @match        https://tongyi.aliyun.com/*
+    59→// @match        https://kimi.moonshot.cn/*
+    60→// @match        https://www.kimi.com/*
+    61→// @match        https://kimi.com/*
+    62→// @match        https://kimi.ai/*
+    63→// @match        https://agent.minimax.io/*
+    64→// @match        https://chat.minimax.io/*
+    65→// @match        https://minimaxi.com/*
+    66→// @match        https://chat.mistral.ai/*
+    67→// @match        https://mistral.ai/*
+    68→// @match        https://chat.groq.com/*
+    69→// @match        https://groq.com/*
+    70→// @match        https://openrouter.ai/*
+    71→// @match        https://huggingface.co/chat/*
+    72→// @match        https://build.nvidia.com/*
+    73→// @match        https://chat.z.ai/*
+    74→// @match        https://z.ai/*
+    75→// @match        https://chatglm.cn/*
+    76→// @match        https://space-z.ai/*
+    77→// @match        https://pollinations.ai/*
+    78→// @match        https://puter.com/*
+    79→// @match        https://playground.ai.cloudflare.com/*
+    80→// @match        https://grok.com/*
+    81→// @match        https://copilot.microsoft.com/*
+    82→// @match        https://www.perplexity.ai/*
+    83→// @match        https://perplexity.ai/*
+    84→// @match        https://poe.com/*
+    85→// @match        https://character.ai/*
+    86→// @match        https://you.com/*
+    87→// @match        https://www.doubao.com/*
+    88→// @match        https://doubao.com/*
+    89→// @match        https://yuanbao.tencent.com/*
+    90→// @match        https://www.meta.ai/*
+    91→// @match        https://meta.ai/*
+    92→// @match        https://alice.yandex.ru/*
+    93→// @match        https://ya.ru/alice*
+    94→// @match        https://yandex.ru/alice*
+    95→// @match        https://dola.com/*
+    96→// @match        https://lmarena.ai/*
+    97→// @match        https://chat.lmarena.ai/*
+    98→// @match        https://notebooklm.google.com/*
+    99→// @match        https://github.com/copilot/*
+   100→// @match        https://coze.com/*
+   101→// @match        https://www.coze.com/*
+   102→// @match        https://coze.cn/*
+   103→// @match        https://www.phind.com/*
+   104→// @match        https://phind.com/*
+   105→// @match        https://v0.dev/*
+   106→// @grant        GM_xmlhttpRequest
+   107→// @grant        GM.xmlHttpRequest
+   108→// @run-at       document-idle
+   109→// @noframes
+   110→// ==/UserScript==
+   111→/* ПРИВАТНОСТЬ (§3/§4 аудита): широковещательный connect-грант удалён. По
+   112→   умолчанию 0 внешних запросов. Загрузка изображений — ЯВНАЯ опция (выкл. по
+   113→   умолчанию): при первом домене Tampermonkey сам запросит согласие; GM-запросы
+   114→   — anonymous, HTTPS-only, приватные адреса запрещены, всё — в Журнале сети. */
+   115→
+   116→(function () {
+   117→'use strict';
+   118→if (typeof window !== 'undefined' && window.top !== window) return; /* @noframes дублируем кодом */
+   119→
+   120→const UACE_VER = '29.0.0';
+   121→const SCHEMA_VER = 'uace-chat-document/29';
+   122→const SALT = 'PMLSTRUCT';           /* канон PML-STRUCT r1+r2 §5 — НЕ МЕНЯТЬ */
+   123→const SESSION_T0 = Date.now();
+   124→const nowMs = () => Date.now() - SESSION_T0;
+   125→const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+   126→const round2 = v => Math.round(v * 100) / 100;
+   127→const sleep = ms => new Promise(r => setTimeout(r, ms));
+   128→const hx = v => (v >>> 0).toString(16).padStart(8, '0');
+   129→
+   130→/* ══════════════ L0 CORE — чистое ядро (Node-тестируемое) ══════════════ */
+   131→
+   132→/* --- L0.1 ЖУРНАЛ (§20): 5 уровней, кольцо 500, без пустых catch в значимых путях --- */
+   133→const JOURNAL_CAP = 500;
+   134→const journalBuf = [];
+   135→function jpush(level, scope, msg, data) {
+   136→  journalBuf.push({ t: nowMs(), level, scope: String(scope || 'core'), msg: String(msg || '').slice(0, 300), data: data == null ? null : (typeof data === 'object' ? safeJson(data) : String(data)) });
+   137→  if (journalBuf.length > JOURNAL_CAP) journalBuf.shift();
+   138→}
+   139→function safeJson(o) { try { return JSON.stringify(o).slice(0, 400); } catch (e) { return '[unserializable]'; } }
+   140→const journal = {
+   141→  debug: (s, m, d) => jpush('debug', s, m, d),
+   142→  info: (s, m, d) => jpush('info', s, m, d),
+   143→  warn: (s, m, d) => jpush('warn', s, m, d),
+   144→  error: (s, m, d) => jpush('error', s, m, d),
+   145→  security: (s, m, d) => jpush('security', s, m, d),
+   146→  net: (host, bytes, via) => jpush('net', 'network', host + ' ' + bytes + 'B via ' + via, null),
+   147→  dump: n => journalBuf.slice(-(n || JOURNAL_CAP)),
+   148→  stats: () => {
+   149→    const s = {};
+   150→    for (const j of journalBuf) s[j.level] = (s[j.level] || 0) + 1;
+   151→    return s;
+   152→  }
+   153→};
+   154→
+   155→/* --- L0.2 Хэш-канон PML §5: FNV-1a 32, UTF-8 байты, hex8 lowercase --- */
+   156→const ENC = new TextEncoder();
+   157→const utf8 = s => ENC.encode(String(s == null ? '' : s));
+   158→const byteLen = s => utf8(s).length;
+   159→function fnv1a32(str) { /* → число (для simhash половин) */
+   160→  const b = utf8(str); let h = 0x811c9dc5;
+   161→  for (let i = 0; i < b.length; i++) { h ^= b[i]; h = Math.imul(h, 0x01000193) >>> 0; }
+   162→  return h >>> 0;
+   163→}
+   164→const fnv1aHex = s => hx(fnv1a32(s));
+   165→const hashString = fnv1aHex;                                  /* совместимость */
+   166→const sigHashIn = sig => SALT + '>' + String(sig).toUpperCase();   /* вход sigHash  */
+   167→const urlHashIn = href => SALT + 'URL>' + String(href || '');      /* вход urlHash  */
+   168→const sigHashOf = sig => fnv1aHex(sigHashIn(sig));
+   169→const urlHashOf = href => fnv1aHex(urlHashIn(href));
+   170→const truncPath = p => { p = String(p || ''); return p.length > 120 ? '~' + p.slice(-119) : p; };
+   171→
+   172→/* --- L0.3 CRC32 + ZIP: строки → UTF-8 БАЙТЫ до любого расчёта (§11) --- */
+   173→const CRC_T = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1); t[n] = c >>> 0; } return t; })();
+   174→const crc32 = u8 => { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC_T[(c ^ u8[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+   175→async function deflateRawU8(u8) {
+   176→  try {
+   177→    if (typeof CompressionStream === 'undefined') return null;
+   178→    const cs = new CompressionStream('deflate-raw');
+   179→    const ab = await new Response(new Blob([u8]).stream().pipeThrough(cs)).arrayBuffer();
+   180→    return new Uint8Array(ab);
+   181→  } catch (e) { journal.debug('zip', 'deflate-unavailable', String(e && e.message || e)); return null; }
+   182→}
+   183→const _u16 = (dv, o, v) => dv.setUint16(o, v & 0xFFFF, true);
+   184→const _u32 = (dv, o, v) => dv.setUint32(o, v >>> 0, true);
+   185→function _dosTime(d) { return { t: ((d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1)) & 0xFFFF, d: (((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate()) & 0xFFFF }; }
+   186→/* zipBuild(files) → Uint8Array. files: [{name, data:Uint8Array|string, store?}]
+   187→   КОНТРАКТ: name/data нормализуются к байтам немедленно; размеры ТОЛЬКО в байтах. */
+   188→async function zipBuild(files) {
+   189→  const norm = [];
+   190→  for (const f of (files || [])) {
+   191→    if (!f || !f.name) continue;
+   192→    norm.push({ nameU8: utf8(f.name), data: f.data instanceof Uint8Array ? f.data : utf8(f.data), store: !!f.store });
+   193→  }
+   194→  const stamp = _dosTime(new Date()), chunks = [], central = [];
+   195→  let offset = 0;
+   196→  for (const e of norm) {
+   197→    let method = 0, payload = e.data;
+   198→    const crc = crc32(e.data);
+   199→    if (!e.store && e.data.length > 64) { const def = await deflateRawU8(e.data); if (def && def.length < e.data.length) { method = 8; payload = def; } }
+   200→    const lh = new DataView(new ArrayBuffer(30));
+   201→    _u32(lh, 0, 0x04034b50); _u16(lh, 4, 20); _u16(lh, 6, 0x0800); _u16(lh, 8, method);
+   202→    _u16(lh, 10, stamp.t); _u16(lh, 12, stamp.d); _u32(lh, 14, crc);
+   203→    _u32(lh, 18, payload.length); _u32(lh, 22, e.data.length); _u16(lh, 26, e.nameU8.length); _u16(lh, 28, 0);
+   204→    chunks.push(new Uint8Array(lh.buffer), e.nameU8, payload);
+   205→    const cd = new DataView(new ArrayBuffer(46));
+   206→    _u32(cd, 0, 0x02014b50); _u16(cd, 4, 20); _u16(cd, 6, 20); _u16(cd, 8, 0x0800); _u16(cd, 10, method);
+   207→    _u16(cd, 12, stamp.t); _u16(cd, 14, stamp.d); _u32(cd, 16, crc);
+   208→    _u32(cd, 20, payload.length); _u32(cd, 24, e.data.length); _u16(cd, 28, e.nameU8.length);
+   209→    _u32(cd, 42, offset);
+   210→    central.push(new Uint8Array(cd.buffer), e.nameU8);
+   211→    offset += 30 + e.nameU8.length + payload.length;
+   212→  }
+   213→  let centralLen = 0; for (const c of central) centralLen += c.length;
+   214→  const eo = new DataView(new ArrayBuffer(22));
+   215→  _u32(eo, 0, 0x06054b50); _u16(eo, 8, norm.length); _u16(eo, 10, norm.length);
+   216→  _u32(eo, 12, centralLen); _u32(eo, 16, offset);
+   217→  const all = chunks.concat(central, [new Uint8Array(eo.buffer)]);
+   218→  let total = 0; for (const c of all) total += c.length;
+   219→  const out = new Uint8Array(total); let p = 0;
+   220→  for (const c of all) { out.set(c, p); p += c.length; }
+   221→  return out;
+   222→}
+   223→/* Тома: разбивка по UTF-8 байтам (§11: string.length больше не участвует) */
+   224→function splitVolumesU8(entries, maxBytes) {
+   225→  const limit = Math.max(1024, maxBytes || 50 * 1024 * 1024);
+   226→  const size = e => 30 + e.nameU8.length + e.data.length + 46;
+   227→  const vols = []; let cur = [], curSize = 0, total = 0;
+   228→  for (const e of entries) { const s = size(e); total += s; }
+   229→  if (total <= limit) return [entries];
+   230→  for (const e of entries) {
+   231→    const s = size(e);
+   232→    if (cur.length && curSize + s > limit) { vols.push(cur); cur = []; curSize = 0; }
+   233→    cur.push(e); curSize += s;
+   234→  }
+   235→  if (cur.length) vols.push(cur);
+   236→  return vols;
+   237→}
+   238→
+   239→/* --- L0.4 dedupeNested O(n×depth) (§7) — семантика v28.3.0: контейнер
+   240→   (держит ≥2 кандидатов ближайшим уровнем) удаляется, его предметы остаются;
+   241→   вложенность в не-контейнер-кандидата — дубликат, удаляется. Вместо тройных
+   242→   проходов O(n³) — ближайший-кандидат-предок за O(глубину). --- */
+   243→function dedupeNested(items, getParent) {
+   244→  const gp = getParent || (el => el.parentElement);
+   245→  const arr = Array.from(items).slice(0, 400);
+   246→  if (arr.length < 2) return arr;
+   247→  const set = new Set(arr);
+   248→  const nearAnc = el => { let p = gp(el); while (p) { if (set.has(p)) return p; p = gp(p); } return null; };
+   249→  const heldBy = new Map();
+   250→  for (const el of arr) { const a = nearAnc(el); if (a) heldBy.set(a, (heldBy.get(a) || 0) + 1); }
+   251→  const containers = new Set();
+   252→  for (const [a, c] of heldBy) if (c >= 2) containers.add(a);
+   253→  const out = [];
+   254→  for (const el of arr) {
+   255→    if (containers.has(el)) continue;            /* контейнер-«зонтик» долой */
+   256→    const a = nearAnc(el);
+   257→    if (a && !containers.has(a)) continue;       /* вложен в кандидата-дубликата */
+   258→    out.push(el);                                 /* предмет удалённого контейнера */
+   259→  }
+   260→  return out;
+   261→}
+   262→
+   263→/* --- L0.5 EVIDENCE FIRST (§24) + лестница ролей (§5) + валидация (§6) --- */
+   264→const mkEv = (strategy, confidence, reasons, extra) => Object.assign({ strategy: String(strategy || 'unknown'), confidence: Math.max(0, Math.min(1, +confidence || 0)), reasons: reasons || [], source: null }, extra || {});
+   265→const ROLE_LEVELS = { attribute: 0.99, 'platform-selector': 0.95, 'semantic-class': 0.80, ancestor: 0.70, 'structural-order': 0.60, 'framework-internal': 0.55, heuristic: 0.00 };
+   266→function roleFromValue(v) { /* значение атрибута/класса → роль или null; ДОГАДКИ НЕТ */
+   267→  if (v == null || v === '') return null;
+   268→  const s = String(v).toLowerCase();
+   269→  if (/system/.test(s)) return 'system';
+   270→  if (/user|human|question|query/.test(s)) return 'user';
+   271→  if (/assistant|bot|model|gpt|response|answer|reply/.test(s)) return 'assistant';
+   272→  return null;
+   273→}
+   274→const SCORE_W = { role: 0.30, membership: 0.20, uniform: 0.15, order: 0.15, text: 0.10, clean: 0.10 };
+   275→const SCORE_THRESHOLD = 0.55;
+   276→/* scoreCandidates(features) → {score, pass, reasons[]}: НЕ максимум количества (§6) */
+   277→function scoreCandidates(f) {
+   278→  const reasons = [];
+   279→  if (!f || !f.count || f.count < 2) return { score: 0, pass: false, reasons: ['count<2'] };
+   280→  let s = SCORE_W.role * f.roleCoherence + SCORE_W.membership * f.membership + SCORE_W.uniform * f.uniformity
+   281→        + SCORE_W.order * f.orderConsistency + SCORE_W.text * f.textQuality + SCORE_W.clean * f.cleanliness;
+   282→  if (f.nestedShare > 0.3) { s -= 0.15; reasons.push('nesting-penalty'); }
+   283→  if (f.uiShare > 0.2) { s -= 0.15 + 0.3 * f.uiShare; reasons.push('ui-penalty'); }
+   284→  if (f.roleCoherence === 0) reasons.push('role-evidence:0');
+   285→  s = Math.max(0, Math.min(1, s));
+   286→  return { score: round2(s), pass: s >= SCORE_THRESHOLD && f.roleCoherence > 0 && f.uiShare <= 0.3, reasons };
+   287→}
+   288→/* resumePlan (§19): idx∈[0..n]; idx===n → сессия ЗАВЕРШЕНА, откатов нет */
+   289→function resumePlan(idx, n) {
+   290→  idx = Math.max(0, Math.min(Math.floor(Number(idx) || 0), n));
+   291→  return idx >= n ? { action: 'complete', idx: n } : { action: 'continue', idx };
+   292→}
+   293→
+   294→/* --- L0.6 ChatDocument — каноническая модель (§26) --- */
+   295→function makeChatDocument(o) {
+   296→  const msgs = (o.messages || []).map((m, i) => ({
+   297→    index: i,
+   298→    role: (m.role === 'user' || m.role === 'assistant' || m.role === 'system') ? m.role : 'unknown',
+   299→    roleEvidence: m.roleEvidence && m.roleEvidence.method ? m.roleEvidence : { method: 'heuristic', confidence: 0, reason: 'no-signals' },
+   300→    text: String(m.text || ''),
+   301→    markdown: m.markdown != null ? m.markdown : String(m.text || ''),
+   302→    thinking: m.thinking || [],
+   303→    images: m.images || [],
+   304→    attachments: m.attachments || [],
+   305→    artifacts: m.artifacts || []
+   306→  }));
+   307→  const warnings = (o.warnings || []).slice();
+   308→  const unknownRoles = msgs.filter(m => m.role === 'unknown').length;
+   309→  if (unknownRoles) warnings.push('roles unknown: ' + unknownRoles + '/' + msgs.length + ' — сохранены как unknown, НЕ восстановлены догадкой');
+   310→  if (o.captureMode === 'snapshot') warnings.push('captureMode=snapshot: точечное извлечение не удалось, содержимое — линейный снимок страницы');
+   311→  const contentHash = fnv1aHex(msgs.map(m => m.role + '\u0001' + m.text).join('\u0002'));
+   312→  return {
+   313→    schemaVersion: SCHEMA_VER,
+   314→    exporter: 'UACE v' + UACE_VER,
+   315→    platform: o.platform || null,
+   316→    origin: o.origin || null,
+   317→    url: o.url || null,
+   318→    chatId: o.chatId || null,
+   319→    title: String(o.title || ''),
+   320→    capturedAt: new Date().toISOString(),
+   321→    captureMode: o.captureMode || 'structured',
+   322→    captureEvidence: o.captureEvidence || mkEv('unknown', 0, ['no evidence supplied']),
+   323→    messages: msgs,
+   324→    integrity: { messageCount: msgs.length, contentHash, warnings }
+   325→  };
+   326→}
+   327→
+   328→/* --- L0.7 Рендереры над ChatDocument (9 форматов; Mermaid §12: off/inline, внешних ссылок НЕТ) --- */
+   329→const escHtml = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+   330→const MERMAID_MODES = ['off', 'inline'];
+   331→function mermaidNote(mode) { return mode === 'inline' ? '\n\n<!-- mermaid: встроен как исходник (offline), внешние сервисы не используются -->\n' : ''; }
+   332→function toMarkdown(cd, opts) {
+   333→  const o = opts || {}, mm = MERMAID_MODES.indexOf(o.mermaid) >= 0 ? o.mermaid : 'off';
+   334→  const L = [];
+   335→  L.push('# ' + (cd.title || 'Экспорт чата'), '');
+   336→  L.push('- Платформа: ' + (cd.platform || 'неизвестно'));
+   337→  L.push('- URL: ' + (cd.url || '—'));
+   338→  L.push('- Экспортёр: ' + cd.exporter + ' · схема ' + cd.schemaVersion);
+   339→  L.push('- Режим захвата: ' + cd.captureMode + ' (уверенность ' + cd.captureEvidence.confidence + ', стратегия ' + cd.captureEvidence.strategy + ')');
+   340→  L.push('- Целостность: сообщений ' + cd.integrity.messageCount + ', hash ' + cd.integrity.contentHash);
+   341→  if (cd.integrity.warnings.length) for (const w of cd.integrity.warnings) L.push('- ⚠ ' + w);
+   342→  L.push('');
+   343→  for (const m of cd.messages) {
+   344→    L.push('## ' + (m.index + 1) + ' · ' + m.role.toUpperCase() + (m.role === 'unknown' ? ' [' + m.roleEvidence.method + ' ' + m.roleEvidence.confidence + ']' : ''), '');
+   345→    if (m.thinking && m.thinking.length) {
+   346→      L.push('> **Размышления:**', '');
+   347→      for (const t of m.thinking) L.push('> ' + String(t).replace(/\n/g, '\n> '), '');
+   348→    }
+   349→    L.push(m.text || '_(пусто)_', '');
+   350→    if (mm === 'inline' && /```mermaid/.test(m.text || '')) L.push(mermaidNote(mm));
+   351→  }
+   352→  return L.join('\n');
+   353→}
+   354→function toJSON(cd) { return JSON.stringify(cd, null, 2); }
+   355→function toJSONL(cd) { return cd.messages.map(m => JSON.stringify({ index: m.index, role: m.role, roleEvidence: m.roleEvidence, text: m.text, thinking: m.thinking, images: m.images.map(i => i.src), artifacts: m.artifacts.map(a => ({ lang: a.lang, chars: (a.content || '').length })) })).join('\n'); }
+   356→function toAlpaca(cd) { /* unknown-роли НЕ выдумываем: пропускаем, число — в warnings */
+   357→  const out = [];
+   358→  for (const m of cd.messages) {
+   359→    if (m.role === 'user') out.push({ instruction: m.text, input: '', output: '' });
+   360→    else if (m.role === 'assistant' && out.length) { out[out.length - 1].output = m.text; }
+   361→  }
+   362→  return JSON.stringify(out, null, 2);
+   363→}
+   364→function toShareGPT(cd) {
+   365→  return JSON.stringify({
+   366→    title: cd.title, create_time: cd.capturedAt, capture_mode: cd.captureMode,
+   367→    conversations: cd.messages.map(m => ({ from: m.role === 'assistant' ? 'gpt' : m.role, value: m.text, evidence: m.roleEvidence }))
+   368→  }, null, 2);
+   369→}
+   370→function toTXT(cd) {
+   371→  const L = ['=== ' + (cd.title || 'Экспорт чата') + ' ===', 'URL: ' + (cd.url || '—'), 'Режим: ' + cd.captureMode, 'Хэш: ' + cd.integrity.contentHash, ''];
+   372→  for (const m of cd.messages) L.push('[' + (m.index + 1) + '] ' + m.role.toUpperCase() + (m.role === 'unknown' ? ' (evidence: ' + m.roleEvidence.method + ')' : ''), m.text || '(пусто)', '');
+   373→  return L.join('\n');
+   374→}
+   375→const csvCell = s => '"' + String(s == null ? '' : s).replace(/"/g, '""') + '"';
+   376→function toCSV(cd) {
+   377→  const rows = ['index,role,evidence_method,evidence_confidence,chars,text'];
+   378→  for (const m of cd.messages) rows.push([m.index, m.role, m.roleEvidence.method, m.roleEvidence.confidence, m.text.length, csvCell(m.text)].join(','));
+   379→  return rows.join('\n');
+   380→}
+   381→
+   382→/* --- L0.8 Стилевой движок PDF/HTML (§27: 5 стилей МАКТ-2026, ИМПЕРСКИЙ С ЗОЛОТОМ первый) --- */
+   383→const TPL_STYLES = {
+   384→  imperial: { name: 'ИМПЕРСКИЙ С ЗОЛОТОМ', hint: 'Тёмный фон, золото #d4af37, кегль 18 — для слабого зрения' },
+   385→  makt:     { name: 'МАКТ Светлый',        hint: 'Человекоцентричный светлый стандарт проекта' },
+   386→  swiss:    { name: 'Швейцарская сетка',   hint: 'Editorial-типографика, жёсткая сетка линий' },
+   387→  brutal:   { name: 'Нео-брутализм',       hint: 'Жирные рамки и жёсткие тени' },
+   388→  sepia:    { name: 'Сепия Вечер',         hint: 'Тёплые тона для вечернего чтения' }
+   389→};
+   390→function tplCss() {
+   391→  return '*{box-sizing:border-box}html{background:var(--bg)}body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:var(--fs);line-height:var(--lh)}'
+   392→+ '.page{max-width:78ch;margin:0 auto;padding:26px 22px 70px}a{color:var(--accent);text-decoration:underline;text-underline-offset:3px}'
+   393→+ 'code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.9em;background:var(--code-bg);border:1px solid var(--line);border-radius:4px;padding:.08em .35em;overflow-wrap:anywhere}'
+   394→+ '.cover{border:var(--cover-border);border-radius:var(--radius);background:var(--paper);padding:22px 24px 20px;margin:0 0 28px}'
+   395→+ '.kicker{font-family:var(--font-head);font-size:.72em;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);margin:0 0 10px}'
+   396→+ 'h1{font-family:var(--font-head);font-size:1.85em;line-height:1.28;margin:0 0 16px;color:var(--ink);overflow-wrap:anywhere}'
+   397→+ '.meta{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;margin:0 0 4px;font-size:.86em;color:var(--ink2)}'
+   398→+ '.meta b{color:var(--ink);font-weight:600}.meta .u{overflow-wrap:anywhere}'
+   399→+ '.passport{margin-top:14px;padding-top:12px;border-top:1px solid var(--line);font-size:.8em;line-height:1.7;color:var(--ink2)}.passport b{color:var(--accent)}'
+   400→+ '.flow{list-style:none;margin:0;padding:0}'
+   401→+ '.msg{margin:0 0 18px;background:var(--paper);border:1px solid var(--line);border-left:4px solid var(--line);border-radius:var(--radius);padding:14px 18px 15px;box-shadow:var(--shadow)}'
+   402→+ '.msg.user{background:var(--user-bg);border-left-color:var(--user-edge)}.msg.assistant{background:var(--as-bg);border-left-color:var(--as-edge)}'
+   403→+ '.msg.unknown{background:var(--think-bg);border-left-color:var(--ink2)}'
+   404→+ '.role{font-family:var(--font-head);font-size:.74em;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--role-tx);margin:0 0 8px}'
+   405→+ '.role .num{font-weight:400;letter-spacing:.02em;color:var(--ink2)}'
+   406→+ '.body{overflow-wrap:break-word}.body p{margin:0 0 .7em}.body pre{white-space:pre-wrap;overflow-wrap:anywhere}'
+   407→+ '.think{margin:12px 0 0;background:var(--think-bg);color:var(--think-tx);border:1px dashed var(--line);border-radius:6px;padding:10px 14px;font-size:.9em}'
+   408→+ '.think summary{cursor:pointer;font-family:var(--font-head);font-weight:700;letter-spacing:.08em;text-transform:uppercase;font-size:.85em}'
+   409→+ '.colophon{margin-top:38px;padding-top:14px;border-top:1px solid var(--line);font-size:.78em;color:var(--ink2);line-height:1.7}'
+   410→+ '.tpl-bar{position:sticky;top:0;z-index:9;display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 14px;background:var(--bar-bg);color:var(--bar-tx);border-bottom:2px solid var(--accent)}'
+   411→+ '.tpl-bar .lbl{font-size:.78em;font-weight:700;letter-spacing:.12em;text-transform:uppercase;margin-right:2px}'
+   412→+ '.tpl-btn{font:inherit;font-size:.86em;min-height:44px;padding:6px 14px;border-radius:8px;border:1px solid var(--bar-line);background:var(--bar-btn);color:var(--bar-tx);cursor:pointer}'
+   413→+ '.tpl-btn[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-tx);font-weight:700}'
+   414→+ '.tpl-print{margin-left:auto;font-weight:700;background:var(--accent);border-color:var(--accent);color:var(--accent-tx)}'
+   415→+ '@page{size:A4;margin:15mm 13mm 17mm}@media print{*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important}html,body{background:var(--bg)!important}body{margin:0}.tpl-bar{display:none!important}.page{max-width:none;margin:0;padding:0}.cover,.think{break-inside:avoid}.role{break-after:avoid}.body{orphans:3;widows:3}a{color:inherit}}';
+   416→}
+   417→const TPL_VARS = {
+   418→  imperial: '--bg:#191410;--paper:#211b14;--ink:#f2e9d3;--ink2:#c9b98a;--line:#413524;--accent:#d4af37;--accent-tx:#191410;--code-bg:#1a1510;--user-bg:#2a2312;--user-edge:#d4af37;--as-bg:#1e1913;--as-edge:#6b5a2e;--think-bg:#1b1611;--think-tx:#bca982;--role-tx:#e8c96a;--font-head:Georgia,serif;--font-body:Georgia,serif;--fs:18px;--lh:1.78;--radius:6px;--shadow:none;--cover-border:3px double #8a7430;--bar-bg:#100d0a;--bar-tx:#f2e9d3;--bar-btn:#241d15;--bar-line:#413524',
+   419→  makt:     '--bg:#f6f6f8;--paper:#fdfdfd;--ink:#1d1d1f;--ink2:#51515b;--line:#d9d9e0;--accent:#0b66c3;--accent-tx:#ffffff;--code-bg:#f0f0f4;--user-bg:#eaf2fc;--user-edge:#0b66c3;--as-bg:#f4f4f7;--as-edge:#9a9aa4;--think-bg:#fafafa;--think-tx:#51515b;--role-tx:#444a56;--font-head:-apple-system,Segoe UI,Roboto,sans-serif;--font-body:-apple-system,Segoe UI,Roboto,sans-serif;--fs:16px;--lh:1.65;--radius:10px;--shadow:0 1px 2px rgba(20,20,30,.06);--cover-border:1px solid var(--line);--bar-bg:#fdfdfd;--bar-tx:#1d1d1f;--bar-btn:#f0f0f4;--bar-line:#d9d9e0',
+   420→  swiss:    '--bg:#fbfbf8;--paper:#fefefe;--ink:#161616;--ink2:#5b5b55;--line:#161616;--accent:#d43518;--accent-tx:#ffffff;--code-bg:#f1f1ea;--user-bg:#fefefe;--user-edge:#d43518;--as-bg:#f0f0ea;--as-edge:#161616;--think-bg:#f5f5ef;--think-tx:#44443e;--role-tx:#161616;--font-head:Helvetica Neue,Helvetica,Arial,sans-serif;--font-body:Helvetica Neue,Helvetica,Arial,sans-serif;--fs:16px;--lh:1.6;--radius:0;--shadow:none;--cover-border:2px solid #161616;--bar-bg:#161616;--bar-tx:#fbfbf8;--bar-btn:#232320;--bar-line:#3a3a36',
+   421→  brutal:   '--bg:#f3ecdd;--paper:#fffdf4;--ink:#151515;--ink2:#4c4a42;--line:#151515;--accent:#2c49d0;--accent-tx:#ffffff;--code-bg:#efeadb;--user-bg:#ffd23f;--user-edge:#151515;--as-bg:#fffdf4;--as-edge:#151515;--think-bg:#efeadb;--think-tx:#3f3d36;--role-tx:#151515;--font-head:Segoe UI,Arial,sans-serif;--font-body:Segoe UI,Arial,sans-serif;--fs:16px;--lh:1.6;--radius:0;--shadow:5px 5px 0 #151515;--cover-border:3px solid #151515;--bar-bg:#ffd23f;--bar-tx:#151515;--bar-btn:#fffdf4;--bar-line:#151515',
+   422→  sepia:    '--bg:#f2e9d5;--paper:#f9f3e3;--ink:#443522;--ink2:#6f5d40;--line:#d8c8a6;--accent:#8a4d20;--accent-tx:#fff8ec;--code-bg:#ece2c9;--user-bg:#ecdfc0;--user-edge:#8a4d20;--as-bg:#f4ecd8;--as-edge:#b09468;--think-bg:#efe5cc;--think-tx:#5c4c32;--role-tx:#7a4a22;--font-head:Georgia,serif;--font-body:Georgia,serif;--fs:17px;--lh:1.75;--radius:8px;--shadow:none;--cover-border:1px solid #c9b287;--bar-bg:#e9ddc2;--bar-tx:#443522;--bar-btn:#f9f3e3;--bar-line:#c9b287'
+   423→};
+   424→const ROLE_RU = { user: 'ПОЛЬЗОВАТЕЛЬ', assistant: 'АССИСТЕНТ', system: 'СИСТЕМА', unknown: 'НЕИЗВЕСТНО' };
+   425→/* buildStyledHTML(cd, tplKey, opts) — офлайн-артефакт; весь динамический текст через escHtml (§13) */
+   426→function buildStyledHTML(cd, tplKey, opts) {
+   427→  const tpl = TPL_STYLES[tplKey] ? tplKey : 'imperial';
+   428→  const o = opts || {};
+   429→  const L = [];
+   430→  L.push('<!doctype html><html lang="ru" data-tpl="' + tpl + '"><head><meta charset="utf-8">');
+   431→  L.push('<meta name="viewport" content="width=device-width,initial-scale=1">');
+   432→  L.push('<title>' + escHtml(cd.title || 'Экспорт чата') + '</title>');
+   433→  L.push('<style>' + tplCss() + '\nhtml[data-tpl="' + tpl + '"]{' + TPL_VARS[tpl] + '}</style>');
+   434→  L.push('</head><body>');
+   435→  if (o.bar) {
+   436→    L.push('<div class="tpl-bar"><span class="lbl">Стиль:</span>');
+   437→    for (const k of Object.keys(TPL_STYLES)) L.push('<button class="tpl-btn" data-switch="' + k + '"' + (k === tpl ? ' aria-pressed="true"' : '') + '>' + escHtml(TPL_STYLES[k].name) + '</button>');
+   438→    L.push('<button class="tpl-btn tpl-print" data-print>Печать → PDF</button>');
+   439→    L.push('<span class="tpl-hint">' + escHtml(TPL_STYLES[tpl].hint) + ' · офлайн-файл, 0 внешних запросов</span></div>');
+   440→  }
+   441→  L.push('<div class="page"><div class="cover"><p class="kicker">UACE × PML · ' + escHtml(cd.exporter) + '</p>');
+   442→  L.push('<h1>' + escHtml(cd.title || 'Экспорт чата') + '</h1>');
+   443→  L.push('<div class="meta"><b>Платформа</b><span>' + escHtml(cd.platform || '—') + '</span><b>URL</b><span class="u">' + escHtml(cd.url || '—') + '</span><b>Захват</b><span>' + escHtml(cd.captureMode) + ' · уверенность ' + cd.captureEvidence.confidence + ' · стратегия ' + escHtml(cd.captureEvidence.strategy) + '</span><b>Сообщений</b><span>' + cd.integrity.messageCount + '</span><b>Хэш</b><span>' + cd.integrity.contentHash + '</span></div>');
+   444→  if (cd.integrity.warnings.length) {
+   445→    L.push('<div class="meta"><b>Предупреждения</b><span>' + cd.integrity.warnings.map(w => '⚠ ' + escHtml(w)).join('<br>') + '</span></div>');
+   446→  }
+   447→  L.push('<div class="passport"><b>Паспорт экспорта:</b> схема ' + escHtml(cd.schemaVersion) + ' · стилевой движок МАКТ-2026 («' + escHtml(TPL_STYLES[tpl].name) + '») · роли по уликам, unknown не восстанавливается · изображения выключены по умолчанию · 0 внешних запросов</div>');
+   448→  L.push('</div><ol class="flow">');
+   449→  for (const m of cd.messages) {
+   450→    const ev = m.role === 'unknown' ? ' <span class="num">· улика: ' + escHtml(m.roleEvidence.method) + ' ' + m.roleEvidence.confidence + '</span>' : '';
+   451→    L.push('<li class="msg ' + m.role + '"><p class="role">№' + (m.index + 1) + ' · ' + ROLE_RU[m.role] + ev + '</p><div class="body">');
+   452→    if (m.thinking && m.thinking.length) {
+   453→      L.push('<details class="think"><summary>Размышления модели</summary><pre>' + escHtml(m.thinking.join('\n\n')) + '</pre></details>');
+   454→    }
+   455→    const paras = String(m.text || '').split(/\n{2,}/);
+   456→    for (const p of paras) {
+   457→      if (/\n/.test(p)) L.push('<pre>' + escHtml(p) + '</pre>');
+   458→      else L.push('<p>' + escHtml(p).replace(/\n/g, '<br>') + '</p>');
+   459→    }
+   460→    if (m.artifacts && m.artifacts.length) {
+   461→      for (const a of m.artifacts) L.push('<p class="num" style="font-size:.8em;color:var(--ink2)">Код (' + escHtml(a.lang || 'text') + ', ' + (a.content || '').length + ' симв.) — в ZIP/artifacts</p>');
+   462→    }
+   463→    L.push('</div></li>');
+   464→  }
+   465→  L.push('</ol><div class="colophon">Экспортировано ' + escHtml(cd.capturedAt) + ' · UACE × PML v' + UACE_VER + ' · Evidence First: роли сохранены как определены, «неизвестно» не превращается в догадку · приватность: 0 внешних запросов по умолчанию</div></div>');
+   466→  if (o.bar) {
+   467→    L.push('<script>(function(){var b=document.querySelectorAll("[data-switch]");b.forEach(function(x){x.addEventListener("click",function(){var h=document.documentElement;h.setAttribute("data-tpl",x.getAttribute("data-switch"));b.forEach(function(y){y.setAttribute("aria-pressed",y===x?"true":"false")})})});var p=document.querySelector("[data-print]");if(p)p.addEventListener("click",function(){window.print()})})();<\/script>');
+   468→  }
+   469→  L.push('</body></html>');
+   470→  return L.join('\n');
+   471→}
+   472→
+   473→/* --- L0.9 Панельные темы (канон линии B): Авто/Свет/Тьма/Тепло; Тёплый вечер 20:00–06:59 --- */
+   474→const PAL = {
+   475→  light: { bg: '#fbfbfd', panel: '#ffffff', fg: '#1d1d1f', muted: '#51515b', line: '#d9d9e0', accent: '#0b66c3', accentTx: '#ffffff', ok: '#4a6b1f', warn: '#a04b00', err: '#a63a2a', surface: '#f0f0f4' },
+   476→  dark:  { bg: '#1d1d24', panel: '#23232c', fg: '#f2f2f6', muted: '#a9a9b6', line: '#3a3a46', accent: '#4da3ff', accentTx: '#0b1220', ok: '#8fc97a', warn: '#e0a458', err: '#e08074', surface: '#2a2a34' },
+   477→  warm:  { bg: '#f6efe2', panel: '#fdf8ee', fg: '#3a3226', muted: '#6b5f4c', line: '#d8ccb4', accent: '#8a5a00', accentTx: '#ffffff', ok: '#4a6b1f', warn: '#a04b00', err: '#a63a2a', surface: '#fdf8ee' }
+   478→};
+   479→function resolveTheme(pref, hour, prefersDark) { /* единственная точка правды тем (фикс «Тепло») */
+   480→  if (pref === 'light' || pref === 'dark' || pref === 'warm') return pref;
+   481→  const evening = (hour >= 20 || hour < 7);
+   482→  if (evening) return 'warm';
+   483→  return prefersDark ? 'dark' : 'light';
+   484→}
+   485→
+   486→/* --- L0.10 Поглощение ландшафта 27.5.0 (вне хэш-канона; только от собранного struct) --- */
+   487→const simhash64 = feats => {
+   488→  const a1 = new Array(32).fill(0), a2 = new Array(32).fill(0);
+   489→  for (const f of feats) {
+   490→    const h1 = fnv1a32('SIM1>' + f.k), h2 = fnv1a32('SIM2>' + f.k), w = Math.max(1, Math.min(9, f.w | 0));
+   491→    for (let i = 0; i < 32; i++) { if ((h1 >>> i) & 1) a1[i] += w; else a1[i] -= w; if ((h2 >>> i) & 1) a2[i] += w; else a2[i] -= w; }
+   492→  }
+   493→  let v1 = 0, v2 = 0;
+   494→  for (let i = 0; i < 32; i++) { if (a1[i] > 0) v1 |= 1 << i; if (a2[i] > 0) v2 |= 1 << i; }
+   495→  return hx(v1) + hx(v2);
+   496→};
+   497→const hammingHex = (a, b) => {
+   498→  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== 16 || b.length !== 16) return -1;
+   499→  let d = 0;
+   500→  for (let i = 0; i < 16; i += 8) { let v = parseInt(a.slice(i, i + 8), 16) ^ parseInt(b.slice(i, i + 8), 16); while (v) { d += v & 1; v >>>= 1; } }
+   501→  return d;
+   502→};
+   503→const structFeatures = st => {
+   504→  const f = [];
+   505→  ((st.dom && st.dom.landmarks) || []).forEach(l => f.push({ k: 'L:' + l.tag + '|' + (l.role || '') + '|' + l.path, w: 3 }));
+   506→  ((st.dom && st.dom.groups) || []).forEach(g => f.push({ k: 'G:' + g.sigHash + '|' + g.count, w: 2 }));
+   507→  ((st.anchors && st.anchors.mountPoints) || []).forEach(m => f.push({ k: 'M:' + m.path + '|' + m.mode, w: 1 }));
+   508→  if (!f.length) f.push({ k: 'EMPTY', w: 1 });
+   509→  return f;
+   510→};
+   511→const domSim64 = st => simhash64(structFeatures(st));
+   512→const simBetween = (a, b) => hammingHex(domSim64(a), domSim64(b));
+   513→const agentViewOf = st => {
+   514→  const v = st || {}, L = [];
+   515→  L.push('- page urlHash=' + ((v.meta && v.meta.urlHash) || '?') + ' ratio=' + ((v.scroll && v.scroll.primary && v.scroll.primary.ratio) != null ? v.scroll.primary.ratio : 'n/a'));
+   516→  ((v.dom && v.dom.landmarks) || []).forEach((l, i) => L.push('- ' + (l.role || l.tag) + ' [ref=l' + (i + 1) + '] path=' + l.path));
+   517→  ((v.dom && v.dom.groups) || []).forEach((g, i) => L.push('- group ' + g.sigHash + ' [ref=g' + (i + 1) + '] x' + g.count + ' depth=' + g.depth + (g.inPrimary ? ' in-primary' : '')));
+   518→  ((v.anchors && v.anchors.mountPoints) || []).forEach((m, i) => L.push('- mount ' + m.mode + ' [ref=m' + (i + 1) + '] h=' + m.h + ' path=' + m.path));
+   519→  if (v.recon && v.recon.status === 'found') L.push('- candidate ' + v.recon.candidate.sigHash + ' conf=' + v.recon.candidate.confidence);
+   520→  return L.join('\n');
+   521→};
+   522→const downsample = (st, budget) => {
+   523→  const B = Math.max(60, budget == null ? 400 : budget | 0), items = [];
+   524→  const push = (prio, line) => items.push({ prio, line, cost: Math.ceil(line.length / 4) });
+   525→  push(0, 'page ' + ((st.meta && st.meta.urlHash) || '?'));
+   526→  ((st.dom && st.dom.landmarks) || []).forEach((l, i) => push(1, (l.role || l.tag) + ' [ref=l' + (i + 1) + '] ' + l.path));
+   527→  ((st.anchors && st.anchors.mountPoints) || []).forEach((m, i) => push(2, 'mount ' + m.mode + ' h' + m.h + ' ' + m.path));
+   528→  ((st.dom && st.dom.groups) || []).forEach((g, i) => push(3, 'group ' + g.sigHash + ' x' + g.count + ' d' + g.depth + (g.inPrimary ? ' *' : '') + ' ' + g.samplePath));
+   529→  items.sort((a, b) => a.prio - b.prio);
+   530→  const kept = []; let used = 0, dropped = 0;
+   531→  for (const it of items) if (used + it.cost <= B) { kept.push(it.line); used += it.cost; } else dropped++;
+   532→  if (dropped) kept.push('… +' + dropped + ' узлов за бюджетом ' + B);
+   533→  return { view: kept.join('\n'), used, budget: B, dropped };
+   534→};
+   535→const compareStructs = (a, b) => {
+   536→  const ga = new Set(((((a || {}).dom || {}).groups) || []).map(g => g.sigHash));
+   537→  const gb = new Set(((((b || {}).dom || {}).groups) || []).map(g => g.sigHash));
+   538→  let inter = 0; for (const h of ga) if (gb.has(h)) inter++;
+   539→  const union = ga.size + gb.size - inter;
+   540→  return { jaccard: union ? round2(inter / union) : 1, sim: simBetween(a, b), inter, groupsA: ga.size, groupsB: gb.size };
+   541→};
+   542→
+   543→/* --- L0.11 Экспорт ядра для тестов (Node) и консольной сверки (канон ЧК) --- */
+   544→const CORE = {
+   545→  UACE_VER, SCHEMA_VER, SALT, journal, utf8, byteLen, fnv1a32, fnv1aHex, hashString,
+   546→  sigHashIn, urlHashIn, sigHashOf, urlHashOf, truncPath, crc32, zipBuild, deflateRawU8, splitVolumesU8,
+   547→  dedupeNested, mkEv, ROLE_LEVELS, roleFromValue, SCORE_W, SCORE_THRESHOLD, scoreCandidates, resumePlan,
+   548→  makeChatDocument, toMarkdown, toJSON, toJSONL, toAlpaca, toShareGPT, toTXT, toCSV,
+   549→  escHtml, TPL_STYLES, TPL_VARS, tplCss, buildStyledHTML, MERMAID_MODES,
+   550→  PAL, resolveTheme, simhash64, hammingHex, structFeatures, domSim64, simBetween,
+   551→  agentViewOf, downsample, compareStructs
+   552→};
+   553→if (typeof globalThis !== 'undefined') { try { globalThis.__UACE29__ = CORE; } catch (e) { journal.debug('core', 'export-fail', String(e && e.message || e)); } }
+   554→
+   555→/* Ниже — страничная часть (DOM). В Node-тестах файл заканчивается здесь. */
+   556→if (typeof document === 'undefined' || typeof window === 'undefined') return;
+   557→
+   558→/* ══════════════ L1 RUNTIME — планировщик, TreeWalker, бюджеты (§8/§9) ══════════════ */
+   559→
+   560→const CFG = {
+   561→  DEDUPE_CAP: 400, SR_NODE_CAP: 12000, SR_TIME_MS: 250, SR_ROOT_CAP: 300,
+   562→  TEXT_CAP: 200000, MUTOBS_BATCH_CAP: 500, MAX_ZIP_MB: 50,
+   563→  IMG_POOL: 4, IMG_MAX: 60, ARTIFACT_MAX: 40, NAV_TIMEOUT: 12000, MSG_WAIT: 15000, MAX_NAV: 500
+   564→};
+   565→const SCHED_SLICE = 12;
+   566→let _sliceAt = Date.now();
+   567→const schedNeedYield = () => (Date.now() - _sliceAt) >= SCHED_SLICE;
+   568→const schedYield = () => new Promise(r => setTimeout(r, 0));
+   569→async function schedSlice() { if (schedNeedYield()) { await schedYield(); _sliceAt = Date.now(); } }
+   570→
+   571→/* collectShadowRoots: TreeWalker + бюджеты узлов/времени/корней + yield (§8);
+   572→   единый планировщик Sched и для UACE, и для PML-обходов (§9) */
+   573→async function collectShadowRoots(root) {
+   574→  const roots = [], seen = new Set();
+   575→  let nodes = 0, truncated = false;
+   576→  const start = Date.now();
+   577→  const topRoot = root || document.documentElement || document;
+   578→  seen.add(topRoot);
+   579→  const stack = [topRoot];
+   580→  while (stack.length) {
+   581→    if (roots.length >= CFG.SR_ROOT_CAP || nodes >= CFG.SR_NODE_CAP || Date.now() - start > CFG.SR_TIME_MS) { truncated = true; break; }
+   582→    const cur = stack.pop();
+   583→    let walker = null;
+   584→    try { walker = document.createTreeWalker(cur, NodeFilter.SHOW_ELEMENT); } catch (e) { journal.debug('runtime', 'treewalker-fail', String(e && e.message || e)); continue; }
+   585→    let n = walker.currentNode;
+   586→    while (n) {
+   587→      nodes++;
+   588→      if (schedNeedYield()) await schedSlice();
+   589→      if (n.shadowRoot) {
+   590→        if (!seen.has(n.shadowRoot)) { seen.add(n.shadowRoot); roots.push(n.shadowRoot); stack.push(n.shadowRoot); }
+   591→      }
+   592→      if (nodes >= CFG.SR_NODE_CAP || Date.now() - start > CFG.SR_TIME_MS) { truncated = true; break; }
+   593→      n = walker.nextNode();
+   594→    }
+   595→    if (truncated) break;
+   596→  }
+   597→  return { roots, truncated, nodes, ms: Date.now() - start, evidence: mkEv('treewalker', roots.length ? 0.9 : 0.4, ['nodes:' + nodes, truncated ? 'truncated' : 'complete']) };
+   598→}
+   599→let _shadow = null, _shadowAt = 0;
+   600→async function shadowRootsCached() {
+   601→  if (_shadow && Date.now() - _shadowAt < 1500) return _shadow;
+   602→  const r = await collectShadowRoots();
+   603→  _shadow = r.roots; _shadowAt = Date.now();
+   604→  return _shadow;
+   605→}
+   606→async function queryAllDeep(sel) {
+   607→  const out = Array.from(document.querySelectorAll(sel));
+   608→  try { for (const sr of await shadowRootsCached()) { try { out.push(...sr.querySelectorAll(sel)); } catch (e) { journal.debug('runtime', 'shadow-qsa-fail', String(e && e.message || e)); } } } catch (e) { journal.debug('runtime', 'shadow-cached-fail', String(e && e.message || e)); }
+   609→  return out;
+   610→}
+   611→
+   612→/* --- DOM-хелперы --- */
+   613→const SKIP_TAGS = new Set(['STYLE', 'SCRIPT', 'LINK', 'META', 'NOSCRIPT', 'TEMPLATE', 'HEAD', 'TITLE', 'BASE', 'HTML', 'SVG', 'PATH', 'MAT-ICON', 'BR', 'HR']);
+   614→const UI_HOST_ID = 'uaice-29';
+   615→const HARD_EXCLUDE_SEL = '#' + UI_HOST_ID + ',#' + UI_HOST_ID + '-host,[class*="tooltip"]:not([class*="content"])';
+   616→const CHAT_AREA_SEL = 'div.chat-container,#chat-history,[data-test-id="chat-history-container"],conversation-container,div.conversation-container,ms-chat-turn,[class*="chat-history-scroll"],[class*="turn-content"],main,[role="main"]';
+   617→function visible(el) {
+   618→  try { const r = el.getBoundingClientRect(); if (r.width < 1 || r.height < 1) return false; const cs = getComputedStyle(el); return cs.display !== 'none' && cs.visibility !== 'hidden' && +cs.opacity !== 0; } catch (e) { return false; }
+   619→}
+   620→function filterValid(els) {
+   621→  const out = [];
+   622→  for (const el of els) {
+   623→    if (!el || el.nodeType !== 1 || SKIP_TAGS.has(el.tagName)) continue;
+   624→    if (el.closest && el.closest(HARD_EXCLUDE_SEL)) continue;
+   625→    try { const r = el.getBoundingClientRect(); if (r.width < 32 || r.height < 16) continue; const cs = getComputedStyle(el); if (cs.display === 'none' || cs.visibility === 'hidden') continue; } catch (e) { continue; }
+   626→    out.push(el);
+   627→  }
+   628→  return out;
+   629→}
+   630→function chatAreaRoot() {
+   631→  try { const els = document.querySelectorAll(CHAT_AREA_SEL); for (const el of els) if (visible(el)) return el; } catch (e) { journal.debug('runtime', 'chat-area-fail', String(e && e.message || e)); }
+   632→  return null;
+   633→}
+   634→function isUiZone(el) {
+   635→  try { return !!el.closest('nav,aside,header,footer,[role="navigation"],[role="banner"],button,[role="button"],[role="menu"],form'); } catch (e) { return false; }
+   636→}
+   637→
+   638→/* ══════════════ L2 EVIDENCE — роли по уликам (§5), валидация кандидатов (§6) ══════════════ */
+   639→
+   640→/* Лестница улик: attribute → testid → platform-selector → semantic-class → ancestor
+   641→   → (structural-order ТОЛЬКО при доказанном strictAlternation платформы; в v29
+   642→   ни одна платформа флага не имеет — поле зарезервировано под полевые доказательства)
+   643→   → framework-internal (только диагностический fallback списка чатов)
+   644→   → unknown. ДОГАДКА ПАРИТЕТА УДАЛЕНА (§5 аудита). */
+   645→function extractRoleRaw(el, platform) {
+   646→  const attrs = ['data-message-author-role', 'data-message-role', 'data-role', 'data-author', 'data-sender'];
+   647→  for (const a of attrs) {
+   648→    const v = roleFromValue(el.getAttribute(a));
+   649→    if (v) return { role: v, evidence: { method: 'attribute', confidence: ROLE_LEVELS.attribute, reason: a + '=' + String(el.getAttribute(a)).slice(0, 40) } };
+   650→  }
+   651→  const tid = el.getAttribute('data-testid') || el.getAttribute('data-test-id') || '';
+   652→  const tv = roleFromValue(tid);
+   653→  if (tv) return { role: tv, evidence: { method: 'attribute', confidence: 0.97, reason: 'testid=' + tid.slice(0, 40) } };
+   654→  if (platform && typeof platform.role === 'function') {
+   655→    try {
+   656→      const r = platform.role(el);
+   657→      if (r === 'user' || r === 'assistant' || r === 'system') return { role: r, evidence: { method: 'platform-selector', confidence: ROLE_LEVELS['platform-selector'], reason: platform.name } };
+   658→    } catch (e) { journal.debug('role', 'platform-role-threw', platform.name); }
+   659→  }
+   660→  const cls = (typeof el.className === 'string' ? el.className : '') + (el.id ? ' #' + el.id : '');
+   661→  const cv = roleFromValue(cls);
+   662→  if (cv) return { role: cv, evidence: { method: 'semantic-class', confidence: ROLE_LEVELS['semantic-class'], reason: 'class/id: ' + cls.slice(0, 60) } };
+   663→  let anc = el.parentElement;
+   664→  for (let i = 1; anc && i <= 3; i++, anc = anc.parentElement) {
+   665→    const av = roleFromValue(anc.getAttribute && (anc.getAttribute('data-message-author-role') || anc.getAttribute('data-message-role') || anc.getAttribute('data-role')));
+   666→    if (av) return { role: av, evidence: { method: 'ancestor', confidence: ROLE_LEVELS.ancestor, reason: 'ancestor+' + i + ' (' + anc.tagName.toLowerCase() + ')' } };
+   667→  }
+   668→  return { role: 'unknown', evidence: { method: 'heuristic', confidence: 0, reason: 'сигналы ролей противоречивы или отсутствуют' } };
+   669→}
+   670→function candidateFeatures(els, platform, areaRoot) {
+   671→  const count = els.length;
+   672→  let known = 0, users = 0, assistants = 0, ui = 0, inArea = 0, nonEmpty = 0, lenSum = 0;
+   673→  const sigs = new Map();
+   674→  for (const el of els) {
+   675→    const re = extractRoleRaw(el, platform);
+   676→    if (re.role === 'user') { users++; known++; } else if (re.role === 'assistant') { assistants++; known++; }
+   677→    const sig = el.tagName + '|' + (typeof el.className === 'string' ? el.className.split(' ')[0] : '');
+   678→    sigs.set(sig, (sigs.get(sig) || 0) + 1);
+   679→    if (isUiZone(el)) ui++;
+   680→    if (areaRoot && (el === areaRoot || areaRoot.contains(el))) inArea++;
+   681→    const len = (el.textContent || '').trim().length;
+   682→    if (len > 0) nonEmpty++;
+   683→    lenSum += len;
+   684→  }
+   685→  let modeFreq = 0; for (const v of sigs.values()) modeFreq = Math.max(modeFreq, v);
+   686→  let nested = 0;
+   687→  for (const el of els) { for (const other of els) { if (other !== el && other.contains(el)) { nested++; break; } } }
+   688→  const avg = count ? lenSum / count : 0;
+   689→  return {
+   690→    count,
+   691→    roleCoherence: count ? known / count : 0,
+   692→    membership: areaRoot ? inArea / count : 0.5,
+   693→    uniformity: count ? modeFreq / count : 0,
+   694→    orderConsistency: count >= 3 ? ((users > 0 && assistants > 0) ? 1 : 0.2) : 0.4,
+   695→    textQuality: count ? Math.min(1, (nonEmpty / count) * (avg >= 8 ? 1 : avg / 8)) : 0,
+   696→    nestedShare: count ? nested / count : 0,
+   697→    uiShare: count ? ui / count : 0,
+   698→    cleanliness: count ? 1 - Math.min(1, ui / count) : 0,
+   699→    users, assistants
+   700→  };
+   701→}
+   702→
+   703→/* findMessages: цепочка стратегий platform → generic → structural; выбор по
+   704→   ВАЛИДИРОВАННОМУ score (§6), не по максимуму элементов. Провал всех → null
+   705→   (далее snapshot с captureMode='snapshot', а не догадка). */
+   706→const GENERIC_MSG_SELS = ['[data-message-author-role]', 'article', '[class*="message"]:not([class*="message-input"]):not([class*="message-list"])', '[class*="chat-item"]', '[class*="turn"]'];
+   707→async function findMessages(platform) {
+   708→  const attempts = [];
+   709→  const push = (strategy, els, sel) => { attempts.push({ strategy, sel, raw: els.length, valid: filterValid(els).slice(0, CFG.DEDUPE_CAP) }); };
+   710→  if (platform) for (const sel of platform.msgSelectors || []) { try { push('platform', Array.from(document.querySelectorAll(sel)), sel); } catch (e) { journal.debug('find', 'platform-sel-fail', sel); } }
+   711→  for (const sel of GENERIC_MSG_SELS) { try { push('generic', Array.from(document.querySelectorAll(sel)), sel); } catch (e) { journal.debug('find', 'generic-sel-fail', sel); } }
+   712→  /* structural (PML I-2): рекуррентные группы одноуровневых по sigHash */
+   713→  try {
+   714→    const groups = await structuralGroups();
+   715→    for (const g of groups.slice(0, 6)) push('structural', g.els, 'sighash:' + g.sigHash);
+   716→  } catch (e) { journal.debug('find', 'structural-fail', String(e && e.message || e)); }
+   717→  const area = chatAreaRoot();
+   718→  let best = null;
+   719→  for (const a of attempts) {
+   720→    if (a.valid.length < 2) continue;
+   721→    const ded = dedupeNested(a.valid);
+   722→    if (ded.length < 2) continue;
+   723→    const f = candidateFeatures(ded, platform, area);
+   724→    const s = scoreCandidates(f);
+   725→    journal.debug('find', 'candidate ' + a.strategy + ' n=' + ded.length + ' score=' + s.score + ' pass=' + s.pass, s.reasons.join(','));
+   726→    if (s.pass && (!best || s.score > best.score.score)) best = { attempt: a, els: ded, score: s, features: f };
+   727→  }
+   728→  if (best) {
+   729→    return {
+   730→      captureEvidence: mkEv(best.attempt.strategy, best.score.score, ['sel:' + best.attempt.sel, 'raw:' + best.attempt.raw].concat(best.score.reasons), { sel: best.attempt.sel }),
+   731→      els: best.els
+   732→    };
+   733→  }
+   734→  journal.warn('find', 'ни одна стратегия не прошла валидацию ≥ ' + SCORE_THRESHOLD);
+   735→  return null;
+   736→}
+   737→async function structuralGroups() {
+   738→  const out = [];
+   739→  const containers = await queryAllDeep('main,[role="main"],body');
+   740→  for (const parent of containers) {
+   741→    if (parent.childElementCount < 3) continue;
+   742→    const bySig = new Map();
+   743→    for (const k of parent.children) { const h = sigHashOf(sigOfEl(k)); if (!bySig.has(h)) bySig.set(h, []); bySig.get(h).push(k); }
+   744→    let best = null;
+   745→    for (const [h, arr] of bySig) if (!best || arr.length > best.arr.length) best = { h, arr };
+   746→    if (!best || best.arr.length < 3) continue;
+   747→    const u = best.arr.length / parent.childElementCount;
+   748→    if (u < 0.6) continue;
+   749→    out.push({ sigHash: best.h, uniformity: u, els: best.arr });
+   750→    if (out.length >= 6) break;
+   751→  }
+   752→  return out;
+   753→}
+   754→
+   755→/* findChatLists: цепочка platform → generic → conversation-item → structural →
+   756→   click-items → doc-links; каждая стратегия возвращает модель улик, выбирается
+   757→   ЛУЧШАЯ ВАЛИДИРОВАННАЯ (§16/§24), порог 0.5 */
+   758→async function findChatLists(platform) {
+   759→  const results = [];
+   760→  const consider = (strategy, containers, extraReasons) => {
+   761→    const items = [];
+   762→    const seenHref = new Set();
+   763→    for (const c of containers) {
+   764→      if (SKIP_TAGS.has(c.tagName)) continue;
+   765→      let links = [];
+   766→      try { links = Array.from(c.querySelectorAll('a[href]')); } catch (e) { continue; }
+   767→      for (const a of links) {
+   768→        let u;
+   769→        try { u = new URL(a.href, location.href); } catch (e) { continue; }
+   770→        if (u.origin !== location.origin || u.pathname.length < 2) continue;
+   771→        if (/\/(logout|settings|account|login|signup|pricing|help|docs|privacy|terms)/i.test(u.pathname)) continue;
+   772→        if (seenHref.has(u.pathname)) continue;
+   773→        if (!visible(a)) continue;
+   774→        seenHref.add(u.pathname);
+   775→        items.push({ el: a, url: u.href, title: (a.textContent || '').trim().slice(0, 120) });
+   776→      }
+   777→    }
+   778→    if (items.length < 2) return;
+   779→    const shapes = new Map();
+   780→    for (const it of items) { const shape = it.el.closest(HARD_EXCLUDE_SEL) ? 'ui' : new URL(it.url).pathname.replace(/[0-9a-f-]{8,}/gi, '{id}'); shapes.set(shape, (shapes.get(shape) || 0) + 1); }
+   781→    let mode = 0; for (const v of shapes.values()) mode = Math.max(mode, v);
+   782→    if (shapes.get('ui') === items.length) return;
+   783→    const uniformity = mode / items.length;
+   784→    const countFactor = Math.min(1, items.length / 8);
+   785→    let clean = 1; for (const it of items) if (isUiZone(it.el)) { clean -= 0.5 / items.length; }
+   786→    const score = round2(0.5 * uniformity + 0.3 * countFactor + 0.2 * clean);
+   787→    const ev = mkEv(strategy, score, ['items:' + items.length, 'uniformity:' + round2(uniformity)].concat(extraReasons || []));
+   788→    journal.debug('chatlist', 'strategy ' + strategy + ' items=' + items.length + ' score=' + score);
+   789→    results.push({ ev, items });
+   790→  };
+   791→  if (platform && platform.sidebarSelectors) {
+   792→    try { consider('platform', await queryAllDeep(platform.sidebarSelectors.join(',')), ['name:' + platform.name]); } catch (e) { journal.debug('chatlist', 'platform-fail', String(e && e.message || e)); }
+   793→  }
+   794→  try { consider('generic', await queryAllDeep('nav,aside,[role="navigation"],[class*="sidebar"],[class*="history"],[class*="chat-list"],[class*="conversation-list"],[class*="sider"]'), []); } catch (e) { journal.debug('chatlist', 'generic-fail', String(e && e.message || e)); }
+   795→  try { consider('conversation-item', await queryAllDeep('[class*="conversation-item"],[data-testid*="conversation"],a[href*="/c/"],a[href*="/chat/"]'), []); } catch (e) { journal.debug('chatlist', 'conv-item-fail', String(e && e.message || e)); }
+   796→  try { consider('structural', (await structuralGroups()).flatMap(g => g.els), ['pml-groups']); } catch (e) { journal.debug('chatlist', 'structural-fail', String(e && e.message || e)); }
+   797→  try { consider('click-items', await queryAllDeep('[role="listitem"],[role="option"],[role="button"]'), ['interactive']); } catch (e) { journal.debug('chatlist', 'click-items-fail', String(e && e.message || e)); }
+   798→  try { consider('doc-links', Array.from(document.querySelectorAll('a[href]')), ['document-wide']); } catch (e) { journal.debug('chatlist', 'doc-links-fail', String(e && e.message || e)); }
+   799→  let best = null;
+   800→  for (const r of results) if (r.ev.confidence >= 0.5 && (!best || r.ev.confidence > best.ev.confidence)) best = r;
+   801→  if (best) journal.info('chatlist', 'выбрана стратегия ' + best.ev.strategy + ' (score ' + best.ev.confidence + ', чатов ' + best.items.length + ')');
+   802→  else journal.warn('chatlist', 'валидный список чатов не найден — all-chats отменён (не догадываемся)');
+   803→  return best;
+   804→}
+   805→
+   806→/* ══════════════ L3 PLATFORMS — 36 адаптеров (порт v28.3.0, поле проверено) ══════════════ */
+   807→/* ПРАВИЛО v29: platform.role(el) = уровень улик «platform-selector». Поле
+   808→   strictAlternation зарезервировано: только явное полевое доказательство (§5). */
+   809→const PLATFORMS = [
+   810→  { name: 'ChatGPT', hosts: [/(^|\.)(chatgpt\.com|chat\.openai\.com)$/], msgSelectors: ['[data-message-author-role]', 'article[data-testid^="conversation-turn"]'], roleAttr: 'data-message-author-role', chatUrlPattern: '/c/{id}', sidebarSelectors: ['#stage-slideover-sidebar', 'nav[aria-label*="Chat" i]', 'nav', 'aside'] },
+   811→  { name: 'Claude', hosts: [/(^|\.)claude\.ai$/], msgSelectors: ['[data-testid="user-message"]', '[data-testid="assistant-message"]', '.font-claude-message', '.font-user-message'], role: el => el.matches('[data-testid="user-message"], .font-user-message') ? 'user' : 'assistant', chatUrlPattern: '/chat/{id}' },
+   812→  { name: 'Gemini', hosts: [/(^|\.)gemini\.google\.com$|(^|\.)bard\.google\.com$/], msgSelectors: ['user-query', 'model-response', 'conversation-turn', 'ms-chat-turn'], role: el => { const t = el.tagName.toLowerCase(); if (t === 'user-query') return 'user'; if (t === 'model-response') return 'assistant'; return /user|query|human/i.test(el.className || '') ? 'user' : 'assistant'; }, chatUrlPattern: '/app/{id}', sidebarSelectors: ['side-navigation-v2', 'bard-sidenav', 'mat-sidenav'] },
+   813→  { name: 'Google AI Studio', hosts: [/(^|\.)aistudio\.google\.com$/], msgSelectors: ['[data-test-id="user-message"]', '[data-test-id="model-message"]', 'ms-chat-turn'], role: el => (el.getAttribute('data-role') || '') === 'user' ? 'user' : 'assistant' },
+   814→  { name: 'DeepSeek', hosts: [/(^|\.)deepseek\.com$/], msgSelectors: ['[class*="message"]', '[class*="_message"]'], role: el => /user|human|query/i.test(el.className || '') ? 'user' : 'assistant', chatUrlPattern: '/a/chat/s/{id}', sidebarSelectors: ['aside', 'nav', '[class*="sidebar"]', '[class*="sider"]', '[class*="history"]'] },
+   815→  { name: 'Qwen', hosts: [/(^|\.)qwen\.ai$|(^|\.)tongyi\.aliyun\.com$/], msgSelectors: ['[class*="_message"]', '[data-message-role]', '[class*="chat-message"]', '[class*="markdown"]'], role: el => { const c = (el.className || '') + ' ' + (el.getAttribute('data-message-role') || '') + ' ' + (el.getAttribute('data-role') || ''); if (/user|human|question/i.test(c)) return 'user'; if (/assistant|bot|ai|model|response/i.test(c)) return 'assistant'; return 'unknown'; }, chatUrlPattern: '/c/{id}', sidebarSelectors: ['.sidebar-side', '.session-list-wrapper', 'a[aria-label="chat-item"]', 'a.chat-item-drag-link', '[class*="sidebar"]', 'aside', 'nav'] },
+   816→  { name: 'Kimi', hosts: [/(^|\.)kimi\.moonshot\.cn$|(^|\.)kimi\.ai$|(^|\.)kimi\.com$/], msgSelectors: ['.segment', '.segment-container', '[class*="message"]'], role: el => /user|human/i.test((el.className || '') + ' ' + (el.getAttribute('data-role') || '')) ? 'user' : 'assistant', sidebarSelectors: ['aside', 'nav', '.next-sidebar', '[class*="sidebar"]'] },
+   817→  { name: 'MiniMax', hosts: [/(^|\.)minimax\.io$|(^|\.)minimaxi\.com$/], msgSelectors: ['[class*="message"]', '[class*="chat-item"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   818→  { name: 'Mistral Le Chat', hosts: [/(^|\.)mistral\.ai$/], msgSelectors: ['[data-message-role]', '[class*="Message"]', '[class*="message"]'], role: el => { const r = el.getAttribute('data-message-role') || ''; if (/user/i.test(r)) return 'user'; if (/assistant/i.test(r)) return 'assistant'; return /user/i.test(el.className || '') ? 'user' : 'assistant'; } },
+   819→  { name: 'Groq', hosts: [/(^|\.)groq\.com$/], msgSelectors: ['[class*="message"]', '[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   820→  { name: 'OpenRouter', hosts: [/(^|\.)openrouter\.ai$/], msgSelectors: ['[class*="message"]', '[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   821→  { name: 'HuggingChat', hosts: [/(^|\.)huggingface\.co$/], path: /^\/chat/, msgSelectors: ['[class*="message"]', '[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   822→  { name: 'NVIDIA NIM', hosts: [/(^|\.)build\.nvidia\.com$/], msgSelectors: ['[class*="message"]', '[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   823→  { name: 'Z.ai', hosts: [/(^|\.)z\.ai$|(^|\.)chatglm\.cn$|(^|\.)space-z\.ai$/], msgSelectors: ['[data-role="user"]', '[data-role="assistant"]', '[data-message-role]', '[class*="UserMessage"]', '[class*="AssistantMessage"]', '[class*="message"]', '[class*="chat-message"]'], role: el => { const e = el.getAttribute('data-role') || el.getAttribute('data-message-role') || ''; if (e) return /user|human/i.test(e) ? 'user' : 'assistant'; return /user|human/i.test(el.className || '') ? 'user' : 'assistant'; }, chatUrlPattern: '/c/{id}', sidebarSelectors: ['.chat-aside', '.chat-history-list', '[class*="chat-aside"]', '[class*="chat-history"]', 'aside', 'nav'] },
+   824→  { name: 'Pollinations', hosts: [/(^|\.)pollinations\.ai$/], msgSelectors: ['[class*="message"]', '[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   825→  { name: 'Puter', hosts: [/(^|\.)puter\.com$/], msgSelectors: ['[class*="message"]', '[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   826→  { name: 'Open WebUI', hosts: [/openwebui/, /^localhost(?::\d+)?$/, /^127\.0\.0\.1(?::\d+)?$/], msgSelectors: ['[class*="message"]', '[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   827→  { name: 'Cloudflare AI', hosts: [/(^|\.)playground\.ai\.cloudflare\.com$/], msgSelectors: ['[class*="message"]', '[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   828→  { name: 'Grok', hosts: [/(^|\.)grok\.com$/], msgSelectors: ['[class*="message"]', '[class*="message-bubble"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant', chatUrlPattern: '/c/{id}', sidebarSelectors: ['aside', 'nav', '[class*="sidebar"]', '[class*="sidebar-group"]'] },
+   829→  { name: 'Microsoft Copilot', hosts: [/(^|\.)copilot\.microsoft\.com$/], msgSelectors: ['[class*="message"]', '[class*="turn"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   830→  { name: 'Perplexity', hosts: [/(^|\.)perplexity\.ai$/], msgSelectors: ['[class*="query"]', '[class*="answer"]', '[class*="message"]'], role: el => /query|user|human/i.test(el.className || '') ? 'user' : 'assistant', chatUrlHints: [/\/search\//] },
+   831→  { name: 'Poe', hosts: [/(^|\.)poe\.com$/], msgSelectors: ['[class*="human-message"]', '[class*="chat-message"]', '[class*="message"]'], role: el => /human|user/i.test(el.className || '') ? 'user' : 'assistant' },
+   832→  { name: 'Character.ai', hosts: [/(^|\.)character\.ai$/], msgSelectors: ['[class*="message"]', '[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   833→  { name: 'You.com', hosts: [/(^|\.)you\.com$/], msgSelectors: ['[class*="message"]', '[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   834→  { name: 'Doubao', hosts: [/(^|\.)doubao\.com$/], msgSelectors: ['[class*="message"]', '[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   835→  { name: 'Tencent Yuanbao', hosts: [/(^|\.)yuanbao\.tencent\.com$/], msgSelectors: ['[class*="message"]', '[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   836→  { name: 'Meta AI', hosts: [/(^|\.)meta\.ai$/], msgSelectors: ['[class*="message"]', '[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   837→  { name: 'Yandex Alice AI', hosts: [/(^|\.)alice\.yandex\.ru$/], msgSelectors: ['[class*="message"]', '[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   838→  { name: 'Yandex Alice (path)', hosts: [/(^|\.)yandex\.(ru|com)$|^ya\.ru$/], path: /\/alice/i, msgSelectors: ['[class*="message"]', '[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   839→  { name: 'Dola', hosts: [/(^|\.)dola\.com$/], msgSelectors: ['[class*="message"]', '[class*="chat-message"]'], role: el => { const c = (el.className || '').toLowerCase(); if (/user|human|question/i.test(c)) return 'user'; if (/bot|assistant|ai|response|reply/i.test(c)) return 'assistant'; return 'unknown'; }, chatUrlPattern: '/chat/{id}', sidebarSelectors: ['#flow_chat_sidebar', 'nav[class*="panel-"]', '[class*="conversation-item"]', 'nav', 'aside'] },
+   840→  { name: 'LM Arena', hosts: [/(^|\.)lmarena\.ai$|(^|\.)chat\.lmarena\.ai$/], msgSelectors: ['[data-message-author-role]', '[class*="message"]', '[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   841→  { name: 'NotebookLM', hosts: [/(^|\.)notebooklm\.google\.com$/], msgSelectors: ['[class*="message"]', '[class*="chat-turn"]', '[class*="response"]'], role: el => /user|query|question/i.test(el.className || '') ? 'user' : 'assistant' },
+   842→  { name: 'GitHub Copilot', hosts: [/(^|\.)github\.com$/], path: /\/copilot/i, msgSelectors: ['[data-testid="chat-message"]', '[class*="ChatMessage"]', '[class*="message"]'], role: el => { const t = (el.getAttribute('data-testid') || '') + ' ' + el.className; return /user/i.test(t) ? 'user' : 'assistant'; } },
+   843→  { name: 'Coze', hosts: [/(^|\.)coze\.com$|(^|\.)coze\.cn$/], msgSelectors: ['[class*="message"]', '[class*="chat-item"]', '[class*="ChatItem"]'], role: el => /user|human|question/i.test(el.className || '') ? 'user' : 'assistant', sidebarSelectors: ['aside', 'nav', '[class*="session"]', '[class*="history"]'] },
+   844→  { name: 'Phind', hosts: [/(^|\.)phind\.com$/], msgSelectors: ['[class*="message"]', '[class*="Question"]', '[class*="Answer"]'], role: el => /question|user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   845→  { name: 'v0 (Vercel)', hosts: [/(^|\.)v0\.dev$/], msgSelectors: ['[data-testid="message"]', '[class*="message"]', '[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' }
+   846→];
+   847→function getPlatform() {
+   848→  const host = location.host, path = location.pathname;
+   849→  for (const p of PLATFORMS) {
+   850→    let ok = false;
+   851→    for (const re of p.hosts) { try { if (re.test(host)) { ok = true; break; } } catch (e) { journal.debug('platform', 'host-re-fail', p.name); } }
+   852→    if (!ok) continue;
+   853→    if (p.path) { try { if (!p.path.test(path)) continue; } catch (e) { journal.debug('platform', 'path-re-fail', p.name); } }
+   854→    return p;
+   855→  }
+   856→  return null;
+   857→}
+   858→/* chatId из шаблона платформы '/c/{id}' → канонический ключ (§18) */
+   859→function chatIdFrom(platform, url) {
+   860→  try {
+   861→    const u = new URL(url);
+   862→    if (platform && platform.chatUrlPattern) {
+   863→      const tmpl = platform.chatUrlPattern.split('/').filter(Boolean);
+   864→      const parts = u.pathname.split('/').filter(Boolean);
+   865→      if (parts.length >= tmpl.length) {
+   866→        let id = null, ok = true;
+   867→        for (let i = 0; i < tmpl.length; i++) { if (tmpl[i] === '{id}') id = parts[i]; else if (parts[i] !== tmpl[i]) { ok = false; break; } }
+   868→        if (ok && id) return id;
+   869→      }
+   870→    }
+   871→    return null;
+   872→  } catch (e) { return null; }
+   873→}
+   874→const canonicalKey = (platformName, url) => {
+   875→  let origin = '';
+   876→  try { origin = new URL(url).origin; } catch (e) { origin = 'origin?'; }
+   877→  const id = chatIdFrom(platformName ? PLATFORMS.find(p => p.name === platformName) : null, url);
+   878→  return (platformName || 'unknown') + '|' + origin + '|' + (id || 'url:' + fnv1aHex(url || ''));
+   879→};
+   880→
+   881→/* ══════════════ L4 CAPTURE — ChatDocument из DOM; снимок — честный (§17) ══════════════ */
+   882→
+   883→const UI_PREFIX_RE = /^\s*(вы сказали|you said|пользователь|user|chatgpt сказал|claude сказал|gemini сказал|ассистент|assistant|бот|bot ответил|copilot сказал)\s*[:：—-]*\s*/i;
+   884→const stripUiPrefix = s => String(s || '').replace(UI_PREFIX_RE, '');
+   885→function textOf(el) {
+   886→  let t = '';
+   887→  try { t = el.innerText || el.textContent || ''; } catch (e) { t = el.textContent || ''; }
+   888→  t = stripUiPrefix(t).trim();
+   889→  if (t.length > CFG.TEXT_CAP) t = t.slice(0, CFG.TEXT_CAP);
+   890→  return t;
+   891→}
+   892→function thinkOf(el) {
+   893→  const out = [];
+   894→  try {
+   895→    const nodes = el.querySelectorAll('[data-thinking],details[class*="think"],details[class*="reason"],[class*="thinking"],[class*="reasoning"]');
+   896→    for (const n of nodes) { const t = (n.textContent || '').trim(); if (t.length > 24) out.push(t.slice(0, 20000)); }
+   897→  } catch (e) { journal.debug('capture', 'think-fail', String(e && e.message || e)); }
+   898→  return out.slice(0, 5);
+   899→}
+   900→function imagesOf(el) {
+   901→  const out = [];
+   902→  try {
+   903→    for (const im of el.querySelectorAll('img[src]')) {
+   904→      let r; try { r = im.getBoundingClientRect(); } catch (e) { continue; }
+   905→      if (r.width < 80 || r.height < 80) continue;
+   906→      const src = im.src || '';
+   907→      if (!/^https?:/i.test(src)) continue;
+   908→      out.push({ src: src.slice(0, 1000), w: Math.round(r.width), h: Math.round(r.height) });
+   909→      if (out.length >= 20) break;
+   910→    }
+
+[showing lines 1-910 of 1816; use offset=911 with limit to continue reading]

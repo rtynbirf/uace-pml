@@ -1,0 +1,1998 @@
+  1991→  if (platform && platform.chatUrlPattern) return location.origin + platform.chatUrlPattern.replace('{id}', id);
+  1992→  const m = location.pathname.match(/^(.*\/)(c|chat|conversation|app|thread)\/[^\/]+/i);
+  1993→  if (m) return location.origin + m[1] + m[2] + '/' + id;
+  1994→  return location.origin + '/c/' + id;
+  1995→}
+  1996→function tryReactOnClick(el) {
+  1997→  try {
+  1998→    const keys = Object.keys(el);
+  1999→    for (let i = 0; i < keys.length; i++) {
+  2000→      if (keys[i].indexOf('__reactProps$') !== 0) continue;
+  2001→      const props = el[keys[i]];
+  2002→      if (props && typeof props.onClick === 'function') {
+  2003→        const evt = { type: 'click', target: el, currentTarget: el, nativeEvent: { button: 0, ctrlKey: false, metaKey: false, shiftKey: false, altKey: false }, preventDefault: () => {}, stopPropagation: () => {}, isDefaultPrevented: () => false, isPropagationStopped: () => false, persist: () => {}, defaultPrevented: false, bubbles: true, cancelable: true };
+  2004→        props.onClick(evt); return true;
+  2005→      }
+  2006→    }
+  2007→  } catch (e) {}
+  2008→  return false;
+  2009→}
+  2010→function isChatUrl(href) {
+  2011→  if (!href) return false;
+  2012→  try {
+  2013→    const u = new URL(href, location.href);
+  2014→    if (u.origin !== location.origin) return false;
+  2015→    if (/^\/(new|create|edit|settings|help|login|signup|logout|terms|privacy|about|contact|faq|legal|pricing|billing|account|profile|drive|create-image|cron-jobs|tasks|discover|explore|search|upgrade|download|auth|oauth|reset|verify)/i.test(u.pathname)) return false;
+  2016→    if (/\/(chat|work|code|c|conversation|thread|app|gem|s|share|session|talk|a)\/[a-zA-Z0-9][a-zA-Z0-9_\/-]{7,}/i.test(u.pathname)) return true;
+  2017→    if (/[?&](id|chat|conversation|thread|session)=/i.test(u.search)) return true;
+  2018→    return false;
+  2019→  } catch (e) { return false; }
+  2020→}
+  2021→const NAV_KEYWORDS = ['проекты','проект','новая папка','новый проект','vibe','work','code','chat','projects','настройки','settings','профиль','profile','новый чат','new chat','помощь','help','сообщество','community','обновления','updates','поиск','search','архив','archive','избранное','library','библиотека','gpts','sora','explore','discover','temporary chat','временный чат','新对话','新建对话','新聊天','新建会话','设置','帮助','delete','удалить','rename','переименовать','pin','закрепить','share','поделиться','все чаты','all chats','история','history','activity','gemini','extensions','расширения','gems','notebooklm','new notebook','upgrade','обновить','попробовать','блокноты','недавние','artifacts','customize','pinned','new','claude','images','scheduled','plugins','health','codex','создание контента ии','запланированные задачи','диск','dola','поиск по чатам','новый блокнот','новая беседа'];
+  2022→const normalizeNavKey = s => String(s || '').replace(/[\s.…,;:!?—–-]+$/g, '').toLowerCase().trim();
+  2023→function isNavKeyword(s) { if (!s) return false; const low = normalizeNavKey(s); if (!low || low.length > 40) return false; return NAV_KEYWORDS.indexOf(low) !== -1; }
+  2024→function isClickable(el) {
+  2025→  if (!el) return false;
+  2026→  const tag = (el.tagName || '').toLowerCase();
+  2027→  if (tag === 'a' && el.hasAttribute && el.hasAttribute('href')) return true;
+  2028→  if (tag === 'button') return true;
+  2029→  const role = el.getAttribute ? (el.getAttribute('role') || '') : '';
+  2030→  if (role === 'button' || role === 'link' || role === 'listitem' || role === 'option' || role === 'tab') return true;
+  2031→  const tab = el.getAttribute ? el.getAttribute('tabindex') : null;
+  2032→  if (tab !== null && tab !== undefined && tab !== '-1') return true;
+  2033→  return false;
+  2034→}
+  2035→function isNavContainer(el) {
+  2036→  if (!el) return false;
+  2037→  const tag = (el.tagName || '').toLowerCase();
+  2038→  const role = el.getAttribute ? (el.getAttribute('role') || '') : '';
+  2039→  if (tag === 'mat-sidenav' || tag === 'bard-sidenav' || tag === 'side-navigation-v2') return true;
+  2040→  if (tag === 'aside' || tag === 'nav' || role === 'navigation') return true;
+  2041→  const c = (typeof el.className === 'string' ? el.className : '').toLowerCase();
+  2042→  if (/sidenav|sidebar|side-nav|drawer|history-list|chat-list|conversation-list|side-bar|chat-aside|chat-history/.test(c)) return true;
+  2043→  return false;
+  2044→}
+  2045→function isLeftSide(el) {
+  2046→  if (!el) return false;
+  2047→  try {
+  2048→    const r = el.getBoundingClientRect();
+  2049→    const vw = window.innerWidth || document.documentElement.clientWidth || 1920;
+  2050→    if (r.height < 100) return false;
+  2051→    if (r.width < 20) return false;
+  2052→    if (r.left > vw * 0.40) return false;
+  2053→    if (r.left + r.width > vw * 0.65) return false;
+  2054→    return true;
+  2055→  } catch (e) { return false; }
+  2056→}
+  2057→function looksLikeCode(s) {
+  2058→  if (!s) return true;
+  2059→  const t = s.trim();
+  2060→  if (t.length < 2) return true;
+  2061→  if (/\b(is not defined|is not a function|TypeError|ReferenceError|SyntaxError)\b/.test(t)) return true;
+  2062→  if (/^https?:\/\/\S+$/i.test(t)) return true;
+  2063→  if (/^Thought for \d+/i.test(t)) return true;
+  2064→  if (/^```/.test(t)) return true;
+  2065→  return false;
+  2066→}
+  2067→function looksLikeChatItem(el) {
+  2068→  if (!el || !isVisible(el)) return false;
+  2069→  if (el.closest && el.closest('#' + UI_ID)) return false;
+  2070→  if (el.closest && el.closest('#pml-tabs-host')) return false;
+  2071→  if (isInChatArea(el)) return false;
+  2072→  let t = txt(el);
+  2073→  if (!t || t.length < 2) { const p = el.parentElement; if (p) t = txt(p); }
+  2074→  if (!t || t.length < 2 || t.length > 120) return false;
+  2075→  if (isNavKeyword(t) || isCssOrJs(t) || isSourceListing(t)) return false;
+  2076→  if (t.indexOf('\n') !== -1) return false;
+  2077→  if (looksLikeCode(t)) return false;
+  2078→  if (t.indexOf('::') !== -1) return false;
+  2079→  if (/^[#>*-]\s/.test(t)) return false;
+  2080→  if (/[.…]{2,}\s*$/.test(t)) return false;
+  2081→  if (/^[A-Za-z]{2,6}$/.test(t)) return false;
+  2082→  return true;
+  2083→}
+  2084→function findLeftPanel() {
+  2085→  const cands = [];
+  2086→  const sels = 'mat-sidenav, bard-sidenav, side-navigation-v2, aside, nav, [role="navigation"], [class*="sidenav"], [class*="sidebar"], [class*="sider"], [class*="side-bar"], [class*="history"], [class*="conversation"], [class*="chat-aside"], [class*="chat-history"], [class*="chat-list"], #flow_chat_sidebar, nav[class*="panel-"]';
+  2087→  let els = [];
+  2088→  try { els = document.querySelectorAll(sels); } catch (e) { els = []; }
+  2089→  els.forEach(el => {
+  2090→    try {
+  2091→      if (el.closest && el.closest('#' + UI_ID)) return;
+  2092→      if (!isLeftSide(el)) return;
+  2093→      const r = el.getBoundingClientRect();
+  2094→      const st = getComputedStyle(el);
+  2095→      const scrollable = /auto|scroll/.test(st.overflowY) || /auto|scroll/.test(st.overflow);
+  2096→      let score = Math.max(r.height, 200) * (scrollable ? 2 : 1);
+  2097→      if (isNavContainer(el)) score *= 4;
+  2098→      const cc = el.querySelectorAll('a[href*="/a/chat/s/"], a[href*="/chat/"], a[href*="/c/"], [class*="conversation-item"]').length;
+  2099→      if (cc > 0) score *= 5;
+  2100→      cands.push({ el, score });
+  2101→    } catch (e) {}
+  2102→  });
+  2103→  cands.sort((a, b) => b.score - a.score);
+  2104→  return cands[0] ? cands[0].el : null;
+  2105→}
+  2106→function isDrawerOpen() { return !!document.querySelector('mat-sidenav.mat-drawer-opened, mat-sidenav.mat-drawer-opening, bard-sidenav.mat-drawer-opened, bard-sidenav.mat-drawer-opening, aside.mat-drawer-opened'); }
+  2107→function isSidebarOpen() {
+  2108→  if (isDrawerOpen()) return true;
+  2109→  const panel = findLeftPanel(); if (!panel) return false;
+  2110→  const r = panel.getBoundingClientRect();
+  2111→  return r.left >= -5 && r.width >= 20 && r.height >= 100;
+  2112→}
+  2113→async function waitForDrawerOpen(t) {
+  2114→  const s = Date.now();
+  2115→  while (Date.now() - s < t) { if (isDrawerOpen()) { await sleep(600); return true; } await sleep(150); }
+  2116→  return isDrawerOpen();
+  2117→}
+  2118→async function dispatchFullClick(el) {
+  2119→  try { el.scrollIntoView({ block: 'center' }); } catch (e) {}
+  2120→  await sleep(120);
+  2121→  try { if (typeof el.focus === 'function') el.focus(); } catch (e) {}
+  2122→  let cx = 1, cy = 1;
+  2123→  try { const r = el.getBoundingClientRect(); cx = Math.floor(r.left + r.width / 2) || 1; cy = Math.floor(r.top + r.height / 2) || 1; } catch (e) {}
+  2124→  const base = { bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy, button: 0, detail: 1 };
+  2125→  const fire = (type, Ctor, extra) => { try { el.dispatchEvent(new Ctor(type, Object.assign({}, base, extra))); } catch (e) {} };
+  2126→  fire('pointerover', PointerEvent || MouseEvent, { pointerId: 1, pointerType: 'mouse', buttons: 0, isPrimary: true });
+  2127→  fire('mouseover', MouseEvent, { buttons: 0 });
+  2128→  fire('pointerenter', PointerEvent || MouseEvent, { pointerId: 1, pointerType: 'mouse', buttons: 0, isPrimary: true });
+  2129→  fire('mouseenter', MouseEvent, { buttons: 0 });
+  2130→  fire('mousemove', MouseEvent, {});
+  2131→  fire('pointerdown', PointerEvent || MouseEvent, { pointerId: 1, pointerType: 'mouse', buttons: 1, isPrimary: true });
+  2132→  fire('mousedown', MouseEvent, { buttons: 1 });
+  2133→  fire('pointerup', PointerEvent || MouseEvent, { pointerId: 1, pointerType: 'mouse', buttons: 0, isPrimary: true });
+  2134→  fire('mouseup', MouseEvent, { buttons: 0 });
+  2135→  fire('click', MouseEvent, {});
+  2136→  try { if (typeof el.click === 'function') el.click(); } catch (e) {}
+  2137→}
+  2138→async function tryOpenSidebar() {
+  2139→  if (isSidebarOpen()) return true;
+  2140→  const seen = new Set(), cands = [];
+  2141→  const pushC = el => { if (!el || seen.has(el)) return; if (!isVisible(el)) return; seen.add(el); cands.push(el); };
+  2142→  try { const q = document.querySelector('#sidebar-toggle-button'); if (q) pushC(q); } catch (e) {}
+  2143→  const sels = ['button[aria-label*="Main menu" i]','button[aria-label*="Side panel" i]','button[aria-label*="sidebar" i]','button[aria-label*="sidenav" i]','button[aria-label*="Toggle sidebar" i]','button[aria-label*="menu" i]','button[aria-label*="Open" i]','button[aria-label*="Открыть" i]','button[aria-label*="меню" i]','[class*="sidebar-toggle"]','[class*="menu-toggle"]','[class*="hamburger"]','.slide-switch'];
+  2144→  for (const sel of sels) { try { document.querySelectorAll(sel).forEach(pushC); } catch (e) {} }
+  2145→  for (const c of cands) { try { await dispatchFullClick(c); if (await waitForDrawerOpen(2000)) return true; } catch (e) {} }
+  2146→  return isSidebarOpen();
+  2147→}
+  2148→async function ensureSidebar() {
+  2149→  let ok = await tryOpenSidebar();
+  2150→  if (!ok) { await sleep(800); ok = await tryOpenSidebar(); }
+  2151→  if (!ok) { await sleep(1200); ok = await tryOpenSidebar(); }
+  2152→  return ok;
+  2153→}
+  2154→function extractItemsFromPanel(panel) {
+  2155→  if (!panel) return [];
+  2156→  const groups = {};
+  2157→  panel.querySelectorAll('*').forEach(el => {
+  2158→    try {
+  2159→      if (el.closest && el.closest('#' + UI_ID)) return;
+  2160→      if (!looksLikeChatItem(el)) return;
+  2161→      if (el.children.length > 10) return;
+  2162→      let clickable = isClickable(el);
+  2163→      if (!clickable) { const anc = el.closest && el.closest('a[href], button, [role="button"], [role="listitem"]'); if (anc) clickable = true; }
+  2164→      if (!clickable) return;
+  2165→      const key = el.tagName;
+  2166→      (groups[key] = groups[key] || []).push(el);
+  2167→    } catch (e) {}
+  2168→  });
+  2169→  let best = null;
+  2170→  Object.keys(groups).forEach(key => {
+  2171→    const els = groups[key];
+  2172→    if (els.length < 2) return;
+  2173→    const cleanList = els.filter(el => !els.some(o => o !== el && o.contains(el)));
+  2174→    if (cleanList.length < 2) return;
+  2175→    if (!best || cleanList.length > best.items.length) best = { key, items: cleanList };
+  2176→  });
+  2177→  if (!best) return [];
+  2178→  return best.items.map(el => {
+  2179→    const ex = extractChatTarget(el);
+  2180→    const title = txt(el).slice(0, 120);
+  2181→    return { el, href: (ex && ex.href) || '', title, dataId: (ex && ex.id) || null };
+  2182→  });
+  2183→}
+  2184→function collectChatLinks(rootEl) {
+  2185→  const root = rootEl || document;
+  2186→  const out = []; const seen = new Set();
+  2187→  const curUrl = location.href.split('?')[0].replace(/\/$/, '');
+  2188→  const push = item => {
+  2189→    if (!item || !item.el) return;
+  2190→    if (seen.has(item.el)) return;
+  2191→    for (let i = 0; i < out.length; i++) {
+  2192→      if (out[i].el === item.el) return;
+  2193→      if (out[i].el.contains(item.el) || item.el.contains(out[i].el)) return;
+  2194→    }
+  2195→    seen.add(item.el); out.push(item);
+  2196→  };
+  2197→  const platform = getPlatform();
+  2198→  const hints = platform && platform.chatUrlHints;
+  2199→  if (hints && hints.length) {
+  2200→    try {
+  2201→      root.querySelectorAll('a[href]').forEach(a => {
+  2202→        if (!isVisible(a)) return;
+  2203→        const href = a.getAttribute('href') || '';
+  2204→        let matched = false;
+  2205→        for (const h of hints) { try { if (h.test(href)) { matched = true; break; } } catch (e) {} }
+  2206→        if (!matched) return;
+  2207→        if (!isChatUrl(a.href)) return;
+  2208→        const t = txt(a);
+  2209→        if (!t || t.length < 2 || t.length > 200) return;
+  2210→        if (looksLikeCode(t) || isNavKeyword(t)) return;
+  2211→        push({ el: a, href: a.href || '', title: t.slice(0, 120), dataId: null });
+  2212→      });
+  2213→    } catch (e) {}
+  2214→  }
+  2215→  try {
+  2216→    const sel = 'a[aria-label="chat-item"], a.chat-item-drag-link, [class*="conversation-item"], [class*="chat-item"], [class*="history-item"], [class*="session-item"], [data-chat-id], [data-conversation-id], [data-session-id], [data-thread-id]';
+  2217→    root.querySelectorAll(sel).forEach(el => {
+  2218→      if (!isVisible(el)) return;
+  2219→      const t = txt(el);
+  2220→      if (!t || t.length < 2 || t.length > 200) return;
+  2221→      if (looksLikeCode(t) || isNavKeyword(t)) return;
+  2222→      const extracted = extractChatTarget(el);
+  2223→      const innerA = el.querySelector('a[href]');
+  2224→      const dataId = el.getAttribute('data-chat-id') || el.getAttribute('data-conversation-id') || el.getAttribute('data-session-id') || el.getAttribute('data-thread-id') || (extracted && extracted.id) || null;
+  2225→      const href = (innerA && innerA.href) || (extracted && extracted.href) || '';
+  2226→      if (!href && !dataId) return;
+  2227→      if (href && href.split('?')[0].replace(/\/$/, '') === curUrl) return;
+  2228→      push({ el, href, title: t.slice(0, 120), dataId });
+  2229→    });
+  2230→  } catch (e) {}
+  2231→  try {
+  2232→    root.querySelectorAll('a[href]').forEach(a => {
+  2233→      if (isInChatArea(a)) return;
+  2234→      if (!isVisible(a)) return;
+  2235→      const t = txt(a);
+  2236→      if (!t || t.length < 2 || t.length > 200) return;
+  2237→      if (isNavKeyword(t) || isCssOrJs(t) || isSourceListing(t) || looksLikeCode(t)) return;
+  2238→      try { const u = new URL(a.href, location.href); if (u.origin !== location.origin) return; } catch (e) { return; }
+  2239→      if (!isChatUrl(a.href)) return;
+  2240→      if (a.href.split('?')[0].replace(/\/$/, '') === curUrl) return;
+  2241→      push({ el: a, href: a.href || '', title: t.slice(0, 120), dataId: null });
+  2242→    });
+  2243→  } catch (e) {}
+  2244→  try {
+  2245→    const panel = (root === document) ? findLeftPanel() : root;
+  2246→    if (panel) extractItemsFromPanel(panel).forEach(it => {
+  2247→      if (it.href && it.href.split('?')[0].replace(/\/$/, '') === curUrl) return;
+  2248→      push(it);
+  2249→    });
+  2250→  } catch (e) {}
+  2251→  return out;
+  2252→}
+  2253→function scanContainers(selector) {
+  2254→  let containers; try { containers = document.querySelectorAll(selector); } catch (e) { return null; }
+  2255→  const cands = [];
+  2256→  for (const c of containers) {
+  2257→    if (c.closest && c.closest('#' + UI_ID)) continue;
+  2258→    if (!isLeftSide(c)) continue;
+  2259→    const links = collectChatLinks(c);
+  2260→    if (links.length >= 2) cands.push({ container: c, items: links, score: links.length, via: 'container' });
+  2261→  }
+  2262→  cands.sort((a, b) => b.score - a.score);
+  2263→  return cands[0] || null;
+  2264→}
+  2265→function findStructuralChatItems() {
+  2266→  const panel = findLeftPanel(); if (!panel) return null;
+  2267→  const items = extractItemsFromPanel(panel);
+  2268→  return items.length >= 2 ? { container: panel, items, score: items.length, via: 'left-panel' } : null;
+  2269→}
+  2270→function findClickableChatItems() {
+  2271→  const panel = findLeftPanel(); if (!panel) return null;
+  2272→  const items = []; const curUrl = location.href.split('?')[0].replace(/\/$/, '');
+  2273→  let nl = [];
+  2274→  try { nl = panel.querySelectorAll('[role="button"], [role="link"], [role="listitem"], [tabindex]:not([tabindex="-1"]), button, li, a[aria-label="chat-item"], a.chat-item-drag-link, [class*="conversation-item"]'); } catch (e) {}
+  2275→  for (const el of nl) {
+  2276→    if (el.closest && el.closest('#' + UI_ID)) continue;
+  2277→    if (!isVisible(el)) continue;
+  2278→    if (el.children.length > 6) continue;
+  2279→    const t = txt(el);
+  2280→    if (!t || t.length < 2 || t.length > 120) continue;
+  2281→    if (looksLikeCode(t) || isNavKeyword(t) || isCssOrJs(t)) continue;
+  2282→    if (t.indexOf('\n') !== -1) continue;
+  2283→    const href = el.href || '';
+  2284→    if (href && href.split('?')[0].replace(/\/$/, '') === curUrl) continue;
+  2285→    items.push({ el, href, title: t.slice(0, 120), dataId: null });
+  2286→  }
+  2287→  if (items.length >= 2) return { container: panel, items, score: items.length, via: 'click-items' };
+  2288→  return null;
+  2289→}
+  2290→function findList() {
+  2291→  const platform = getPlatform();
+  2292→  const strategies = [];
+  2293→  if (platform && platform.sidebarSelectors && platform.sidebarSelectors.length) strategies.push({ name: 'platform', fn: () => scanContainers(platform.sidebarSelectors.join(',')) });
+  2294→  strategies.push({ name: 'generic', fn: () => scanContainers('nav,aside,[role="navigation"],[class*="sidebar"],[class*="history"],[class*="chat-list"],[class*="conversation-list"],[class*="sider"]') });
+  2295→  strategies.push({ name: 'conversation-item', fn: () => {
+  2296→    const items = [];
+  2297→    try {
+  2298→      document.querySelectorAll('[class*="conversation-item"], a[id^="conversation_"]').forEach(el => {
+  2299→        const t = txt(el); if (!t || t.length < 2) return;
+  2300→        const href = el.href || '';
+  2301→        if (href && href.split('?')[0] === location.href.split('?')[0]) return;
+  2302→        items.push({ el, href, title: t.slice(0, 120), dataId: null });
+  2303→      });
+  2304→    } catch (e) {}
+  2305→    return items.length >= 2 ? { container: null, items, score: items.length, via: 'conversation-item' } : null;
+  2306→  } });
+  2307→  strategies.push({ name: 'structural', fn: findStructuralChatItems });
+  2308→  strategies.push({ name: 'click-items', fn: findClickableChatItems });
+  2309→  for (const st of strategies) {
+  2310→    try { const r = st.fn(); if (r && r.items && r.items.length >= 2) return r; } catch (e) {}
+  2311→  }
+  2312→  const docLinks = collectChatLinks(document).filter(it => it.href || it.dataId);
+  2313→  if (docLinks.length >= 2) return { container: null, items: docLinks, score: docLinks.length, via: 'doc-links', fallback: true };
+  2314→  return null;
+  2315→}
+  2316→async function prescrollList(container) {
+  2317→  if (!container) return;
+  2318→  const step = Math.max(200, Math.floor(container.clientHeight * 0.8));
+  2319→  for (let k = 0; k < 4; k++) {
+  2320→    container.scrollTop = 0; await sleep(150);
+  2321→    for (let y = 0; y < container.scrollHeight; y += step) { container.scrollTop = y; await sleep(120); }
+  2322→    container.scrollTop = container.scrollHeight; await sleep(200);
+  2323→  }
+  2324→  container.scrollTop = 0; await sleep(150);
+  2325→}
+  2326→
+  2327→/* ---- B.12. Манифест + сессия ---- */
+  2328→const MANIFEST_KEY = 'uaice_manifest_v1';
+  2329→const SESSION_KEY = 'uaice_bulk_v1';
+  2330→function chatHash(s) { const items = (s && Array.isArray(s.items)) ? s.items : []; return hashString(items.map(x => (x.role || 'unknown') + '\u0000' + (x.text || x.content || '')).join('\u0001')); }
+  2331→function manifestKey(it) {
+  2332→  if (!it) return '';
+  2333→  if (it.href) { try { const u = new URL(it.href, location.href); u.hash = ''; return u.href; } catch (e) {} }
+  2334→  if (it.dataId) return 'id:' + String(it.dataId);
+  2335→  return 'title:' + normalizeNavKey(it.title || '');
+  2336→}
+  2337→function fingerprintSidebar() {
+  2338→  try {
+  2339→    const list = findList(); if (!list || !list.items) return '';
+  2340→    return hashString(list.items.slice(0, 40).map(x => (x.dataId || '') + '\u0000' + normalizeNavKey(x.title || '') + '\u0000' + (x.href || '')).join('\u0001'));
+  2341→  } catch (e) { return ''; }
+  2342→}
+  2343→let MANIFEST_MEM = null;
+  2344→const loadManifest = () => { try { return JSON.parse(safeStorageGet(MANIFEST_KEY) || '{}'); } catch (e) { return {}; } };
+  2345→async function getManifest() {
+  2346→  if (MANIFEST_MEM) return MANIFEST_MEM;
+  2347→  const base = loadManifest();
+  2348→  try {
+  2349→    const rows = await idbGetAll();
+  2350→    if (rows && rows.length) {
+  2351→      const o = {};
+  2352→      rows.forEach(r => { if (r && r.id) o[r.id] = { hash: r.hash, exported_at: r.exported_at, title: r.title }; });
+  2353→      MANIFEST_MEM = Object.assign({}, base, o);
+  2354→      return MANIFEST_MEM;
+  2355→    }
+  2356→  } catch (e) {}
+  2357→  MANIFEST_MEM = base; return MANIFEST_MEM;
+  2358→}
+  2359→let _persistTimer = null;
+  2360→function saveManifest(m) { MANIFEST_MEM = m || {}; if (_persistTimer) clearTimeout(_persistTimer); _persistTimer = setTimeout(() => { flushManifest(); }, 400); }
+  2361→async function flushManifest() {
+  2362→  const m = MANIFEST_MEM || loadManifest();
+  2363→  try { safeStorageSet(MANIFEST_KEY, JSON.stringify(m)); } catch (e) {}
+  2364→  const rows = Object.keys(m).map(k => ({ id: k, hash: m[k].hash, exported_at: m[k].exported_at, title: m[k].title }));
+  2365→  try { await idbPutMany(rows); } catch (e) {}
+  2366→}
+  2367→async function clearManifestAll() {
+  2368→  MANIFEST_MEM = {};
+  2369→  if (_persistTimer) { clearTimeout(_persistTimer); _persistTimer = null; }
+  2370→  safeStorageRemove(MANIFEST_KEY);
+  2371→  try { await idbClearMan(); } catch (e) {}
+  2372→}
+  2373→const loadSession = () => { try { const s = JSON.parse(safeStorageGet(SESSION_KEY) || 'null'); return (s && Array.isArray(s.items)) ? s : null; } catch (e) { return null; } };
+  2374→function saveSession(s) { try { s.sidebarFp = fingerprintSidebar(); } catch (e) {} safeStorageSet(SESSION_KEY, JSON.stringify(s)); }
+  2375→const clearSession = () => safeStorageRemove(SESSION_KEY);
+  2376→const askOptions = () => ({
+  2377→  filter: (safeStorageGet('uaice_filter') || '').toLowerCase(),
+  2378→  onlyNew: safeStorageGet('uaice_onlynew') === '1',
+  2379→  exportThinking: safeStorageGet('uaice_think') === '1',
+  2380→  stripThinking: safeStorageGet('uaice_strip') === '1'
+  2381→});
+  2382→
+  2383→/* ---- B.13. Копирование ---- */
+  2384→async function copyTextToClipboard(text) {
+  2385→  if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(text); return; }
+  2386→  const ta = document.createElement('textarea');
+  2387→  ta.value = text; ta.style.cssText = 'position:fixed;left:-9999px;top:0;';
+  2388→  (document.body || document.documentElement).appendChild(ta);
+  2389→  ta.select(); document.execCommand('copy'); ta.remove();
+  2390→}
+  2391→async function copyCurrentMd(options) {
+  2392→  await autoScroll(null);
+  2393→  const scraped = scrape(options);
+  2394→  if (!scraped.items.length) throw new Error('Сообщения не найдены');
+  2395→  await copyTextToClipboard(toMarkdown(scraped, pageTitle()));
+  2396→  return scraped.items.length;
+  2397→}
+  2398→async function copyContinuePrompt(options) {
+  2399→  await autoScroll(null);
+  2400→  const scraped = scrape(options);
+  2401→  if (!scraped.items.length) throw new Error('Сообщения не найдены');
+  2402→  const L = ['# Перенос диалога в другой AI', '', 'Продолжи диалог ниже. История от другого AI-ассистента:', ''];
+  2403→  scraped.items.forEach(m => { L.push(m.role === 'user' ? 'USER:' : 'ASSISTANT:'); L.push(m.text || m.content); L.push(''); });
+  2404→  L.push('---', 'Продолжи с этого места. Не пересказывай, отвечай как продолжение.');
+  2405→  await copyTextToClipboard(L.join('\n'));
+  2406→  return scraped.items.length;
+  2407→}
+  2408→
+  2409→/* ---- B.14. Экспорт текущего / массовый ---- */
+  2410→async function exportCurrent(format, options, statusFn) {
+  2411→  if (statusFn) statusFn('Ищу сообщения...');
+  2412→  await autoScroll(statusFn);
+  2413→  let scraped = scrape(options);
+  2414→  if (!scraped.items.length) {
+  2415→    for (let i = 0; i < 20; i++) {
+  2416→      await sleep(500);
+  2417→      if (statusFn) statusFn('Жду текста... (' + (i + 1) + ')');
+  2418→      scraped = scrape(options);
+  2419→      if (scraped.items.length > 0) break;
+  2420→    }
+  2421→  }
+  2422→  if (!scraped.items.length) {
+  2423→    const snap = snapshotScrape();
+  2424→    if (snap) { await saveInFormat(snap, pageTitle() + '-snapshot', format === 'zip' ? 'md' : format); return { count: 1, snapshot: true }; }
+  2425→    debugDump();
+  2426→    throw new Error('Сообщения не найдены. F12 → Console.');
+  2427→  }
+  2428→  await saveInFormat(scraped, pageTitle(), format);
+  2429→  return { count: scraped.items.length };
+  2430→}
+  2431→async function activateChatItem(it) {
+  2432→  if (!it) return false;
+  2433→  let el = (it.el && it.el.isConnected) ? it.el : null;
+  2434→  if (!el && it.title) {
+  2435→    try {
+  2436→      const list = findList();
+  2437→      if (list && Array.isArray(list.items)) {
+  2438→        const t = String(it.title).trim().toLowerCase();
+  2439→        for (const x of list.items) if (x && x.el && x.el.isConnected && String(x.title || '').trim().toLowerCase() === t) { el = x.el; break; }
+  2440→      }
+  2441→    } catch (e) {}
+  2442→  }
+  2443→  const hrefBefore = location.href;
+  2444→  const fpBefore = fingerprint();
+  2445→  if (el) {
+  2446→    try { el.scrollIntoView({ block: 'center' }); } catch (e) {}
+  2447→    await sleep(120);
+  2448→    const targets = [el];
+  2449→    try {
+  2450→      const inner = el.querySelector('a[href],button,[role="link"],[role="button"],[role="menuitem"]'); if (inner) targets.push(inner);
+  2451→      const outer = el.closest && el.closest('a[href],[role="link"]'); if (outer) targets.push(outer);
+  2452→    } catch (e) {}
+  2453→    for (let k = 0; k < targets.length; k++) {
+  2454→      if (CANCEL) return true;
+  2455→      const t = targets[k];
+  2456→      try { t.click(); } catch (e) {}
+  2457→      try { tryReactOnClick(t); } catch (e) {}
+  2458→      try { ['pointerdown','mousedown','pointerup','mouseup','click'].forEach(type => t.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }))); } catch (e) {}
+  2459→      await sleep(300);
+  2460→      if (location.href !== hrefBefore || fingerprint() !== fpBefore) return true;
+  2461→    }
+  2462→    try { const changed = await waitForContentChange(hrefBefore, fpBefore, 2500); if (changed) return true; } catch (e) {}
+  2463→  }
+  2464→  let url = it.href || '';
+  2465→  if (!url && it.dataId) { try { url = buildChatUrl(it.dataId) || ''; } catch (e) {} }
+  2466→  if (url && url.split('#')[0] !== location.href.split('#')[0]) { try { location.href = url; await sleep(1200); return true; } catch (e) {} }
+  2467→  return false;
+  2468→}
+  2469→async function exportAllSameTab(format, options, statusFn, session) {
+  2470→  let items = null, startIdx = 0;
+  2471→  if (session && Array.isArray(session.items) && session.items.length) {
+  2472→    items = session.items;
+  2473→    startIdx = Math.max(0, Math.min(session.idx || 0, items.length - 1));
+  2474→    if (statusFn) statusFn('▶ Продолжаю с ' + (startIdx + 1) + '/' + items.length);
+  2475→    await ensureSidebar();
+  2476→    try {
+  2477→      const list = findList();
+  2478→      if (list && Array.isArray(list.items)) {
+  2479→        const byKey = new Map();
+  2480→        list.items.forEach(x => { const k = manifestKey(x); if (k && !byKey.has(k)) byKey.set(k, x.el); });
+  2481→        let re = 0;
+  2482→        items.forEach(it => { const el = byKey.get(manifestKey(it)); if (el) { it.el = el; re++; } });
+  2483→        const cur = fingerprintSidebar();
+  2484→        if (session.sidebarFp && cur && cur !== session.sidebarFp) console.log('[UACE] Сайдбар изменился с прошлого запуска — привязано ' + re + '/' + items.length);
+  2485→      }
+  2486→    } catch (e) {}
+  2487→  } else {
+  2488→    await ensureSidebar();
+  2489→    let list = findList();
+  2490→    if (list && list.container) { await prescrollList(list.container); list = findList() || list; }
+  2491→    if (!list) throw new Error('Список чатов не найден.');
+  2492→    const deduped = [], seen = new Set();
+  2493→    list.items.forEach(it => {
+  2494→      const key = it.href || it.dataId || it.el;
+  2495→      if (!key || seen.has(key)) return;
+  2496→      if (!it.title || it.title.length < 2) return;
+  2497→      seen.add(key);
+  2498→      let id = it.dataId, href = it.href;
+  2499→      if (!id && it.el) { const ex = extractChatTarget(it.el); if (ex.id) id = ex.id; if (!href && ex.href) href = ex.href; }
+  2500→      deduped.push({ title: it.title, href: href || '', dataId: id || null, el: it.el });
+  2501→    });
+  2502→    if (deduped.length < 2) {
+  2503→      console.log('[UACE] Сырых элементов списка: ' + (list.items ? list.items.length : 0) + ', после дедупа: ' + deduped.length);
+  2504→      throw new Error('В списке меньше двух чатов.');
+  2505→    }
+  2506→    items = deduped;
+  2507→  }
+  2508→  if (options && options.filter) {
+  2509→    items = items.filter(it => (it.title || '').toLowerCase().indexOf(options.filter) !== -1);
+  2510→    if (!items.length) { clearSession(); throw new Error('Фильтр "' + options.filter + '" не дал совпадений.'); }
+  2511→  }
+  2512→  if (statusFn) statusFn('Найдено ' + items.length + ' чатов.');
+  2513→  if (!session) saveSession({ mode: 'same', fmt: format, items: items.map(x => ({ title: x.title, href: x.href, dataId: x.dataId })), idx: 0 });
+  2514→
+  2515→  const results = [], failures = [];
+  2516→  const manifest = await getManifest();
+  2517→  let lastChatFp = '', skipped = 0;
+  2518→  for (let i = startIdx; i < items.length; i++) {
+  2519→    if (CANCEL) { if (statusFn) statusFn('⏹ Остановлено. ' + progress(i, items.length, 'Продолжите кнопкой ▶')); saveSession({ mode: 'same', fmt: format, items: items.map(x => ({ title: x.title, href: x.href, dataId: x.dataId })), idx: i }); return { results, failures, total: items.length, skipped, stopped: true }; }
+  2520→    const it = items[i];
+  2521→    if (statusFn) statusFn(progress(i, items.length, it.title.slice(0, 30)));
+  2522→    try {
+  2523→      const beforeHref = location.href;
+  2524→      const fpBefore = fingerprint();
+  2525→      const activated = await activateChatItem(it);
+  2526→      if (!activated) throw new Error('клик не сработал — используйте "Все чаты (вкладками)"');
+  2527→      const ok = await waitStable(fpBefore, beforeHref);
+  2528→      if (!ok) throw new Error('контент не догрузился');
+  2529→      await autoScroll(statusFn);
+  2530→      await sleep(500);
+  2531→      const scraped = scrape(options);
+  2532→      if (!scraped.items.length) throw new Error('сообщения не найдены');
+  2533→      const chatFp = chatHash(scraped);
+  2534→      const mkey = manifestKey(it);
+  2535→      if (options && options.onlyNew) {
+  2536→        if (manifest[mkey] && manifest[mkey].hash === chatFp) { skipped++; console.log('  ⏭ ' + it.title + ' (уже экспортирован)'); continue; }
+  2537→      }
+  2538→      if (chatFp === lastChatFp && location.href === beforeHref) throw new Error('дубликат');
+  2539→      lastChatFp = chatFp;
+  2540→      results.push({ title: it.title, scraped, url: location.href });
+  2541→      manifest[mkey] = { hash: chatFp, exported_at: new Date().toISOString(), title: it.title };
+  2542→      saveManifest(manifest);
+  2543→      console.log('  ✓ ' + it.title + ' — ' + scraped.items.length);
+  2544→    } catch (e) {
+  2545→      console.warn('  ✗ ' + it.title + ': ' + e.message);
+  2546→      failures.push({ title: it.title, url: it.href || '', error: e.message });
+  2547→    }
+  2548→    saveSession({ mode: 'same', fmt: format, items: items.map(x => ({ title: x.title, href: x.href, dataId: x.dataId })), idx: i + 1 });
+  2549→    await sleep(300);
+  2550→  }
+  2551→  clearSession(); await flushManifest();
+  2552→  return { results, failures, total: items.length, skipped };
+  2553→}
+  2554→window.addEventListener('message', event => {
+  2555→  if (event.source === window) return;
+  2556→  const d = event.data;
+  2557→  if (!d || d.type !== MSG_REQ || !d.nonce) return;
+  2558→  if (tabsExportRunning) return;
+  2559→  const respond = payload => { try { event.source.postMessage(Object.assign({ type: MSG_RES, nonce: d.nonce }, payload), event.origin === 'null' ? '*' : event.origin); } catch (e) {} };
+  2560→  (async () => {
+  2561→    try { await autoScroll(null); await waitStable(fingerprint(), location.href); const scraped = scrape(d.options || {}); respond({ ok: scraped.items.length > 0, url: location.href, title: pageTitle() || document.title, data: scraped }); }
+  2562→    catch (e) { respond({ ok: false, url: location.href, title: document.title, error: String(e && e.message || e) }); }
+  2563→  })();
+  2564→});
+  2565→function waitForChildResult(child, nonce, timeout, options) {
+  2566→  return new Promise(resolve => {
+  2567→    let done = false, timer = null, pingTimer = null;
+  2568→    const finish = v => { if (done) return; done = true; try { window.removeEventListener('message', listener); } catch (e) {} if (timer) clearTimeout(timer); if (pingTimer) clearInterval(pingTimer); resolve(v); };
+  2569→    const listener = event => { const d = event.data; if (!d || d.type !== MSG_RES || d.nonce !== nonce) return; if (event.source !== child) return; finish(d); };
+  2570→    window.addEventListener('message', listener);
+  2571→    timer = setTimeout(() => finish({ ok: false, error: 'тайм-аут дочерней вкладки' }), timeout);
+  2572→    const ping = () => { try { child.postMessage({ type: MSG_REQ, nonce, options: options || {} }, '*'); } catch (e) { finish({ ok: false, error: String(e && e.message || e) }); } };
+  2573→    ping();
+  2574→    pingTimer = setInterval(() => { if (!done) ping(); }, 1500);
+  2575→  });
+  2576→}
+  2577→async function exportAllTabs(format, options, statusFn, session) {
+  2578→  let items = null, startIdx = 0;
+  2579→  if (session && Array.isArray(session.items) && session.items.length) {
+  2580→    items = session.items;
+  2581→    startIdx = Math.max(0, Math.min(session.idx || 0, items.length - 1));
+  2582→    await ensureSidebar();
+  2583→  } else {
+  2584→    await ensureSidebar();
+  2585→    let list = findList();
+  2586→    if (list && list.container) { await prescrollList(list.container); list = findList() || list; }
+  2587→    if (!list) throw new Error('Список чатов не найден.');
+  2588→    const deduped = [], seen = new Set();
+  2589→    list.items.forEach(it => {
+  2590→      let href = it.href;
+  2591→      if (!href && it.dataId) href = buildChatUrl(it.dataId);
+  2592→      if (!href && it.el) { const ex = extractChatTarget(it.el); if (ex.href) href = ex.href; else if (ex.id) href = buildChatUrl(ex.id); }
+  2593→      if (!href) return;
+  2594→      if (seen.has(href)) return;
+  2595→      if (!it.title || it.title.length < 2) return;
+  2596→      seen.add(href);
+  2597→      deduped.push({ title: it.title, href, dataId: it.dataId || null });
+  2598→    });
+  2599→    if (deduped.length < 2) throw new Error('Меньше двух чатов с URL.');
+  2600→    items = deduped;
+  2601→  }
+  2602→  if (options && options.filter) {
+  2603→    items = items.filter(it => (it.title || '').toLowerCase().indexOf(options.filter) !== -1);
+  2604→    if (!items.length) { clearSession(); throw new Error('Фильтр "' + options.filter + '" не дал совпадений.'); }
+  2605→  }
+  2606→  if (!session) saveSession({ mode: 'tabs', fmt: format, items: items.map(x => ({ title: x.title, href: x.href, dataId: x.dataId || null })), idx: 0 });
+  2607→  tabsExportRunning = true;
+  2608→  const results = [], failures = [];
+  2609→  const manifest = await getManifest();
+  2610→  let skipped = 0;
+  2611→  try {
+  2612→    for (let i = startIdx; i < items.length; i++) {
+  2613→      if (CANCEL) { if (statusFn) statusFn('⏹ Остановлено. ' + progress(i, items.length, 'Продолжите кнопкой ▶')); saveSession({ mode: 'tabs', fmt: format, items: items.map(x => ({ title: x.title, href: x.href, dataId: x.dataId || null })), idx: i }); return { results, failures, total: items.length, skipped, stopped: true }; }
+  2614→      const it = items[i];
+  2615→      if (statusFn) statusFn('Вкладки ' + progress(i, items.length, it.title.slice(0, 26)));
+  2616→      const nonce = Date.now() + '-' + Math.random().toString(36).slice(2);
+  2617→      let child = null;
+  2618→      try {
+  2619→        child = window.open(it.href, '_blank');
+  2620→        if (!child) throw new Error('POPUP_BLOCKED');
+  2621→        await sleep(800);
+  2622→        const response = await waitForChildResult(child, nonce, CFG.TAB_CHILD_TIMEOUT, options);
+  2623→        if (!response.ok) throw new Error(response.error || 'нет данных');
+  2624→        if (!response.data || !Array.isArray(response.data.items) || !response.data.items.length) throw new Error('пусто');
+  2625→        const chatFp = chatHash(response.data);
+  2626→        const mkey = manifestKey(it);
+  2627→        if (options && options.onlyNew) { if (manifest[mkey] && manifest[mkey].hash === chatFp) { skipped++; continue; } }
+  2628→        results.push({ title: response.title || it.title, url: response.url || it.href, scraped: response.data });
+  2629→        manifest[mkey] = { hash: chatFp, exported_at: new Date().toISOString(), title: it.title };
+  2630→        saveManifest(manifest);
+  2631→      } catch (e) {
+  2632→        const msg = e.message === 'POPUP_BLOCKED' ? 'popup заблокирован' : String(e && e.message || e);
+  2633→        failures.push({ title: it.title, url: it.href, error: msg });
+  2634→        if (e.message === 'POPUP_BLOCKED' && results.length === 0 && i === 0) throw new Error('Всплывающие окна заблокированы.');
+  2635→      } finally { try { if (child) child.close(); } catch (e) {} }
+  2636→      saveSession({ mode: 'tabs', fmt: format, items: items.map(x => ({ title: x.title, href: x.href, dataId: x.dataId || null })), idx: i + 1 });
+  2637→      await sleep(200);
+  2638→    }
+  2639→  } finally { tabsExportRunning = false; }
+  2640→  clearSession(); await flushManifest();
+  2641→  return { results, failures, total: items.length, skipped };
+  2642→}
+  2643→async function exportAll(format, mode, options, statusFn, session) {
+  2644→  const inner = format === 'zip' ? resolveInner() : format;
+  2645→  const outcome = (mode === 'tabs') ? await exportAllTabs(format, options, statusFn, session) : await exportAllSameTab(format, options, statusFn, session);
+  2646→  await finalizeResults(outcome.results, outcome.failures, format, inner, statusFn);
+  2647→  try { toast('✅ Готово: ' + outcome.results.length + ' чатов' + (outcome.failures.length ? ', ошибок: ' + outcome.failures.length : ''), 3000); } catch (e) {}
+  2648→  return { ok: outcome.results.length, fail: outcome.failures.length, total: outcome.total, skipped: outcome.skipped || 0, stopped: !!outcome.stopped };
+  2649→}
+  2650→
+  2651→/* ---- B.15. Диагностика UACE ---- */
+  2652→function debugDump() {
+  2653→  try { console.groupCollapsed('%c[UACE v' + SCRIPT_VER + '] DEBUG', 'color:#4af;font-weight:bold'); } catch (e) {}
+  2654→  console.log('URL:', location.href);
+  2655→  const platform = getPlatform();
+  2656→  console.log('Платформа:', platform ? platform.name : 'не определена');
+  2657→  const s = scrape({ exportThinking: true });
+  2658→  console.log('Найдено:', s.items.length, 'источник:', s.source, '| картинок:', s.images.length, '| вложений:', s.attachments.length);
+  2659→  s.items.slice(0, 20).forEach((m, i) => console.log('  [' + i + '] role=' + m.role + ' len=' + (m.text || '').length + ' text="' + (m.text || '').slice(0, 120) + '..."'));
+  2660→  const sc = findScrollContainer();
+  2661→  console.log('Скролл-контейнер:', sc ? { clientHeight: sc.clientHeight, scrollHeight: sc.scrollHeight } : null);
+  2662→  const list = findList();
+  2663→  console.log('Список чатов:', list ? list.items.length + ' (via ' + list.via + ')' : 'НЕ НАЙДЕН');
+  2664→  if (list) console.table(list.items.slice(0, 30).map((x, i) => ({ idx: i, title: String(x.title || '').slice(0, 50), href: String(x.href || '').slice(0, 70), dataId: x.dataId || '' })));
+  2665→  const sess = loadSession();
+  2666→  if (sess) console.log('Незавершённый экспорт:', sess.idx + '/' + sess.items.length, 'формат:', sess.fmt, 'режим:', sess.mode);
+  2667→  try { console.groupEnd(); } catch (e) {}
+  2668→  return s;
+  2669→}
+  2670→function exportDebugReport() {
+  2671→  const platform = getPlatform();
+  2672→  const report = {
+  2673→    meta: { exporter: 'UACE v' + SCRIPT_VER, generated_at: new Date().toISOString(), url: location.href, userAgent: navigator.userAgent },
+  2674→    environment: { hostname: location.hostname, pathname: location.pathname, platform: platform ? platform.name : null, msgSelectors: platform ? platform.msgSelectors : [], sidebarSelectors: platform ? (platform.sidebarSelectors || []) : [] },
+  2675→    dom: { totalNodes: document.querySelectorAll('*').length, links: document.querySelectorAll('a[href]').length, shadowRoots: collectShadowRoots().length, chatClassEls: document.querySelectorAll('[class*="chat"],[class*="message"]').length },
+  2676→    scrape: (function () { try { const s = scrape({}); return { items_count: s.items.length, source: s.source, images: s.images.length }; } catch (e) { return { error: String(e && e.message || e) }; } })(),
+  2677→    list: (function () { try { const l = findList(); return l ? { via: l.via, count: l.items.length } : null; } catch (e) { return { error: String(e && e.message || e) }; } })(),
+  2678→    session: loadSession()
+  2679→  };
+  2680→  downloadBlob(JSON.stringify(report, null, 2), 'uace-debug-' + ts() + '.json', 'application/json;charset=utf-8');
+  2681→}
+  2682→function debugSniffer() {
+  2683→  function snap(el, depth, maxDepth) {
+  2684→    if (!el || depth > maxDepth) return null;
+  2685→    let r; try { r = el.getBoundingClientRect(); } catch (e) { r = { width: 0, height: 0, left: 0, top: 0 }; }
+  2686→    const vis = r.width > 0 && r.height > 0;
+  2687→    let t = ''; if (el.children.length === 0) { try { t = dedupeText((el.textContent || '').trim()).slice(0, 100); } catch (e) {} }
+  2688→    const attrs = {};
+  2689→    for (let i = 0; i < el.attributes.length; i++) { const a = el.attributes[i]; if (/^data-|^aria-|^role$|^href$|^id$|^class$/i.test(a.name)) attrs[a.name] = String(a.value).slice(0, 120); }
+  2690→    const kids = [];
+  2691→    if (depth < maxDepth) for (let j = 0; j < el.children.length && j < 30; j++) { const s = snap(el.children[j], depth + 1, maxDepth); if (s) kids.push(s); }
+  2692→    return { tag: el.tagName.toLowerCase(), cls: (typeof el.className === 'string' ? el.className : '').slice(0, 200), id: el.id || '', attrs, rect: [Math.round(r.width), Math.round(r.height), Math.round(r.left), Math.round(r.top)], vis, text: t, childCount: el.children.length, children: kids };
+  2693→  }
+  2694→  const platform = getPlatform();
+  2695→  const report = { meta: { url: location.href, hostname: location.hostname, ver: SCRIPT_VER, ts: now() }, platform: platform ? platform.name : null, leftPanel: null, chatItemCandidates: [], messageCandidates: [], summary: {} };
+  2696→  try { const lp = findLeftPanel(); if (lp) report.leftPanel = snap(lp, 0, 3); } catch (e) {}
+  2697→  try { const l = findList(); if (l) report.chatItemCandidates = l.items.slice(0, 40).map(it => ({ title: (it.title || '').slice(0, 80), href: (it.href || '').slice(0, 120) })); } catch (e) {}
+  2698→  try { const m = findMessages(); if (m) report.messageCandidates = m.items.slice(0, 40).map(el => ({ tag: el.tagName.toLowerCase(), cls: (typeof el.className === 'string' ? el.className : '').slice(0, 120), textLen: (txt(el) || '').length, text: (txt(el) || '').slice(0, 100) })); } catch (e) {}
+  2699→  report.summary = { chatItems: report.chatItemCandidates.length, messageCandidates: report.messageCandidates.length, sidebarDetected: !!report.leftPanel };
+  2700→  downloadBlob(JSON.stringify(report, null, 2), 'uace-sniffer-' + sanitize(location.hostname) + '-' + ts() + '.json', 'application/json;charset=utf-8');
+  2701→}
+  2702→
+  2703→/* ==========================================================================
+  2704→ *  C. PML-МОДУЛЬ: разведка DOM, наблюдение, struct r1+r2 (перенос из UPOLY)
+  2705→ * ========================================================================== */
+  2706→
+  2707→const CAP = { groups: 12, landmarks: 20, containers: 5, mountPoints: 8, persistentPaths: 8, nodes: 5000 };
+  2708→const RECON_BUDGET_MS = 150;
+  2709→const OBS_WINDOW_MS = 60000;
+  2710→let obsResult = null;
+  2711→let lastStruct = null, lastElapsed = 0;
+  2712→const pmlJournal = [];
+  2713→let pmlMetrics = { reconRuns: 0, obsRuns: 0, structCopied: false };
+  2714→const pmlHotkeyMap = new Map();
+  2715→const pmlHotkeyList = [];
+  2716→
+  2717→let pmlState = Object.assign(
+  2718→  { theme: 'system', pmlFs: 14, motion: true, pmlCollapsed: false },
+  2719→  pmlStorage.load()
+  2720→);
+  2721→
+  2722→function pmlResolvePalette() {
+  2723→  /* v28.2.1: PML-палитра следует за темой UACE (uaice_theme) — единая точка правды.
+  2724→     Раньше PML всегда жил в 'system' и игнорировал выбор «Тепло/Свет/Тьма».
+  2725→     «Авто»: «Тёплый вечер» (вкл по умолчанию) и часы 20:00–06:59 → warm,
+  2726→     иначе системная схема dark/light. */
+  2727→  const t = safeStorageGet('uaice_theme') || 'auto';
+  2728→  if (t === 'light' || t === 'dark' || t === 'warm') return t;
+  2729→  const dark = window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches;
+  2730→  const evening = safeStorageGet('uaice_evening') !== '0';
+  2731→  const h = new Date().getHours();
+  2732→  if (evening && (h >= 20 || h < 7)) return 'warm';
+  2733→  return dark ? 'dark' : 'light';
+  2734→}
+  2735→let pmlCurPalette = 'dark';
+  2736→let pmlAccentInfo = { hex: '#4da3ff', tx: '#0e0f12', ratio: 0, src: 'default' };
+  2737→function pmlRefreshAccent() {
+  2738→  const bg = parseColor(PML_PALETTES[pmlCurPalette].bg);
+  2739→  let sys = null;
+  2740→  try {
+  2741→    const probe = document.createElement('span');
+  2742→    probe.style.color = 'AccentColor'; probe.style.display = 'none';
+  2743→    (document.body || document.documentElement).appendChild(probe);
+  2744→    sys = parseColor(getComputedStyle(probe).color);
+  2745→    probe.remove();
+  2746→  } catch (e) { sys = null; }
+  2747→  const fit = sys && bg ? fitAccent(bg, sys) : null;
+  2748→  pmlAccentInfo = fit ? { hex: fit.hex, tx: fit.txHex, ratio: fit.ratio, src: 'system' }
+  2749→    : { hex: pmlCurPalette === 'light' ? '#0b62c4' : '#4da3ff', tx: pmlCurPalette === 'light' ? '#ffffff' : '#0e0f12', ratio: 0, src: 'default' };
+  2750→  if (pmlAccentInfo.ratio === 0 && bg) pmlAccentInfo.ratio = round2(pmlContrast(bg, hexToRgb(pmlAccentInfo.hex)));
+  2751→}
+  2752→
+  2753→function pmlPersist() {
+  2754→  pmlStorage.save({ theme: pmlState.theme, fs: pmlState.pmlFs, motion: pmlState.motion, collapsed: pmlState.pmlCollapsed });
+  2755→}
+  2756→function pmlLog(level, msg) {
+  2757→  pmlJournal.unshift({ t: nowMs(), level, msg: String(msg).slice(0, 200) });
+  2758→  if (pmlJournal.length > 200) pmlJournal.length = 200;
+  2759→  if (ui && ui.pmlLogList) renderPmlLog();
+  2760→}
+  2761→function renderPmlLog() {
+  2762→  if (!ui || !ui.pmlLogList) return;
+  2763→  setHTML(ui.pmlLogList, pmlJournal.map(j =>
+  2764→    `<li><i data-l="${j.level}"></i><span><span class="pml-dim">+${(j.t / 1000).toFixed(1)}с</span> ${pmlEscape(j.msg)}</span></li>`).join(''));
+  2765→}
+  2766→const pmlEscape = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  2767→
+  2768→function pmlSetStatus(msg) {
+  2769→  if (!ui || !ui.pmlStatus) return;
+  2770→  ui.pmlStatus.textContent = String(msg || '').slice(0, 80);
+  2771→  clearTimeout(pmlStatusTimer);
+  2772→  if (msg) pmlStatusTimer = setTimeout(() => { if (ui && ui.pmlStatus) ui.pmlStatus.textContent = ''; }, 4000);
+  2773→}
+  2774→let pmlStatusTimer = 0;
+  2775→
+  2776→/* --- Разведка --- */
+  2777→function pmlPickPrimary(all, vh) {
+  2778→  const cands = [];
+  2779→  for (const el of all) {
+  2780→    if (el.scrollHeight <= el.clientHeight + 4) continue;
+  2781→    let ov = 'visible'; try { ov = getComputedStyle(el).overflowY; } catch (e) {}
+  2782→    if (ov !== 'auto' && ov !== 'scroll' && ov !== 'overlay') continue;
+  2783→    let main = false; try { main = !!closestUp(el, 'main,[role="main"]'); } catch (e) {}
+  2784→    cands.push({ el, path: pathOf(el), clientHeight: el.clientHeight, scrollHeight: el.scrollHeight, visibleShare: el.clientHeight / vh, insideMain: main });
+  2785→  }
+  2786→  cands.sort((a, b) => b.visibleShare - a.visibleShare || b.scrollHeight - a.scrollHeight || b.clientHeight - a.clientHeight || (b.insideMain - a.insideMain) || (a.path < b.path ? -1 : 1));
+  2787→  return { primary: cands[0] || null, containers: cands.slice(0, CAP.containers).map(c => ({ path: c.path, scrollHeight: c.scrollHeight, clientHeight: c.clientHeight })), truncated: cands.length > CAP.containers };
+  2788→}
+  2789→function pmlFindGroups(all, primaryPath, deadline) {
+  2790→  const out = [];
+  2791→  for (const parent of all) {
+  2792→    if (performance.now() > deadline) { out.budgetHit = true; break; }
+  2793→    if (parent.childElementCount < 3) continue;
+  2794→    const kids = [...parent.children];
+  2795→    const bySig = new Map();
+  2796→    for (const k of kids) { const h = sigHash(k); if (!bySig.has(h)) bySig.set(h, []); bySig.get(h).push(k); }
+  2797→    let best = null;
+  2798→    for (const [h, arr] of bySig) if (!best || arr.length > best.arr.length) best = { h, arr };
+  2799→    if (!best || best.arr.length < 3) continue;
+  2800→    const u = best.arr.length / kids.length;
+  2801→    if (u < 0.6) continue;
+  2802→    let pr; try { pr = parent.getBoundingClientRect(); } catch (e) { continue; }
+  2803→    let sumH = 0, ok = true;
+  2804→    for (const k of best.arr) { const r = k.getBoundingClientRect(); if (r.height < 32) { ok = false; break; } sumH += r.height; }
+  2805→    if (!ok || sumH < 0.4 * pr.height) continue;
+  2806→    out.push({ sigHash: best.h, count: best.arr.length, depth: subtreeDepth(best.arr[0], 6), uniformity: round2(u), samplePath: pathOf(best.arr[0]), parentPath: pathOf(parent), inPrimary: !!primaryPath && (pathOf(best.arr[0]) === primaryPath || pathOf(best.arr[0]).startsWith(primaryPath + '>')), el: best.arr[0] });
+  2807→  }
+  2808→  out.sort((a, b) => b.count * b.uniformity - a.count * a.uniformity || (a.parentPath < b.parentPath ? -1 : 1));
+  2809→  return out;
+  2810→}
+  2811→function pmlFindMounts(all, vh, deadline) {
+  2812→  const out = [];
+  2813→  for (const el of all) {
+  2814→    if (performance.now() > deadline) { out.budgetHit = true; break; }
+  2815→    if (el.closest && el.closest('#' + UI_ID)) continue;
+  2816→    if (el.childElementCount < 1) continue;
+  2817→    let cs; try { cs = getComputedStyle(el); } catch (e) { continue; }
+  2818→    if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+  2819→    if (cs.position !== 'fixed' && cs.position !== 'sticky') continue;
+  2820→    const r = el.getBoundingClientRect();
+  2821→    if (!(r.top < 0.15 * vh && r.height >= 32 && r.height <= 96 && r.width >= 120)) continue;
+  2822→    out.push({ path: pathOf(el), mode: cs.position, h: Math.round(r.height), top: r.top, x: r.x });
+  2823→  }
+  2824→  out.sort((a, b) => a.top - b.top || a.x - b.x);
+  2825→  return out;
+  2826→}
+  2827→function pmlFindLandmarks(all) {
+  2828→  const out = [];
+  2829→  const tags = { MAIN: 1, NAV: 1, HEADER: 1, FOOTER: 1, ASIDE: 1, SECTION: 1 };
+  2830→  for (const el of all) {
+  2831→    const role = el.getAttribute('role');
+  2832→    if (!tags[el.tagName] && !role) continue;
+  2833→    out.push({ tag: el.tagName.toLowerCase(), role: role || null, path: pathOf(el) });
+  2834→  }
+  2835→  return out;
+  2836→}
+  2837→function pmlIsOwnNode(el) {
+  2838→  if (el.closest && el.closest('#' + UI_ID)) return true;
+  2839→  if (el.closest && el.closest('#' + UI_ID + '-host')) return true;
+  2840→  if (el.closest && el.closest('#pml-tabs-host')) return true;
+  2841→  /* v28.2: UI живёт в Shadow DOM — учитываем хост через getRootNode */
+  2842→  try {
+  2843→    const rn = el.getRootNode && el.getRootNode();
+  2844→    if (rn && rn.host && rn.host.id === UI_ID + '-host') return true;
+  2845→    if (rn && rn.host && rn.host.id === UI_ID) return true;
+  2846→  } catch (e) {}
+  2847→  return false;
+  2848→}
+  2849→/* v28.2: pmlCollectDeep — полностью итеративный (стек) с квантом времени 15 мс;
+  2850→   устранены рекурсия (stack overflow на тяжёлых SPA) и блокировка основного потока */
+  2851→const PML_COLLECT_TIME_CAP_MS = 15;
+  2852→function pmlCollectDeep() {
+  2853→  const out = []; let total = 0;
+  2854→  const tStart = performance.now();
+  2855→  const stack = [document.body];
+  2856→  const seenShadows = new Set();
+  2857→  while (stack.length) {
+  2858→    const cur = stack.pop();
+  2859→    if (!cur || cur.nodeType !== 1) continue;
+  2860→    if (SKIP_TAGS.has(cur.tagName) || pmlIsOwnNode(cur)) continue;
+  2861→    total++;
+  2862→    if (out.length < CAP.nodes) out.push(cur);
+  2863→    try {
+  2864→      const sr = cur.shadowRoot;
+  2865→      if (sr && sr.firstElementChild && !seenShadows.has(sr) && (!sr.mode || sr.mode === 'open') && !pmlIsOwnNode(cur)) {
+  2866→        seenShadows.add(sr);
+  2867→        for (let c = sr.firstElementChild; c; c = c.nextElementSibling) stack.push(c);
+  2868→      }
+  2869→    } catch (e) {}
+  2870→    for (let c = cur.firstElementChild; c; c = c.nextElementSibling) stack.push(c);
+  2871→    if ((out.length >= CAP.nodes && total > CAP.nodes + 2048) || (performance.now() - tStart > PML_COLLECT_TIME_CAP_MS)) break;
+  2872→  }
+  2873→  out.total = total;
+  2874→  return out;
+  2875→}
+  2876→function pmlScanSync() {
+  2877→  const t0 = performance.now();
+  2878→  const deep = pmlCollectDeep();
+  2879→  const all = deep.slice(0, CAP.nodes);
+  2880→  const vh = innerHeight || 800;
+  2881→  let blockCount = 0, maxDepth = 0;
+  2882→  (function w(n, d) { if (!n || n.nodeType !== 1) return; blockCount++; maxDepth = Math.max(maxDepth, d); for (let c = n.firstElementChild; c; c = c.nextElementSibling) w(c, d + 1); })(document.body, 1);
+  2883→  const sc = pmlPickPrimary(all, vh);
+  2884→  const deadline = t0 + RECON_BUDGET_MS;
+  2885→  const groups = pmlFindGroups(all, sc.primary ? sc.primary.path : null, deadline);
+  2886→  const mounts = pmlFindMounts(all, vh, deadline);
+  2887→  const landmarks = pmlFindLandmarks(all);
+  2888→  const budgetHit = !!(groups.budgetHit || mounts.budgetHit);
+  2889→  return { all, vh, blockCount, maxDepth, sc, groups, mounts, landmarks, truncatedDom: deep.total > CAP.nodes || budgetHit, elapsed: Math.round(performance.now() - t0) };
+  2890→}
+  2891→function pmlScoreGroup(g) {
+  2892→  const u = Math.round(100 * clamp((g.uniformity - 0.6) / 0.4, 0, 1));
+  2893→  const c = Math.round(100 * Math.min(1, g.count / 40));
+  2894→  const p = g.inPrimary ? 100 : 0;
+  2895→  const s = Math.round(100 * clamp(1 - g.ratio, 0, 1));
+  2896→  const l = g.hasLandmark ? 100 : 0;
+  2897→  return { u, c, p, s, l, confidence: Math.round(0.35 * u + 0.25 * c + 0.20 * p + 0.10 * s + 0.10 * l) };
+  2898→}
+  2899→function pmlResolveRecon(scored) {
+  2900→  const ok = scored.filter(x => x.inPrimary && x.count >= 6 && x.depth >= 2).sort((a, b) => b.confidence - a.confidence || (a.samplePath < b.samplePath ? -1 : 1));
+  2901→  if (!ok.length || ok[0].confidence < 75) return { status: 'no-data' };
+  2902→  const second = ok[1];
+  2903→  if (second && ok[0].confidence - second.confidence < 15 && second.confidence >= 50) return { status: 'no-data' };
+  2904→  const t = ok[0];
+  2905→  return { status: 'found', candidate: { path: t.samplePath, sigHash: t.sigHash, inPrimary: true, confidence: t.confidence, basis: { u: t.u, c: t.c, p: t.p, s: t.s, l: t.l } } };
+  2906→}
+  2907→function pmlBuildStruct() {
+  2908→  const s = pmlScanSync();
+  2909→  const primary = s.sc.primary;
+  2910→  const raw = s.groups.slice(0, CAP.groups).map(g => {
+  2911→    const g2 = { sigHash: g.sigHash, count: g.count, depth: g.depth, uniformity: g.uniformity, samplePath: g.samplePath, inPrimary: g.inPrimary };
+  2912→    g2.ratio = primary ? round2(primary.clientHeight / primary.scrollHeight) : 1;
+  2913→    try { g2.hasLandmark = !!closestUp(g.el, 'main,[role="main"],[role="feed"],[role="log"]'); } catch (e) { g2.hasLandmark = false; }
+  2914→    return Object.assign(g2, pmlScoreGroup(g2));
+  2915→  });
+  2916→  const struct = {
+  2917→    structVersion: 'r1',
+  2918→    meta: { ts: nowMs(), viewport: { w: innerWidth, h: innerHeight }, dpr: round2(devicePixelRatio || 1), urlHash: fnv1a(SALT + 'URL>' + location.href) },
+  2919→    dom: { maxDepth: s.maxDepth, blockCount: s.blockCount, landmarks: s.landmarks.slice(0, CAP.landmarks), groups: raw.map(g => ({ sigHash: g.sigHash, count: g.count, depth: g.depth, uniformity: g.uniformity, samplePath: g.samplePath, inPrimary: g.inPrimary })), truncated: s.truncatedDom || s.groups.length > CAP.groups || s.landmarks.length > CAP.landmarks },
+  2920→    scroll: { primary: primary ? { path: primary.path, scrollHeight: primary.scrollHeight, clientHeight: primary.clientHeight, ratio: round2(primary.clientHeight / primary.scrollHeight) } : 'no-scroll-container', containers: s.sc.containers, truncated: s.sc.truncated },
+  2921→    mut: obsResult ? obsResult.mut : { window: 60, adds: 0, removes: 0, recycles: 0, medianIntervalMs: null, streamCandidate: null },
+  2922→    anchors: { mountPoints: s.mounts.slice(0, CAP.mountPoints).map(m => ({ path: m.path, mode: m.mode, h: m.h })), persistentPaths: obsResult ? obsResult.persistent : [], stability: obsResult ? obsResult.stability : 0, truncated: s.mounts.length > CAP.mountPoints || (obsResult ? obsResult.persistentTruncated : false) }
+  2923→  };
+  2924→  struct.recon = pmlResolveRecon(raw);
+  2925→  lastElapsed = s.elapsed;
+  2926→  return struct;
+  2927→}
+  2928→
+  2929→/* --- Наблюдение 60 с --- */
+  2930→let obsSession = null;
+  2931→function pmlStartObservation() {
+  2932→  if (obsSession) return;
+  2933→  if (!document.body) { pmlLog('err', 'нет document.body'); pmlSetStatus('наблюдение: нет body'); return; }
+  2934→  pmlMetrics.obsRuns++;
+  2935→  const s = { adds: 0, removes: 0, recycles: 0, sigBudget: 500, aborted: false, byPath: new Map(), addIntervals: new Map(), lastAdd: new Map(), removedSigs: new Map(), snapshots: [], navEvents: 0, pausedMs: 0, hiddenAt: 0 };
+  2936→  s.endsAt = Date.now() + OBS_WINDOW_MS;
+  2937→  obsSession = s;
+  2938→  pmlSetStatus('Наблюдение: осталось 60 с');
+  2939→  pmlLog('info', 'окно наблюдения 60 с запущено (Esc — стоп)');
+  2940→  s.observer = new MutationObserver(muts => {
+  2941→    /* v28.2: защита наблюдателя — исключения не должны оставлять подписку висеть;
+  2942→       батч ограничен, чтобы всплеск мутаций не фризил поток */
+  2943→    const MUTOBS_BATCH_CAP = 500;
+  2944→    try {
+  2945→      const list = muts.length > MUTOBS_BATCH_CAP ? muts.slice(0, MUTOBS_BATCH_CAP) : muts;
+  2946→      for (const m of list) {
+  2947→        const p = m.target && m.target.nodeType === 1 ? prefixPath(m.target, 4) : 'body';
+  2948→        let rec = s.byPath.get(p); if (!rec) { rec = { adds: 0, removes: 0, net: 0 }; s.byPath.set(p, rec); }
+  2949→        for (const n of m.addedNodes) if (n.nodeType === 1) {
+  2950→          try { if (n.shadowRoot && !pmlIsOwnNode(n)) s.observeRoot(n.shadowRoot); } catch (e) {}
+  2951→          s.adds++; rec.adds++; rec.net++;
+  2952→        const t = performance.now(), last = s.lastAdd.get(p);
+  2953→        if (last != null) { const a = s.addIntervals.get(p) || []; a.push(Math.round(t - last)); s.addIntervals.set(p, a); }
+  2954→        s.lastAdd.set(p, t);
+  2955→        if (s.sigBudget > 0) { s.sigBudget--; const h = sigHash(n), set = s.removedSigs.get(p); if (set && set.has(h)) { s.recycles++; set.delete(h); } }
+  2956→      }
+  2957→      for (const n of m.removedNodes) if (n.nodeType === 1) {
+  2958→        s.removes++; rec.removes--; rec.net--;
+  2959→        if (s.sigBudget > 0) { const set = s.removedSigs.get(p) || s.removedSigs.set(p, new Set()).get(p); if (set.size < 50) set.add(sigHash(n)); }
+  2960→      }
+  2961→      }
+  2962→    } catch (e) {}
+  2963→  });
+  2964→  s.observer.observe(document.body, { childList: true, subtree: true });
+  2965→  s.shadowRoots = [];
+  2966→  const observeRoot = r => { if (!r || s.shadowRoots.length >= 8) return; try { s.observer.observe(r, { childList: true, subtree: true }); s.shadowRoots.push(r); } catch (e) {} };
+  2967→  s.observeRoot = observeRoot;
+  2968→  for (const el of pmlCollectDeep()) { if (s.shadowRoots.length >= 8) break; try { if (el.shadowRoot && !pmlIsOwnNode(el)) observeRoot(el.shadowRoot); } catch (e) {} }
+  2969→  const snap = () => { const set = new Set(); (function w(n, d) { if (!n || n.nodeType !== 1 || d > 4 || set.size >= 300) return; if (!pmlIsOwnNode(n)) { set.add(pathOf(n)); for (let c = n.firstElementChild; c; c = c.nextElementSibling) w(c, d + 1); } })(document.body, 1); s.snapshots.push(set); };
+  2970→  s.snap = snap; snap();
+  2971→  s.snapTimer = setInterval(() => { if (!document.hidden && s.snapshots.length < 30) snap(); }, 10000);
+  2972→  s.navHandler = () => { s.navEvents++; snap(); };
+  2973→  /* v28.2: NavGuard — одноразовая безопасная обёртка history (без повторного патчинга и утечек при сбоях) */
+  2974→  NavGuard.subscribe(s.navHandler);
+  2975→  addEventListener('popstate', s.navHandler);
+  2976→  s.visHandler = () => { if (document.hidden) s.hiddenAt = Date.now(); else if (s.hiddenAt) { s.pausedMs += Date.now() - s.hiddenAt; s.hiddenAt = 0; } };
+  2977→  document.addEventListener('visibilitychange', s.visHandler);
+  2978→  s.tick = setInterval(() => {
+  2979→    const left = Math.max(0, Math.ceil((s.endsAt + s.pausedMs - Date.now()) / 1000));
+  2980→    pmlSetStatus(`Наблюдение: осталось ${left} с`);
+  2981→    if (left <= 0) pmlFinishObservation(false);
+  2982→  }, 1000);
+  2983→}
+  2984→function pmlFinishObservation(aborted) {
+  2985→  const s = obsSession; if (!s) return;
+  2986→  obsSession = null;
+  2987→  clearInterval(s.tick); clearInterval(s.snapTimer);
+  2988→  s.observer.disconnect();
+  2989→  document.removeEventListener('visibilitychange', s.visHandler);
+  2990→  removeEventListener('popstate', s.navHandler);
+  2991→  NavGuard.unsubscribe(s.navHandler); /* v28.2: отписка вместо восстановления history */
+  2992→  const top = [...s.byPath.entries()].sort((a, b) => b[1].adds - a[1].adds)[0];
+  2993→  const med = top ? median(s.addIntervals.get(top[0]) || []) : null;
+  2994→  const stream = top ? (top[1].adds >= 3 && top[1].net > 0 && med !== null && med >= 50 && med <= 5000) : false;
+  2995→  obsResult = { mut: { window: 60, adds: s.adds, removes: s.removes, recycles: s.recycles, medianIntervalMs: med, streamCandidate: stream }, persistent: [], stability: 0, persistentTruncated: false };
+  2996→  if (s.snapshots.length) {
+  2997→    const total = s.snapshots.length, cnt = new Map();
+  2998→    for (const set of s.snapshots) for (const p of set) cnt.set(p, (cnt.get(p) || 0) + 1);
+  2999→    const per = [...cnt.entries()].filter(x => x[1] / total >= 0.9).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
+  3000→    obsResult.persistent = per.slice(0, CAP.persistentPaths).map(x => x[0]);
+  3001→    obsResult.persistentTruncated = per.length > CAP.persistentPaths;
+  3002→    obsResult.stability = round2(obsResult.persistent.length / Math.max(1, Math.min(s.snapshots[0].size, 20)));
+  3003→  }
+  3004→  pmlLog(aborted ? 'warn' : 'ok', aborted ? 'наблюдение прервано' : `наблюдение завершено: adds ${s.adds}, recycles ${s.recycles}, поток ${stream ? 'да' : 'нет'}`);
+  3005→  pmlSetStatus(aborted ? 'Наблюдение прервано' : 'Наблюдение завершено');
+  3006→  pmlRunRecon();
+  3007→}
+  3008→
+  3009→/* --- Действия PML --- */
+  3010→function pmlRunRecon() {
+  3011→  pmlMetrics.reconRuns++;
+  3012→  lastStruct = pmlBuildStruct();
+  3013→  if (ui) {
+  3014→    renderPmlRecon(lastStruct);
+  3015→    renderPmlPassport();
+  3016→  }
+  3017→  const r = lastStruct.recon;
+  3018→  pmlLog('ok', `разведка ${lastElapsed} мс: групп ${lastStruct.dom.groups.length}, резерв: ${r.status === 'found' ? 'found ' + r.candidate.confidence : r.status}`);
+  3019→  pmlSetStatus(`Разведка ${lastElapsed} мс · резерв ${r.status}`);
+  3020→}
+  3021→function pmlCopyStruct() {
+  3022→  pmlMetrics.structCopied = true;
+  3023→  const text = JSON.stringify(lastStruct || pmlBuildStruct(), null, 1);
+  3024→  pmlCopyText(text, 'struct скопирован (JSON)');
+  3025→}
+  3026→function pmlCopyJournal() {
+  3027→  pmlCopyText(pmlJournal.map(j => `[+${(j.t / 1000).toFixed(1)}с][${j.level}] ${j.msg}`).join('\n'), 'журнал скопирован (' + pmlJournal.length + ')');
+  3028→}
+  3029→function pmlStopAll() {
+  3030→  if (obsSession) pmlFinishObservation(true);
+  3031→  else { pmlSetStatus('стоп: нечего прерывать'); pmlLog('info', 'стоп: активного окна нет'); }
+  3032→}
+  3033→function pmlCopyText(text, okMsg) {
+  3034→  const done = () => { pmlSetStatus(okMsg); pmlLog('ok', okMsg); };
+  3035→  const fail = () => { pmlSetStatus('копирование недоступно'); pmlLog('warn', 'буфер обмена недоступен'); };
+  3036→  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, () => fallback());
+  3037→  else fallback();
+  3038→  function fallback() {
+  3039→    try {
+  3040→      const ta = document.createElement('textarea');
+  3041→      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  3042→      document.body.appendChild(ta); ta.select();
+  3043→      const ok = document.execCommand('copy'); ta.remove();
+  3044→      ok ? done() : fail();
+  3045→    } catch (e) { fail(); }
+  3046→  }
+  3047→}
+  3048→function pmlGetPassport() {
+  3049→  return [
+  3050→    `Ядро: UACE v${UACE_VER} · PML v${UPOLY_VER}`,
+  3051→    `Тема UACE: ${(safeStorageGet('uaice_theme') || 'auto')} → палитра ${pmlCurPalette}`,
+  3052→    `Акцент: ${pmlAccentInfo.hex} (${pmlAccentInfo.src}) · ${pmlAccentInfo.ratio}:1`,
+  3053→    `Движение: ${pmlState.motion ? 'вкл' : 'выкл'} · кегль ${pmlState.pmlFs}px`,
+  3054→    `Разведка: прогонов ${pmlMetrics.reconRuns}, наблюдений ${pmlMetrics.obsRuns}, struct ${pmlMetrics.structCopied ? 'копировался' : 'нет'}`,
+  3055→    `Uptime: ${Math.round(nowMs() / 1000)} с · журнал: ${pmlJournal.length}`,
+  3056→    `Хоткеи PML: ${pmlHotkeyList.map(h => 'Alt+Shift+' + h.key).join(' · ')}`,
+  3057→    `Соль FNV-1a: ${SALT} · PML-STRUCT r1+r2`
+  3058→  ].join('\n');
+  3059→}
+  3060→
+  3061→/* ==========================================================================
+  3062→ *  D. UI: UACE-панель + UPOLY-badge + top-right + PML-секция
+  3063→ *  ЗАМЕНЕНО ИЗ UPOLY:
+  3064→ *    – позиция панели: было bottom-right → стало top-right
+  3065→ *    – badge: было ⬇ 48×48 1px line → стало UP 44×44 2px ok-color
+  3066→ *  ДОБАВЛЕНО: PML-секция внутри панели (разведка/наблюдение/struct/журнал)
+  3067→ * ========================================================================== */
+  3068→
+  3069→const HF_PALETTES = {
+  3070→  light: { bg:'#fbfbfd', surface:'#ffffff', tx:'#1d1d1f', tx2:'#55555c', line:'#d9d9e0', accent:'#0b66c3', accentTx:'#ffffff', ok:'#1d7a3c', warn:'#a04b00', btn:'#ffffff', btnHover:'#f0f0f4', btnTx:'#1d1d1f', ring:'rgba(11,102,195,.55)' },
+  3071→  dark:  { bg:'#1d1d24', surface:'#26262e', tx:'#f2f2f6', tx2:'#b9b9c3', line:'#43434e', accent:'#74b3ff', accentTx:'#10131a', ok:'#6fd08c', warn:'#ffb066', btn:'#2d2d37', btnHover:'#35353f', btnTx:'#f2f2f6', ring:'rgba(116,179,255,.6)' },
+  3072→  warm:  { bg:'#f6efe2', surface:'#fdf8ee', tx:'#3a3226', tx2:'#6b5f4c', line:'#d8ccb4', accent:'#8a5a00', accentTx:'#ffffff', ok:'#4a6b1f', warn:'#a04b00', btn:'#fdf8ee', btnHover:'#f1e8d6', btnTx:'#3a3226', ring:'rgba(138,90,0,.5)' }
+  3073→};
+  3074→function hfTheme() {
+  3075→  const t = safeStorageGet('uaice_theme') || 'auto';
+  3076→  if (t === 'light' || t === 'dark' || t === 'warm') return t;
+  3077→  const evening = safeStorageGet('uaice_evening') !== '0';
+  3078→  const h = new Date().getHours();
+  3079→  if (evening && (h >= 20 || h < 7)) return 'warm';
+  3080→  try { if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) return 'dark'; } catch (e) {}
+  3081→  return 'light';
+  3082→}
+  3083→function hfMotionOn() {
+  3084→  if (safeStorageGet('uaice_motion') === '0') return false;
+  3085→  try { if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false; } catch (e) {}
+  3086→  return true;
+  3087→}
+  3088→function hfLum(hex) {
+  3089→  const c = hex.replace('#', '');
+  3090→  const v = [0, 2, 4].map(i => { let x = parseInt(c.slice(i, i + 2), 16) / 255; return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); });
+  3091→  return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2];
+  3092→}
+  3093→function hfContrast(fg, bg) { const l1 = hfLum(fg), l2 = hfLum(bg); return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05); }
+  3094→
+  3095→/* === ИНЪЕКЦИЯ СТИЛЕЙ: v28.2 — стили живут внутри Shadow Root (:host-изоляция) === */
+  3096→function injectModernStyles(targetRoot) {
+  3097→  if ((targetRoot || document).getElementById(UI_ID + '-styles')) return;
+  3098→  const css = `
+  3099→:host{all:initial;}
+  3100→:host{position:fixed;left:0;top:0;width:0;height:0;z-index:2147483647;pointer-events:none;font:14px/1.6 system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;}
+  3101→#${UI_ID}{pointer-events:auto;position:fixed;right:16px;top:16px;z-index:2147483647;font:14px/1.6 system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;color:var(--hf-tx);}
+  3102→#${UI_ID} .box{display:flex;flex-direction:column;gap:8px;background:var(--hf-bg);padding:12px;border-radius:14px;border:1px solid var(--hf-line);box-shadow:0 8px 30px rgba(0,0,0,.22);min-width:288px;max-width:360px;max-height:88vh;overflow-y:auto;overflow-x:hidden;box-sizing:border-box;}
+  3103→#${UI_ID} button{border:1px solid var(--hf-line);border-radius:9px;padding:9px 12px;min-height:44px;cursor:pointer;font:inherit;font-weight:400;color:var(--hf-btn-tx);background:var(--hf-btn);text-align:left;box-sizing:border-box;}
+  3104→#${UI_ID} button:hover:not(:disabled){background:var(--hf-btn-hover);}
+  3105→#${UI_ID} button:disabled{opacity:.45;cursor:not-allowed;}
+  3106→#${UI_ID} button:focus-visible, #${UI_ID} select:focus-visible, #${UI_ID} input:focus-visible, #${UI_ID} summary:focus-visible{outline:2px solid var(--hf-accent);outline-offset:2px;}
+  3107→#${UI_ID} select{min-height:44px;background:var(--hf-surface);color:var(--hf-tx);border:1px solid var(--hf-line);border-radius:9px;padding:4px 8px;font:inherit;flex:1;}
+  3108→#${UI_ID} .status{font-size:14px;line-height:1.6;color:var(--hf-tx);max-width:65ch;white-space:pre-wrap;text-align:left;overflow-wrap:anywhere;}
+  3109→#${UI_ID} .mini{font-size:12px;line-height:1.5;color:var(--hf-tx2);}
+  3110→#${UI_ID} .grip{display:flex;align-items:center;justify-content:space-between;gap:6px;cursor:move;user-select:none;-webkit-user-select:none;font-size:14px;font-weight:600;line-height:1.3;padding:1px 2px;}
+  3111→#${UI_ID} .grip .title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  3112→#${UI_ID} .grip button{flex:0 0 auto;min-height:44px;min-width:44px;padding:4px 10px;text-align:center;font-size:14px;}
+  3113→#${UI_ID} .row2{display:flex;gap:8px;align-items:stretch;}
+  3114→#${UI_ID} .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  3115→#${UI_ID} .stop{grid-column:1 / -1;text-align:center;border-color:var(--hf-warn);color:var(--hf-warn);}
+  3116→#${UI_ID} details{border:1px solid var(--hf-line);border-radius:9px;background:var(--hf-surface);}
+  3117→#${UI_ID} summary{list-style:none;cursor:pointer;padding:9px 12px;min-height:44px;display:flex;align-items:center;font-weight:400;color:var(--hf-btn-tx);}
+  3118→#${UI_ID} summary::-webkit-details-marker{display:none;}
+  3119→#${UI_ID} summary::before{content:'▸ ';color:var(--hf-tx2);}
+  3120→#${UI_ID} details[open] summary::before{content:'▾ ';}
+  3121→#${UI_ID} details .inner{display:flex;flex-direction:column;gap:8px;padding:0 10px 10px;}
+  3122→#${UI_ID} .settings{display:flex;flex-direction:column;gap:8px;border-top:1px solid var(--hf-line);padding-top:10px;}
+  3123→#${UI_ID} .settings input[type="text"]{background:var(--hf-surface);color:var(--hf-tx);border:1px solid var(--hf-line);border-radius:9px;padding:8px 10px;font:inherit;box-sizing:border-box;width:100%;min-height:44px;}
+  3124→#${UI_ID} .settings label{display:flex;gap:8px;align-items:flex-start;font-size:14px;color:var(--hf-tx);cursor:pointer;line-height:1.5;}
+  3125→#${UI_ID} .settings input[type="checkbox"]{width:20px;height:20px;margin:2px 0 0;accent-color:var(--hf-accent);flex:0 0 auto;}
+  3126→#${UI_ID} .settings .row{display:flex;gap:8px;}
+  3127→#${UI_ID} .settings .row button{flex:1;font-size:13px;}
+  3128→#${UI_ID} .cap{font-size:12px;color:var(--hf-tx2);line-height:1.5;}
+  3129→#${UI_ID} .comfort{display:flex;flex-direction:column;gap:8px;}
+  3130→#${UI_ID} .comfort .crow{display:flex;gap:8px;align-items:center;justify-content:space-between;}
+  3131→#${UI_ID} .comfort .crow .cl{font-size:13px;color:var(--hf-tx);}
+  3132→#${UI_ID} .comfort .cbtns{display:flex;gap:4px;flex-wrap:wrap;}
+  3133→#${UI_ID} .comfort .cbtns button{min-height:36px;min-width:36px;padding:4px 9px;font-size:13px;text-align:center;flex:0 0 auto;}
+  3134→#${UI_ID} .comfort .cbtns button[aria-pressed="true"]{border-color:var(--hf-accent);box-shadow:inset 0 0 0 1px var(--hf-accent);color:var(--hf-accent);font-weight:600;}
+  3135→#${UI_ID} .passport{display:flex;flex-direction:column;gap:6px;font-size:13px;line-height:1.55;}
+  3136→#${UI_ID} .passport .prow{display:flex;justify-content:space-between;gap:10px;border-bottom:1px dashed var(--hf-line);padding-bottom:4px;}
+  3137→#${UI_ID} .passport .pk{color:var(--hf-tx2);}
+  3138→#${UI_ID} .passport .pv{font-weight:600;text-align:right;overflow-wrap:anywhere;}
+  3139→#${UI_ID} .passport .pv.good{color:var(--hf-ok);}
+  3140→#${UI_ID} .passport a{color:var(--hf-accent);text-decoration:underline;overflow-wrap:anywhere;}
+  3141→
+  3142→/* === badge: UPOLY-стиль (замена) === */
+  3143→#${UI_ID} .badge{
+  3144→  display:none;padding:0;
+  3145→  width:44px;height:44px;                 /* было 48×48 */
+  3146→  border-radius:50%;
+  3147→  background:var(--hf-surface);
+  3148→  color:var(--hf-tx);
+  3149→  font-size:16px;line-height:1;             /* было 19px */
+  3150→  font-weight:700;                           /* было наследуемое */
+  3151→  cursor:pointer;
+  3152→  border:2px solid var(--hf-ok);             /* было 1px solid var(--hf-line) */
+  3153→  box-shadow:0 6px 24px rgba(0,0,0,.35);
+  3154→  text-align:center;
+  3155→}
+  3156→#${UI_ID} .badge:hover{filter:brightness(1.05);}
+  3157→#${UI_ID} .badge.busy{border-color:var(--hf-warn);color:var(--hf-warn);}
+  3158→
+  3159→/* === PML-секция внутри UACE-панели === */
+  3160→#${UI_ID} .pml-tabs{display:flex;border:1px solid var(--hf-line);border-radius:9px;overflow:hidden;}
+  3161→#${UI_ID} .pml-tabs button{flex:1;min-height:40px;border:0;border-radius:0;text-align:center;background:var(--hf-btn);color:var(--hf-tx2);}
+  3162→#${UI_ID} .pml-tabs button[aria-selected="true"]{color:var(--hf-tx);font-weight:600;box-shadow:inset 0 -2px 0 var(--hf-accent);}
+  3163→#${UI_ID} .pml-pane{padding:6px 0 0;display:flex;flex-direction:column;gap:6px;}
+  3164→#${UI_ID} .pml-sec{font-weight:600;color:var(--hf-accent);font-size:13px;margin:2px 0 4px;}
+  3165→#${UI_ID} .pml-kv{margin:0;font-size:12px;line-height:1.5;color:var(--hf-tx);white-space:pre-wrap;word-break:break-word;}
+  3166→#${UI_ID} .pml-dim{color:var(--hf-tx2);}
+  3167→#${UI_ID} .pml-log{list-style:none;margin:0;padding:0;max-height:180px;overflow-y:auto;}
+  3168→#${UI_ID} .pml-log li{display:flex;gap:6px;padding:3px 0;border-bottom:1px dashed var(--hf-line);font-size:12px;}
+  3169→#${UI_ID} .pml-log i{flex:0 0 auto;width:8px;height:8px;border-radius:50%;margin-top:6px;background:var(--hf-tx2);}
+  3170→#${UI_ID} .pml-log i[data-l=ok]{background:var(--hf-ok);}
+  3171→#${UI_ID} .pml-log i[data-l=warn]{background:var(--hf-warn);}
+  3172→#${UI_ID} .pml-log i[data-l=err]{background:var(--hf-warn);}
+  3173→#${UI_ID} .pml-status{display:block;min-height:1.4em;color:var(--hf-tx2);font-size:12px;}
+  3174→
+  3175→/* === v28.3.0: строки тем/комфорта работают и вне .comfort (темы на виду) === */
+  3176→#${UI_ID} .crow{display:flex;gap:8px;align-items:center;justify-content:space-between;}
+  3177→#${UI_ID} .crow .cl{font-size:13px;color:var(--hf-tx);}
+  3178→#${UI_ID} .cbtns{display:flex;gap:4px;flex-wrap:wrap;}
+  3179→#${UI_ID} .cbtns button{min-height:36px;min-width:36px;padding:4px 9px;font-size:13px;text-align:center;flex:0 0 auto;}
+  3180→#${UI_ID} .cbtns button[aria-pressed="true"]{border-color:var(--hf-accent);box-shadow:inset 0 0 0 1px var(--hf-accent);color:var(--hf-accent);font-weight:600;}
+  3181→/* === v28.3.0: СПРАВКА — прокручиваемая инструкция === */
+  3182→#${UI_ID} .help{flex:0 0 auto;min-height:0;max-height:56vh;overflow-y:auto;overscroll-behavior:contain;padding-right:4px;}
+  3183→#${UI_ID} .help h3{margin:8px 0 2px;font-size:13px;color:var(--hf-accent);}
+  3184→#${UI_ID} .help p{margin:3px 0;font-size:13px;line-height:1.55;}
+  3185→#${UI_ID} .help .hrow{display:flex;justify-content:space-between;gap:10px;border-bottom:1px dashed var(--hf-line);padding:3px 0;font-size:12.5px;}
+  3186→#${UI_ID} .help .hk{color:var(--hf-accent);font-weight:600;white-space:nowrap;}
+  3187→#${UI_ID} .help .cap2{font-size:11.5px;color:var(--hf-tx2);line-height:1.5;margin:4px 0 2px;}
+  3188→/* === v28.3.0: всплывающая подсказка (живёт в #uaice-28 → наследует --hf-*) === */
+  3189→#${UI_ID} #${UI_ID}-tip{position:fixed;z-index:2147483647;max-width:280px;padding:7px 10px;border-radius:9px;border:1px solid var(--hf-line);background:var(--hf-surface);color:var(--hf-tx);font:12.5px/1.45 system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;box-shadow:0 8px 22px rgba(0,0,0,.28);pointer-events:none;opacity:0;transition:opacity .12s linear;white-space:normal;overflow-wrap:anywhere;}
+  3190→#${UI_ID} #${UI_ID}-tip.on{opacity:1;}
+  3191→#${UI_ID}.hf-motion-off *{transition:none !important;animation:none !important;}
+  3192→@media (prefers-reduced-motion: reduce){#${UI_ID} *{transition:none !important;animation:none !important;}}
+  3193→`;
+  3194→  const s = document.createElement('style');
+  3195→  s.id = UI_ID + '-styles';
+  3196→  s.textContent = css;
+  3197→  (targetRoot || document.head || document.documentElement).appendChild(s);
+  3198→}
+  3199→
+  3200→/* === тост (тот же, что в UACE) === */
+  3201→function toast(msg, ms) {
+  3202→  try {
+  3203→    let t = document.getElementById(UI_ID + '-toast');
+  3204→    if (!t) {
+  3205→      t = document.createElement('div');
+  3206→      t.id = UI_ID + '-toast';
+  3207→      t.setAttribute('role', 'status');
+  3208→      t.setAttribute('aria-live', 'polite');
+  3209→      t.style.cssText = 'position:fixed;left:50%;bottom:32px;transform:translateX(-50%);background:#1d1d24;color:#f2f2f6;padding:10px 16px;border-radius:10px;border:1px solid #43434e;font:14px/1.5 system-ui,sans-serif;z-index:2147483647;box-shadow:0 6px 24px rgba(0,0,0,.35);pointer-events:none;max-width:70vw;';
+  3210→      (document.body || document.documentElement).appendChild(t);
+  3211→    }
+  3212→    t.textContent = String(msg || '');
+  3213→    t.style.opacity = '1';
+  3214→    clearTimeout(t._tm);
+  3215→    t._tm = setTimeout(() => { try { t.style.opacity = '0'; } catch (e) {} }, ms || 2600);
+  3216→  } catch (e) {}
+  3217→}
+  3218→
+  3219→/* === UI-сборка: v28.2 — панель монтируется в Shadow DOM (CSS-изоляция от сайта) === */
+  3220→let ui = null;
+  3221→let shadowHost = null, shadowRootRef = null;
+  3222→
+  3223→function renderPmlRecon(struct) {
+  3224→  if (!ui || !ui.pmlReconOut) return;
+  3225→  const d = struct && struct.dom, s = struct && struct.scroll, m = struct && struct.mut, a = struct && struct.anchors, r = struct && struct.recon;
+  3226→  const sec = [
+  3227→    ['Каркас', d ? `блоков: ${d.blockCount}\nглубина: ${d.maxDepth}\nгрупп: ${d.groups.length}${d.truncated ? ' (усечено)' : ''}\n` + d.groups.slice(0, 3).map(g => `${g.sigHash} ×${g.count} u=${g.uniformity}${g.inPrimary ? ' ✓скролл' : ''}`).join('\n') : null],
+  3228→    ['Скролл', s && s.primary && s.primary.path ? `primary: ${s.primary.path}\nratio: ${s.primary.ratio}\nконтейнеров: ${s.containers.length}${s.truncated ? ' (усечено)' : ''}` : null],
+  3229→    ['Мутации', m ? `окно: ${m.window}с\nadds: ${m.adds} removes: ${m.removes}\nrecycles: ${m.recycles}\nмедиана: ${m.medianIntervalMs === null ? '—' : m.medianIntervalMs + ' мс'}\nпоток: ${m.streamCandidate === null ? 'окно не набрано' : m.streamCandidate ? 'кандидат' : 'нет'}` : null],
+  3230→    ['Якоря', a ? `mount: ${a.mountPoints.length}\nстойких: ${a.persistentPaths.length}\nstability: ${a.stability}` : null],
+  3231→    ['Резерв', r ? (r.status === 'found' ? `найдено: ${r.candidate.path}\nconfidence: ${r.candidate.confidence}` : 'нет данных (консервативный отказ)') : null]
+  3232→  ];
+  3233→  setHTML(ui.pmlReconOut, sec.map(([t, body]) => `<div class="pml-sec">${t}</div><div class="pml-kv">${body ? pmlEscape(body) : '<span class="pml-dim">нет данных</span>'}</div>`).join(''));
+  3234→}
+  3235→function renderPmlPassport() {
+  3236→  if (!ui || !ui.pmlPassport) return;
+  3237→  const lines = pmlGetPassport().split('\n');
+  3238→  setHTML(ui.pmlPassport, lines.map(l => {
+  3239→    const idx = l.indexOf(': ');
+  3240→    if (idx === -1) return `<div class="pml-kv">${pmlEscape(l)}</div>`;
+  3241→    return `<div class="pml-kv"><span class="pml-dim">${pmlEscape(l.slice(0, idx))}:</span> ${pmlEscape(l.slice(idx + 2))}</div>`;
+  3242→  }).join(''));
+  3243→}
+  3244→
+  3245→function buildUI() {
+  3246→  if (shadowHost && shadowHost.isConnected) return;
+  3247→  if (document.getElementById(UI_ID + '-host')) return;
+  3248→  if (!document.body) return;
+  3249→  loadSettingsMirror(); /* v28.2: восстановление настроек из JSON-зеркала */
+  3250→  shadowHost = document.createElement('div');
+  3251→  shadowHost.id = UI_ID + '-host';
+  3252→  shadowHost.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;z-index:2147483647;pointer-events:none;';
+  3253→  try { shadowRootRef = shadowHost.attachShadow({ mode: 'open' }); } catch (e) { shadowRootRef = null; }
+  3254→  injectModernStyles(shadowRootRef || document.head);
+  3255→  pmlCurPalette = pmlResolvePalette();
+  3256→  pmlRefreshAccent();
+  3257→
+  3258→  const w = document.createElement('div');
+  3259→  w.id = UI_ID;
+  3260→  w.setAttribute('role', 'complementary');
+  3261→  w.setAttribute('aria-label', 'Панель экспорта UACE × PML');
+  3262→
+  3263→  const box = document.createElement('div'); box.className = 'box'; w.appendChild(box);
+  3264→
+  3265→  const st = document.createElement('div');
+  3266→  st.className = 'status';
+  3267→  st.setAttribute('role', 'status');
+  3268→  st.setAttribute('aria-live', 'polite');
+  3269→
+  3270→  /* === ЗАМЕНЕНО: UPOLY-badge === */
+  3271→  const badge = document.createElement('button');
+  3272→  badge.className = 'badge';
+  3273→  badge.type = 'button';
+  3274→  badge.textContent = 'UP';
+  3275→  badge.setAttribute('aria-label', 'UACE × PML — развернуть панель');
+  3276→  badge.title = 'UACE × PML v' + SCRIPT_VER + ' — развернуть';
+  3277→
+  3278→  const mini = document.createElement('div'); mini.className = 'mini';
+  3279→
+  3280→  const btn = label => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; return b; };
+  3281→
+  3282→  /* --- тема/комфорт --- */
+  3283→  function applyHfTheme() {
+  3284→    const p = HF_PALETTES[hfTheme()] || HF_PALETTES.light;
+  3285→    const r = w.style;
+  3286→    r.setProperty('--hf-bg', p.bg); r.setProperty('--hf-surface', p.surface);
+  3287→    r.setProperty('--hf-tx', p.tx); r.setProperty('--hf-tx2', p.tx2);
+  3288→    r.setProperty('--hf-line', p.line); r.setProperty('--hf-accent', p.accent);
+  3289→    r.setProperty('--hf-ok', p.ok); r.setProperty('--hf-warn', p.warn);
+  3290→    r.setProperty('--hf-btn', p.btn); r.setProperty('--hf-btn-hover', p.btnHover);
+  3291→    r.setProperty('--hf-btn-tx', p.btnTx); r.setProperty('--hf-ring', p.ring);
+  3292→    box.style.background = p.bg;
+  3293→    box.style.border = '1px solid ' + p.line;
+  3294→    w.classList.toggle('hf-motion-off', !hfMotionOn());
+  3295→    const fsz = Math.min(18, Math.max(13, parseInt(safeStorageGet('uaice_fsz') || '14', 10) || 14));
+  3296→    w.style.fontSize = fsz + 'px';
+  3297→    w.style.lineHeight = '1.6';
+  3298→    /* v28.2.1: PML-палитра и акцент следуют за темой UACE в момент переключения */
+  3299→    try { pmlCurPalette = pmlResolvePalette(); pmlRefreshAccent(); } catch (e) {}
+  3300→  }
+  3301→  try { window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if ((safeStorageGet('uaice_theme') || 'auto') === 'auto') applyHfTheme(); }); } catch (e) {}
+  3302→
+  3303→  /* --- grip --- */
+  3304→  const grip = document.createElement('div'); grip.className = 'grip';
+  3305→  const gripTitle = document.createElement('span'); gripTitle.className = 'title';
+  3306→  gripTitle.textContent = '⬇ UACE × PML v' + SCRIPT_VER;
+  3307→  const gripBtns = document.createElement('div');
+  3308→  gripBtns.style.cssText = 'display:flex;gap:6px;flex:0 0 auto;';
+  3309→  const bPass = btn('ⓘ'); bPass.title = 'Паспорт панели';
+  3310→  bPass.setAttribute('aria-expanded', 'false');
+  3311→  const bHelp = btn('?'); bHelp.title = 'Справка — инструкция по эксплуатации';
+  3312→  bHelp.setAttribute('aria-expanded', 'false');
+  3313→  const b0 = btn('—'); b0.title = 'Свернуть'; b0.setAttribute('aria-label', 'Свернуть');
+  3314→  /* v28.3.0: «? Справка» СЛЕВА от «ⓘ Паспорт панели» */
+  3315→  gripBtns.appendChild(bHelp); gripBtns.appendChild(bPass); gripBtns.appendChild(b0);
+  3316→  grip.appendChild(gripTitle); grip.appendChild(gripBtns);
+  3317→
+  3318→  /* --- формат + настройки --- */
+  3319→  const rowFmt = document.createElement('div'); rowFmt.className = 'row2';
+  3320→  const selFormat = document.createElement('select');
+  3321→  selFormat.setAttribute('aria-label', 'Формат экспорта');
+  3322→  const FMT_LABELS = { md:'Markdown', json:'JSON', txt:'Текст', html:'HTML', pdf:'PDF (0-CDN печать)', zip:'ZIP', sharegpt:'ShareGPT', jsonl:'JSONL', alpaca:'Alpaca' };
+  3323→  FORMATS.forEach(f => { const o = document.createElement('option'); o.value = f; o.textContent = FMT_LABELS[f] || f; selFormat.appendChild(o); });
+  3324→  let currentFormat = safeStorageGet('uaice_format') || 'md';
+  3325→  if (FORMATS.indexOf(currentFormat) === -1) currentFormat = 'md';
+  3326→  selFormat.value = currentFormat;
+  3327→  const bSet = btn('Настройки'); bSet.title = 'Фильтр, комфорт, автономность (Alt+S)'; bSet.setAttribute('aria-expanded', 'false');
+  3328→  rowFmt.appendChild(selFormat); rowFmt.appendChild(bSet);
+  3329→
+  3330→  /* --- v28.3.0: СТИЛЬ PDF/HTML — возвращённые 5 шаблонов МАКТ-2026 --- */
+  3331→  const rowTpl = document.createElement('div'); rowTpl.className = 'row2';
+  3332→  const selTpl = document.createElement('select');
+  3333→  selTpl.setAttribute('aria-label', 'Стиль PDF/HTML');
+  3334→  Object.keys(TPL_STYLES).forEach(id => {
+  3335→    const o = document.createElement('option');
+  3336→    o.value = id;
+  3337→    o.textContent = TPL_STYLES[id].name + ' — ' + TPL_STYLES[id].hint;
+  3338→    selTpl.appendChild(o);
+  3339→  });
+  3340→  selTpl.value = tplStyleId();
+  3341→  selTpl.onchange = () => { try { safeStorageSet('uaice_tpl', selTpl.value); } catch (e) {} setStatus('Стиль экспорта: ' + TPL_STYLES[selTpl.value].name, 3500); };
+  3342→  rowTpl.appendChild(selTpl);
+  3343→
+  3344→  /* --- главные действия UACE --- */
+  3345→  const gridMain = document.createElement('div'); gridMain.className = 'grid';
+  3346→  const b1 = btn('Экспорт текущего'); b1.title = 'Alt+E';
+  3347→  const b2 = btn('Все чаты'); b2.title = 'Alt+A';
+  3348→  const b4 = btn('⏹ Стоп'); b4.className = 'stop'; b4.title = 'Остановить'; b4.disabled = true;
+  3349→  gridMain.appendChild(b1); gridMain.appendChild(b2); gridMain.appendChild(b4);
+  3350→
+  3351→  /* --- Ещё экспорт --- */
+  3352→  const dMore = document.createElement('details');
+  3353→  const sMore = document.createElement('summary'); sMore.textContent = 'Ещё экспорт';
+  3354→  const iMore = document.createElement('div'); iMore.className = 'inner';
+  3355→  const bTabs = btn('Все чаты (вкладками)');
+  3356→  const bResume = btn('▶ Продолжить'); bResume.disabled = true;
+  3357→  const b5 = btn('Копировать Markdown'); b5.title = 'Alt+C';
+  3358→  const bCont = btn('Промпт-перенос');
+  3359→  const bSide = btn('Открыть сайдбар');
+  3360→  iMore.appendChild(bTabs); iMore.appendChild(bResume); iMore.appendChild(b5); iMore.appendChild(bCont); iMore.appendChild(bSide);
+  3361→  dMore.appendChild(sMore); dMore.appendChild(iMore);
+  3362→
+  3363→  /* --- ПЕРЕНЕСЕНО ИЗ UPOLY: PML-секция с вкладками --- */
+  3364→  const dPml = document.createElement('details');
+  3365→  const sPml = document.createElement('summary'); sPml.textContent = 'PML-разведка';
+  3366→  const iPml = document.createElement('div'); iPml.className = 'inner';
+  3367→
+  3368→  const pmlTabs = document.createElement('div'); pmlTabs.className = 'pml-tabs';
+  3369→  const tRecon = document.createElement('button'); tRecon.type = 'button'; tRecon.textContent = 'Разведка'; tRecon.setAttribute('aria-selected', 'true');
+  3370→  const tActs  = document.createElement('button'); tActs.type = 'button'; tActs.textContent = 'Действия'; tActs.setAttribute('aria-selected', 'false');
+  3371→  const tLog   = document.createElement('button'); tLog.type = 'button'; tLog.textContent = 'Журнал'; tLog.setAttribute('aria-selected', 'false');
+  3372→  pmlTabs.appendChild(tRecon); pmlTabs.appendChild(tActs); pmlTabs.appendChild(tLog);
+  3373→
+  3374→  const pmlPaneRecon = document.createElement('div'); pmlPaneRecon.className = 'pml-pane';
+  3375→  const bPmlRecon = btn('Разведка (Alt+Shift+E)');
+  3376→  const bPmlObs = btn('Наблюдение 60 с (Alt+Shift+D)');
+  3377→  const pmlReconOut = document.createElement('div'); /* v28.2.2: boot без innerHTML — TT-сайты (gemini) */
+  3378→  (function () { const d = document.createElement('div'); d.className = 'pml-dim'; d.textContent = 'нет данных'; pmlReconOut.appendChild(d); })();
+  3379→  const bPmlCopyStruct = btn('Копировать struct (Alt+Shift+C)');
+  3380→  pmlPaneRecon.appendChild(bPmlRecon); pmlPaneRecon.appendChild(bPmlObs);
+  3381→  pmlPaneRecon.appendChild(pmlReconOut);
+  3382→  pmlPaneRecon.appendChild(bPmlCopyStruct);
+  3383→
+  3384→  const pmlPaneActs = document.createElement('div'); pmlPaneActs.className = 'pml-pane'; pmlPaneActs.hidden = true;
+  3385→  const bPmlStop = btn('Стоп (Alt+Shift+S)');
+  3386→  const bPmlCopyJournal = btn('Копировать журнал');
+  3387→  const bPmlCycleTabs = btn('Цикл вкладок PML (Alt+Shift+X)');
+  3388→  const bPmlPassport = btn('Паспорт PML (Alt+Shift+I)');
+  3389→  pmlPaneActs.appendChild(bPmlStop); pmlPaneActs.appendChild(bPmlCopyJournal); pmlPaneActs.appendChild(bPmlCycleTabs); pmlPaneActs.appendChild(bPmlPassport);
+  3390→
+  3391→  const pmlPaneLog = document.createElement('div'); pmlPaneLog.className = 'pml-pane'; pmlPaneLog.hidden = true;
+  3392→  const pmlLogList = document.createElement('ul'); pmlLogList.className = 'pml-log';
+  3393→  pmlPaneLog.appendChild(pmlLogList);
+  3394→
+  3395→  const pmlStatus = document.createElement('span'); pmlStatus.className = 'pml-status'; pmlStatus.setAttribute('aria-live', 'polite');
+  3396→  const pmlPassport = document.createElement('div'); pmlPassport.className = 'pml-kv'; pmlPassport.style.display = 'none';
+  3397→
+  3398→  iPml.appendChild(pmlTabs);
+  3399→  iPml.appendChild(pmlPaneRecon); iPml.appendChild(pmlPaneActs); iPml.appendChild(pmlPaneLog);
+  3400→  iPml.appendChild(pmlStatus);
+  3401→  iPml.appendChild(pmlPassport);
+  3402→  dPml.appendChild(sPml); dPml.appendChild(iPml);
+  3403→
+  3404→  /* --- режимы диалога (UACE) --- */
+  3405→  const dModes = document.createElement('details');
+  3406→  const sModes = document.createElement('summary'); sModes.textContent = 'Режимы диалога';
+  3407→  const iModes = document.createElement('div'); iModes.className = 'inner';
+  3408→  const options = { exportThinking: safeStorageGet('uaice_think') === '1', stripThinking: safeStorageGet('uaice_strip') === '1' };
+  3409→  function cbRow(label, checked, title, onchange) {
+  3410→    const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = checked;
+  3411→    if (title) cb.title = title;
+  3412→    const lb = document.createElement('label');
+  3413→    lb.appendChild(cb); lb.appendChild(document.createTextNode(' ' + label));
+  3414→    cb.onchange = () => onchange(cb.checked);
+  3415→    return lb;
+  3416→  }
+  3417→  iModes.appendChild(cbRow('Экспортировать thinking', options.exportThinking, '', v => { options.exportThinking = v; safeStorageSet('uaice_think', v ? '1' : '0'); }));
+  3418→  iModes.appendChild(cbRow('Вырезать thinking из текста', options.stripThinking, '', v => { options.stripThinking = v; safeStorageSet('uaice_strip', v ? '1' : '0'); }));
+  3419→  dModes.appendChild(sModes); dModes.appendChild(iModes);
+  3420→
+  3421→  /* --- диагностика UACE --- */
+  3422→  const dDiag = document.createElement('details');
+  3423→  const sDiag = document.createElement('summary'); sDiag.textContent = 'Диагностика UACE';
+  3424→  const iDiag = document.createElement('div'); iDiag.className = 'inner';
+  3425→  const b6 = btn('Debug (F12)');
+  3426→  const bRep = btn('Report (JSON)');
+  3427→  const bSniff = btn('Sniffer (DOM)');
+  3428→  iDiag.appendChild(b6); iDiag.appendChild(bRep); iDiag.appendChild(bSniff);
+  3429→  dDiag.appendChild(sDiag); dDiag.appendChild(iDiag);
+  3430→
+  3431→  /* --- настройки UACE --- */
+  3432→  const settings = document.createElement('div'); settings.className = 'settings comfort'; settings.style.display = 'none'; /* v28.2.1: +comfort — оживляет CSS строк комфорта и подсветку aria-pressed */
+  3433→  const capC = document.createElement('div'); capC.className = 'cap'; capC.textContent = 'Комфорт';
+  3434→  const rowTheme = document.createElement('div'); rowTheme.className = 'crow';
+  3435→  const clTheme = document.createElement('span'); clTheme.className = 'cl'; clTheme.textContent = 'Тема UACE';
+  3436→  const cTheme = document.createElement('div'); cTheme.className = 'cbtns';
+  3437→  const themeBtns = {};
+  3438→  [['auto', 'Авто'], ['light', 'Свет'], ['dark', 'Тьма'], ['warm', 'Тепло']].forEach(([v, lb]) => {
+  3439→    const b = btn(lb); b.dataset.v = v;
+  3440→    b.onclick = () => { safeStorageSet('uaice_theme', v); applyHfTheme(); syncComfort(); setStatus('Тема: ' + lb, 2200); }; /* v28.2.1: статус-фидбек */
+  3441→    themeBtns[v] = b; cTheme.appendChild(b);
+  3442→  });
+  3443→  rowTheme.appendChild(clTheme); rowTheme.appendChild(cTheme);
+  3444→
+  3445→  const rowFsz = document.createElement('div'); rowFsz.className = 'crow';
+  3446→  const clFsz = document.createElement('span'); clFsz.className = 'cl'; clFsz.textContent = 'Кегль';
+  3447→  const cFsz = document.createElement('div'); cFsz.className = 'cbtns';
+  3448→  const fA = btn('A−'); const fB = btn('A+');
+  3449→  fA.onclick = () => { const v = Math.max(13, (parseInt(safeStorageGet('uaice_fsz') || '14', 10) || 14) - 1); safeStorageSet('uaice_fsz', String(v)); applyHfTheme(); };
+  3450→  fB.onclick = () => { const v = Math.min(18, (parseInt(safeStorageGet('uaice_fsz') || '14', 10) || 14) + 1); safeStorageSet('uaice_fsz', String(v)); applyHfTheme(); };
+  3451→  cFsz.appendChild(fA); cFsz.appendChild(fB);
+  3452→  rowFsz.appendChild(clFsz); rowFsz.appendChild(cFsz);
+  3453→
+  3454→  const rowMot = document.createElement('div'); rowMot.className = 'crow';
+  3455→  const clMot = document.createElement('span'); clMot.className = 'cl'; clMot.textContent = 'Движение';
+  3456→  const cMot = document.createElement('div'); cMot.className = 'cbtns';
+  3457→  const mOn = btn('Вкл'); const mOff = btn('Выкл');
+  3458→  mOn.onclick = () => { safeStorageSet('uaice_motion', '1'); applyHfTheme(); syncComfort(); setStatus('Движение: вкл', 2200); };
+  3459→  mOff.onclick = () => { safeStorageSet('uaice_motion', '0'); applyHfTheme(); syncComfort(); setStatus('Движение: выкл', 2200); };
+  3460→  cMot.appendChild(mOn); cMot.appendChild(mOff);
+  3461→  rowMot.appendChild(clMot); rowMot.appendChild(cMot);
+  3462→
+  3463→  const rowEve = document.createElement('div'); rowEve.className = 'crow';
+  3464→  const clEve = document.createElement('span'); clEve.className = 'cl'; clEve.textContent = 'Тёплый вечер';
+  3465→  const cEve = document.createElement('div'); cEve.className = 'cbtns';
+  3466→  const eOn = btn('Вкл'); const eOff = btn('Выкл');
+  3467→  eOn.onclick = () => { safeStorageSet('uaice_evening', '1'); applyHfTheme(); syncComfort(); setStatus('Тёплый вечер: вкл — «Авто» тёплый 20:00–06:59', 3200); };
+  3468→  eOff.onclick = () => { safeStorageSet('uaice_evening', '0'); applyHfTheme(); syncComfort(); setStatus('Тёплый вечер: выкл', 2200); };
+  3469→  cEve.appendChild(eOn); cEve.appendChild(eOff);
+  3470→  rowEve.appendChild(clEve); rowEve.appendChild(cEve);
+  3471→
+  3472→  function syncComfort() {
+  3473→    const t = safeStorageGet('uaice_theme') || 'auto';
+  3474→    Object.keys(themeBtns).forEach(k => themeBtns[k].setAttribute('aria-pressed', k === t ? 'true' : 'false'));
+  3475→    const mot = safeStorageGet('uaice_motion') !== '0';
+  3476→    mOn.setAttribute('aria-pressed', mot ? 'true' : 'false');
+  3477→    mOff.setAttribute('aria-pressed', mot ? 'false' : 'true');
+  3478→    const ev = safeStorageGet('uaice_evening') !== '0';
+  3479→    eOn.setAttribute('aria-pressed', ev ? 'true' : 'false');
+  3480→    eOff.setAttribute('aria-pressed', ev ? 'false' : 'true');
+  3481→  }
+  3482→
+  3483→  const lbFilter = document.createElement('span'); lbFilter.className = 'cap'; lbFilter.textContent = 'Фильтр по названию:';
+  3484→  const inFilter = document.createElement('input'); inFilter.type = 'text'; inFilter.placeholder = 'пусто = все'; inFilter.value = safeStorageGet('uaice_filter') || '';
+  3485→  const cbOnly = document.createElement('input'); cbOnly.type = 'checkbox'; cbOnly.checked = safeStorageGet('uaice_onlynew') === '1';
+  3486→  const lbOnly = document.createElement('label'); lbOnly.appendChild(cbOnly); lbOnly.appendChild(document.createTextNode(' Только новые'));
+  3487→  const cbImg = document.createElement('input'); cbImg.type = 'checkbox'; cbImg.checked = safeStorageGet('uaice_images') !== '0';
+  3488→  const lbImg = document.createElement('label'); lbImg.appendChild(cbImg); lbImg.appendChild(document.createTextNode(' Скачивать картинки в ZIP'));
+  3489→  const cbFm = document.createElement('input'); cbFm.type = 'checkbox'; cbFm.checked = safeStorageGet('uaice_fm') !== '0';
+  3490→  const lbFm = document.createElement('label'); lbFm.appendChild(cbFm); lbFm.appendChild(document.createTextNode(' YAML-шапка MD'));
+  3491→  const cbAd = document.createElement('input'); cbAd.type = 'checkbox'; cbAd.checked = safeStorageGet('uaice_adaptive') !== '0';
+  3492→  const lbAd = document.createElement('label'); lbAd.appendChild(cbAd); lbAd.appendChild(document.createTextNode(' Адаптивные задержки'));
+  3493→  const cbMer = document.createElement('input'); cbMer.type = 'checkbox'; cbMer.checked = safeStorageGet('uaice_mermaid') !== '0';
+  3494→  const lbMer = document.createElement('label'); lbMer.appendChild(cbMer); lbMer.appendChild(document.createTextNode(' Mermaid-ссылки SVG'));
+  3495→  const cbPdf = document.createElement('input'); cbPdf.type = 'checkbox'; cbPdf.checked = safeStorageGet('uaice_pdfcdn') === '1';
+  3496→  const lbPdf = document.createElement('label'); lbPdf.appendChild(cbPdf); lbPdf.appendChild(document.createTextNode(' PDF: CDN-рендер (эксперимент, может блокироваться CSP)'));
+  3497→  const selZip = document.createElement('select');
+  3498→  ['md','json','txt','html','pdf','both'].forEach(f => { const o = document.createElement('option'); o.value = f; o.textContent = f === 'both' ? 'ZIP: MD+JSON' : 'ZIP: ' + f.toUpperCase(); selZip.appendChild(o); });
+  3499→  selZip.value = resolveInner();
+  3500→  const rowReset = document.createElement('div'); rowReset.className = 'row';
+  3501→  const bRm1 = btn('Сбросить отметки');
+  3502→  const bRm2 = btn('Сбросить всё');
+  3503→  rowReset.appendChild(bRm1); rowReset.appendChild(bRm2);
+  3504→
+  3505→  settings.appendChild(capC);
+  3506→  settings.appendChild(rowFsz);
+  3507→  settings.appendChild(rowMot);
+  3508→  settings.appendChild(rowEve);
+  3509→  settings.appendChild(lbFilter); settings.appendChild(inFilter);
+  3510→  settings.appendChild(lbOnly); settings.appendChild(lbImg); settings.appendChild(lbFm); settings.appendChild(lbAd); settings.appendChild(lbMer); settings.appendChild(lbPdf);
+  3511→  settings.appendChild(selZip); settings.appendChild(rowReset);
+  3512→
+  3513→  /* --- паспорт UACE --- */
+  3514→  const passport = document.createElement('div'); passport.className = 'passport'; passport.style.display = 'none';
+  3515→  function renderPassportUace() {
+  3516→    const p = HF_PALETTES[hfTheme()] || HF_PALETTES.light;
+  3517→    const rows = [];
+  3518→    const row = (k, v, good) => rows.push('<div class="prow"><span class="pk">' + k + '</span><span class="pv' + (good === true ? ' good' : '') + '">' + v + '</span></div>');
+  3519→    const fsz = Math.min(18, Math.max(13, parseInt(safeStorageGet('uaice_fsz') || '14', 10) || 14));
+  3520→    row('Контраст WCAG 2.2', hfContrast(p.tx, p.bg).toFixed(1) + ':1 ≥4.5', hfContrast(p.tx, p.bg) >= 4.5);
+  3521→    row('Длина строки статуса', '≤65ch', true);
+  3522→    row('Мерцание', '0 Гц', true);
+  3523→    row('Тёплый вечер', (safeStorageGet('uaice_evening') !== '0' ? 'вкл' : 'выкл') + ' · ' + hfTheme(), true);
+  3524→    row('Цели касания', '≥44px', true);
+  3525→    row('Кегль', fsz + 'px', fsz >= 14);
+  3526→    row('Badge (из UPOLY)', 'UP 44×44 2px', true);
+  3527→    row('Позиция панели (из UPOLY)', 'top:16px right:16px', true);
+  3528→    row('PML-разведка', 'встроена (r1+r2)', true);
+  3529→    row('Стиль PDF/HTML', (TPL_STYLES[tplStyleId()] ? TPL_STYLES[tplStyleId()].name + ' · ' + Object.keys(TPL_STYLES).length + ' шаблонов МАКТ-2026' : '—'), true); /* v28.3.0 */
+  3530→    row('Подсказки', 'наведите курсор на кнопку', true); /* v28.3.0 */
+  3531→    setHTML(passport, rows.join(''));
+  3532→  }
+  3533→  bPass.onclick = () => {
+  3534→    const show = passport.style.display === 'none';
+  3535→    if (show) { renderPassportUace(); renderPmlPassport(); }
+  3536→    passport.style.display = show ? '' : 'none';
+  3537→    pmlPassport.style.display = show ? '' : 'none';
+  3538→    bPass.setAttribute('aria-expanded', show ? 'true' : 'false');
+  3539→  };
+  3540→
+  3541→  /* --- состояние панели --- */
+  3542→  let collapsed = safeStorageGet('uaice_collapsed') === '1';
+  3543→  function applyCollapsed() {
+  3544→    grip.style.display = collapsed ? 'none' : '';
+  3545→    [rowFmt, rowTpl, rowTheme, gridMain, dMore, dPml, dModes, dDiag].forEach(x => { x.style.display = collapsed ? 'none' : ''; });
+  3546→    settings.style.display = 'none';
+  3547→    bSet.setAttribute('aria-expanded', 'false');
+  3548→    mini.style.display = collapsed ? 'none' : '';
+  3549→    const empty = collapsed && !st.textContent;
+  3550→    st.style.display = empty ? 'none' : '';
+  3551→    box.style.display = empty ? 'none' : '';
+  3552→    badge.style.display = collapsed ? 'block' : 'none';
+  3553→    safeStorageSet('uaice_collapsed', collapsed ? '1' : '0');
+  3554→  }
+  3555→  b0.onclick = () => { collapsed = true; applyCollapsed(); };
+  3556→  badge.onclick = () => { collapsed = false; applyCollapsed(); };
+  3557→
+  3558→  let statusTimer = null;
+  3559→  function setStatus(t, hideAfter) {
+  3560→    st.textContent = t || '';
+  3561→    if (collapsed) applyCollapsed();
+  3562→    if (statusTimer) clearTimeout(statusTimer);
+  3563→    if (hideAfter) statusTimer = setTimeout(() => setStatus(''), hideAfter);
+  3564→  }
+  3565→  function refreshResume() {
+  3566→    const ses = loadSession();
+  3567→    const can = !!(ses && ses.idx < ses.items.length);
+  3568→    bResume.disabled = !can;
+  3569→    bResume.textContent = can ? '▶ Продолжить (' + ses.idx + '/' + ses.items.length + ')' : '▶ Продолжить';
+  3570→  }
+  3571→  function setBusy(v) {
+  3572→    busy = v;
+  3573→    [b1, b2, bTabs, bResume, b5, bCont, bSide, b6, bRep, bSniff, selFormat, selTpl].forEach(x => { try { x.disabled = v; } catch (e) {} });
+  3574→    b4.disabled = !v;
+  3575→    badge.classList.toggle('busy', v);
+  3576→    badge.setAttribute('aria-label', (v ? 'Идёт экспорт — ' : 'UACE × PML v' + SCRIPT_VER + ' — ') + (v ? 'нажмите, чтобы открыть панель' : 'развернуть'));
+  3577→    if (!v) { CANCEL = false; refreshResume(); }
+  3578→  }
+  3579→  function cycleFormat() {
+  3580→    if (busy) return;
+  3581→    currentFormat = FORMATS[(FORMATS.indexOf(currentFormat) + 1) % FORMATS.length];
+  3582→    selFormat.value = currentFormat;
+  3583→    safeStorageSet('uaice_format', currentFormat);
+  3584→    setStatus('Формат: ' + (FMT_LABELS[currentFormat] || currentFormat), 2500);
+  3585→  }
+  3586→  selFormat.onchange = () => { currentFormat = selFormat.value; safeStorageSet('uaice_format', currentFormat); setStatus('Формат: ' + (FMT_LABELS[currentFormat] || currentFormat), 2500); };
+  3587→
+  3588→  async function run(fn) {
+  3589→    if (busy) return; setBusy(true);
+  3590→    try { await fn(); } catch (e) { console.error(e); setStatus('Ошибка: ' + (e && e.message || e), 12000); }
+  3591→    finally { setBusy(false); }
+  3592→  }
+  3593→  async function runPml(fn) {
+  3594→    if (busy) return; setBusy(true);
+  3595→    try { await fn(); } catch (e) { console.error(e); pmlSetStatus('Ошибка: ' + (e && e.message || e)); }
+  3596→    finally { setBusy(false); }
+  3597→  }
+  3598→
+  3599→  b1.onclick = () => run(async () => {
+  3600→    const r = await exportCurrent(currentFormat, options, setStatus);
+  3601→    setStatus((r.snapshot ? 'Снимок сохранён' : 'Готово: ' + r.count + ' сообщений') + ' — ' + (FMT_LABELS[currentFormat] || currentFormat), 5000);
+  3602→  });
+  3603→  b2.onclick = () => run(async () => {
+  3604→    const r = await exportAll(currentFormat, 'same', askOptions(), setStatus);
+  3605→    setStatus('Готово: ' + r.ok + '/' + r.total + (r.skipped ? ', пропущено: ' + r.skipped : '') + (r.fail ? ', ошибок: ' + r.fail : ''), 10000);
+  3606→  });
+  3607→  bTabs.onclick = () => run(async () => {
+  3608→    const r = await exportAll(currentFormat, 'tabs', askOptions(), setStatus);
+  3609→    setStatus('Вкладками: ' + r.ok + '/' + r.total, 10000);
+  3610→  });
+  3611→  bResume.onclick = () => run(async () => {
+  3612→    const ses = loadSession();
+  3613→    if (!ses || ses.idx >= ses.items.length) { setStatus('Нет незавершённого', 3000); return; }
+  3614→    const r = await exportAll(ses.fmt, ses.mode, askOptions(), setStatus, ses);
+  3615→    setStatus('Продолжено: ' + r.ok + '/' + r.total, 10000);
+  3616→  });
+  3617→  b4.onclick = () => { CANCEL = true; setStatus('Останавливаю...'); };
+  3618→  b5.onclick = () => run(async () => { const n = await copyCurrentMd(options); setStatus('Скопировано: ' + n, 4000); });
+  3619→  bCont.onclick = () => run(async () => { const n = await copyContinuePrompt(options); setStatus('Промпт: ' + n, 6000); });
+  3620→  bSet.onclick = () => { const show = settings.style.display === 'none'; settings.style.display = show ? '' : 'none'; bSet.setAttribute('aria-expanded', show ? 'true' : 'false'); };
+  3621→  bSide.onclick = () => run(async () => {
+  3622→    setStatus('Открываю сайдбар...');
+  3623→    const ok = await ensureSidebar();
+  3624→    await sleep(500);
+  3625→    const l = findList();
+  3626→    if (l) setStatus('Найдено: ' + l.items.length + ' (' + l.via + ')', 5000);
+  3627→    else setStatus(ok ? 'Сайдбар открыт, чаты не найдены' : 'Сайдбар не найден', 6000);
+  3628→  });
+  3629→  b6.onclick = () => { try { debugDump(); setStatus('Debug → F12', 3000); } catch (e) { setStatus('Ошибка: ' + e.message, 8000); } };
+  3630→  bRep.onclick = () => { try { exportDebugReport(); setStatus('Report сохранён', 5000); } catch (e) { setStatus('Ошибка: ' + e.message, 8000); } };
+  3631→  bSniff.onclick = () => { try { debugSniffer(); setStatus('Sniffer сохранён', 7000); } catch (e) { setStatus('Ошибка: ' + e.message, 8000); } };
+  3632→
+  3633→  inFilter.onchange = () => { safeStorageSet('uaice_filter', inFilter.value.trim().toLowerCase()); setStatus('Фильтр: "' + (inFilter.value.trim() || 'все') + '"', 3000); };
+  3634→  cbOnly.onchange = () => safeStorageSet('uaice_onlynew', cbOnly.checked ? '1' : '0');
+  3635→  cbImg.onchange = () => safeStorageSet('uaice_images', cbImg.checked ? '1' : '0');
+  3636→  cbFm.onchange = () => safeStorageSet('uaice_fm', cbFm.checked ? '1' : '0');
+  3637→  cbAd.onchange = () => safeStorageSet('uaice_adaptive', cbAd.checked ? '1' : '0');
+  3638→  cbMer.onchange = () => safeStorageSet('uaice_mermaid', cbMer.checked ? '1' : '0');
+  3639→  cbPdf.onchange = () => safeStorageSet('uaice_pdfcdn', cbPdf.checked ? '1' : '0');
+  3640→  selZip.onchange = () => safeStorageSet('uaice_zipinner', selZip.value);
+  3641→  bRm1.onclick = () => { clearManifestAll().then(() => setStatus('Отметки сброшены', 3000)).catch(() => setStatus('Отметки сброшены', 3000)); };
+  3642→  bRm2.onclick = () => {
+  3643→    [MANIFEST_KEY, SESSION_KEY, SETTINGS_KEY, 'uaice_filter','uaice_onlynew','uaice_images','uaice_fm','uaice_zipinner','uaice_format','uaice_think','uaice_strip','uaice_collapsed','uaice_pos_v1','uaice_adaptive','uaice_mermaid','uaice_pdfcdn','uaice_theme','uaice_evening','uaice_fsz','uaice_motion','uaice_tpl'].forEach(k => safeStorageRemove(k));
+  3644→    inFilter.value = ''; cbOnly.checked = false; cbImg.checked = true; cbFm.checked = true; cbAd.checked = true; cbMer.checked = true; cbPdf.checked = false;
+  3645→    clearManifestAll().catch(() => {});
+  3646→    currentFormat = 'md'; selFormat.value = 'md';
+  3647→    selTpl.value = tplStyleId(); /* v28.3.0: стиль вернётся к Имперскому */
+  3648→    applyHfTheme(); syncComfort();
+  3649→    setStatus('Все настройки сброшены.', 6000);
+  3650→  };
+  3651→
+  3652→  /* --- PML-вкладки --- */
+  3653→  function showPmlTab(name) {
+  3654→    tRecon.setAttribute('aria-selected', name === 'recon' ? 'true' : 'false');
+  3655→    tActs.setAttribute('aria-selected', name === 'acts' ? 'true' : 'false');
+  3656→    tLog.setAttribute('aria-selected', name === 'log' ? 'true' : 'false');
+  3657→    pmlPaneRecon.hidden = name !== 'recon';
+  3658→    pmlPaneActs.hidden = name !== 'acts';
+  3659→    pmlPaneLog.hidden = name !== 'log';
+  3660→    if (name === 'log') renderPmlLog();
+  3661→  }
+  3662→  tRecon.onclick = () => showPmlTab('recon');
+  3663→  tActs.onclick = () => showPmlTab('acts');
+  3664→  tLog.onclick = () => showPmlTab('log');
+  3665→
+  3666→  bPmlRecon.onclick = () => runPml(async () => { pmlRunRecon(); });
+  3667→  bPmlObs.onclick = () => { if (obsSession) { pmlSetStatus('уже идёт'); return; } pmlStartObservation(); };
+  3668→  bPmlCopyStruct.onclick = () => { try { pmlCopyStruct(); } catch (e) { pmlSetStatus('ошибка: ' + e.message); } };
+  3669→  bPmlStop.onclick = () => pmlStopAll();
+  3670→  bPmlCopyJournal.onclick = () => { try { pmlCopyJournal(); } catch (e) { pmlSetStatus('ошибка'); } };
+  3671→  bPmlCycleTabs.onclick = () => { const order = ['recon','acts','log']; const cur = order.find(t => (t === 'recon' ? tRecon : t === 'acts' ? tActs : tLog).getAttribute('aria-selected') === 'true') || 'recon'; showPmlTab(order[(order.indexOf(cur) + 1) % 3]); };
+  3672→  bPmlPassport.onclick = () => { const show = pmlPassport.style.display === 'none'; if (show) renderPmlPassport(); pmlPassport.style.display = show ? '' : 'none'; };
+  3673→
+  3674→  /* --- drag --- */
+  3675→  const POS_KEY = 'uaice_pos_v1';
+  3676→  try {
+  3677→    const saved = JSON.parse(safeStorageGet(POS_KEY) || 'null');
+  3678→    if (saved && typeof saved.left === 'number' && typeof saved.top === 'number') {
+  3679→      w.style.left = saved.left + 'px'; w.style.top = saved.top + 'px';
+  3680→      w.style.right = 'auto'; w.style.bottom = 'auto';
+  3681→    }
+  3682→  } catch (e) {}
+  3683→  let drag = null;
+  3684→  grip.addEventListener('pointerdown', e => {
+  3685→    if (gripBtns.contains(e.target)) return;
+  3686→    const r = w.getBoundingClientRect();
+  3687→    drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+  3688→    e.preventDefault();
+  3689→  });
+  3690→  document.addEventListener('pointermove', e => {
+  3691→    if (!drag) return;
+  3692→    const vw = window.innerWidth || 1920, vh = window.innerHeight || 1080;
+  3693→    const left = Math.max(0, Math.min(vw - 80, e.clientX - drag.dx));
+  3694→    const top = Math.max(0, Math.min(vh - 40, e.clientY - drag.dy));
+  3695→    w.style.left = left + 'px'; w.style.top = top + 'px';
+  3696→    w.style.right = 'auto'; w.style.bottom = 'auto';
+  3697→  });
+  3698→  document.addEventListener('pointerup', () => {
+  3699→    if (!drag) return; drag = null;
+  3700→    const r = w.getBoundingClientRect();
+  3701→    safeStorageSet(POS_KEY, JSON.stringify({ left: Math.round(r.left), top: Math.round(r.top) }));
+  3702→  });
+  3703→  grip.addEventListener('dblclick', e => {
+  3704→    if (gripBtns.contains(e.target)) return;
+  3705→    safeStorageRemove(POS_KEY);
+  3706→    w.style.left = ''; w.style.top = ''; w.style.right = ''; w.style.bottom = '';
+  3707→  });
+  3708→
+  3709→  /* --- хоткеи: UACE Alt+… / PML Alt+Shift+… --- */
+  3710→  document.addEventListener('keydown', e => {
+  3711→    if (!e.altKey || e.ctrlKey || e.metaKey) return;
+  3712→    const t = e.target;
+  3713→    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+  3714→    /* PML: Alt+Shift+… */
+  3715→    if (e.shiftKey) {
+  3716→      if (e.code === 'KeyE') { e.preventDefault(); bPmlRecon.click(); }
+  3717→      else if (e.code === 'KeyD') { e.preventDefault(); bPmlObs.click(); }
+  3718→      else if (e.code === 'KeyC') { e.preventDefault(); bPmlCopyStruct.click(); }
+  3719→      else if (e.code === 'KeyS') { e.preventDefault(); bPmlStop.click(); }
+  3720→      else if (e.code === 'KeyX') { e.preventDefault(); bPmlCycleTabs.click(); }
+  3721→      else if (e.code === 'KeyI') { e.preventDefault(); bPmlPassport.click(); }
+  3722→      return;
+  3723→    }
+  3724→    /* UACE: Alt+… */
+  3725→    if (e.code === 'KeyE') { e.preventDefault(); b1.click(); }
+  3726→    else if (e.code === 'KeyA') { e.preventDefault(); b2.click(); }
+  3727→    else if (e.code === 'KeyC') { e.preventDefault(); b5.click(); }
+  3728→    else if (e.code === 'KeyS') { e.preventDefault(); bSet.click(); }
+  3729→    else if (e.code === 'KeyX') { e.preventDefault(); cycleFormat(); }
+  3730→    else if (e.code === 'KeyR') { e.preventDefault(); if (!bResume.disabled) bResume.click(); }
+  3731→  });
+  3732→  /* Esc — стоп наблюдения */
+  3733→  document.addEventListener('keydown', e => {
+  3734→    if (e.key === 'Escape' && obsSession) pmlFinishObservation(true);
+  3735→  });
+  3736→
+  3737→/* --- v28.3.0: СПРАВКА — инструкция по эксплуатации (кнопка «?» слева от «ⓘ Паспорт») --- */
+  3738→  const helpBox = document.createElement('div'); helpBox.className = 'passport help'; helpBox.style.display = 'none';
+  3739→  function fillHelp() {
+  3740→    if (helpBox.getAttribute('data-filled') === '1') return;
+  3741→    const rows = [
+  3742→      ['Alt+E', 'Экспорт текущего чата в выбранном формате'],
+  3743→      ['Alt+A', 'Экспорт всех чатов сайдбара'],
+  3744→      ['Alt+C', 'Скопировать Markdown в буфер обмена'],
+  3745→      ['Alt+S', 'Настройки панели: показать/скрыть'],
+  3746→      ['Alt+X', 'Цикл формата экспорта'],
+  3747→      ['Alt+R', 'Продолжить прерванный экспорт'],
+  3748→      ['Alt+Shift+E', 'PML-разведка каркаса страницы'],
+  3749→      ['Alt+Shift+D', 'PML-наблюдение 60 с (Esc — стоп)'],
+  3750→      ['Alt+Shift+C', 'PML-копия struct (JSON-канал)'],
+  3751→      ['Alt+Shift+S', 'PML-стоп (наблюдение/разведка)'],
+  3752→      ['Alt+Shift+X', 'Цикл вкладок PML: Разведка/Действия/Журнал'],
+  3753→      ['Alt+Shift+I', 'Паспорт PML']
+  3754→    ];
+  3755→    let h = '';
+  3756→    h += '<h3>1 · Что это</h3><p>Единая панель UACE × PML: экспорт диалогов ИИ (36+ платформ, 9 форматов) + разведка каркаса страницы (PML-STRUCT r1+r2). Всё локально: 0 внешних запросов, текст страницы читается только по кнопке экспорта или разведки.</p>';
+  3757→    h += '<h3>2 · Быстрый старт</h3><p>1) Выберите формат и стиль. 2) «Экспорт текущего» — файл уйдёт в загрузки. 3) PDF: откроется диалог печати — выберите «Сохранить как PDF». Если печать заблокирована, панель сама сохранит стилизованный .print.html: откройте его → Ctrl+P → «Сохранить как PDF».</p>';
+  3758→    h += '<h3>3 · Темы</h3><p>Тьма · Свет · ТЕПЛО (кремовый фон #f6efe2, охра-акцент #8a5a00 — для вечера и слабого зрения) · Авто (днём — системная схема; с 20:00 до 06:59 — тёплая; отключается тумблером «Тёплый вечер» в Настройках). Выбор запоминается. Кнопки тем — прямо под заголовком панели.</p>';
+  3759→    h += '<h3>4 · Стили экспорта PDF/HTML (5)</h3><p>Селект под форматом: <b>Имперский</b> (тёмный фон + золото #d4af37, кегль 18 — по умолчанию), МАКТ Светлый, Швейцарская сетка, Нео-брутализм, Сепия Вечер. Стиль применяется к PDF-печати, HTML-файлам, ZIP и .print.html. Контраст каждого ≥4.5:1. В диалоге печати включите «Фоновая графика», чтобы сохранились фон и золото.</p>';
+  3760→    h += '<h3>5 · Кнопки и хоткеи</h3>';
+  3761→    h += rows.map(r => '<div class="hrow"><span class="hk">' + r[0] + '</span><span>' + r[1] + '</span></div>').join('');
+  3762→    h += '<p class="cap2">Хоткеи не срабатывают в полях ввода. Канон §13 соблюдён: новых клавиш нет — новые действия только кнопками. Подсказка по любой кнопке: наведите курсор (или Tab-фокус).</p>';
+  3763→    h += '<h3>6 · PML-разведка</h3><p>«Разведка» строит каркас страницы (блоки, скролл-контейнеры, якоря, мутации) без чтения текстов; «Наблюдение 60 с» следит за динамикой (Esc — стоп); «Копировать struct» — JSON-канал для второй панели. Резервный скоринг консервативен: «не уверен» = «нет данных», 0 угадываний.</p>';
+  3764→    h += '<h3>7 · Приватность</h3><p>0 внешних запросов по умолчанию. CDN-рендер PDF (html2pdf) выключен и включается только явной галкой в Настройках. Файлы создаются Blob-загрузкой в браузере и никуда не отправляются.</p>';
+  3765→    h += '<h3>8 · Если что-то не так</h3><p>• Панель не появилась (gemini/Trusted Types) — обновите скрипт до v' + SCRIPT_VER + '; панель самовосстанавливается ≤2 с (watchdog).<br>• PDF пустой или без стилей — в окне печати включите «Фоновая графика»; либо сохраните HTML в выбранном стиле и распечатайте его.<br>• Снесло настройки — «Настройки → Сбросить всё».<br>• Кнопка ТЕПЛО: если темы не видно — обновите скрипт; в v' + SCRIPT_VER + ' строка тем вынесена из «Настроек» наверх.</p>';
+  3766→    h += '<div class="cap2">UACE v' + UACE_VER + ' × PML v' + UPOLY_VER + ' · сборка v' + SCRIPT_VER + ' · PML-PANEL 1.0 (§1–17) · PML-STRUCT r2</div>';
+  3767→    setHTML(helpBox, h);
+  3768→    const closer = document.createElement('button');
+  3769→    closer.type = 'button';
+  3770→    closer.textContent = '× Закрыть справку';
+  3771→    closer.onclick = () => toggleHelp(false);
+  3772→    helpBox.appendChild(closer);
+  3773→    helpBox.setAttribute('data-filled', '1');
+  3774→  }
+  3775→  function toggleHelp(force) {
+  3776→    const show = (force !== undefined) ? !!force : (helpBox.style.display === 'none');
+  3777→    if (show) fillHelp();
+  3778→    helpBox.style.display = show ? '' : 'none';
+  3779→    bHelp.setAttribute('aria-expanded', show ? 'true' : 'false');
+  3780→    if (show) {
+  3781→      passport.style.display = 'none';
+  3782→      bPass.setAttribute('aria-expanded', 'false');
+  3783→      /* v28.3.0: панель прокручивается к справке — она открывается ВИДИМОЙ */
+  3784→      try { helpBox.scrollIntoView({ block: 'start' }); } catch (e) {}
+  3785→    }
+  3786→  }
+  3787→  bHelp.onclick = () => toggleHelp();
+  3788→
+  3789→  /* --- v28.3.0: всплывающие подсказки при наведении курсора / Tab-фокусе --- */
+  3790→  const tipEl = document.createElement('div');
+  3791→  tipEl.id = UI_ID + '-tip';
+  3792→  tipEl.setAttribute('role', 'tooltip');
+  3793→  tipEl.setAttribute('aria-hidden', 'true');
+  3794→  let tipTimer = 0;
+  3795→  function showTipFor(el) {
+  3796→    const t = el && el.getAttribute && el.getAttribute('data-tip');
+  3797→    if (!t) return;
+  3798→    tipEl.textContent = t;
+  3799→    tipEl.classList.add('on');
+  3800→    const vw = window.innerWidth || 1920, vh = window.innerHeight || 1080;
+  3801→    const tw = Math.min(280, vw - 16);
+  3802→    tipEl.style.maxWidth = tw + 'px';
+  3803→    tipEl.style.left = '0px'; tipEl.style.top = '0px';
+  3804→    const r = el.getBoundingClientRect();
+  3805→    let left = r.left + r.width / 2 - tw / 2;
+  3806→    if (left < 8) left = 8;
+  3807→    if (left + tw > vw - 8) left = vw - 8 - tw;
+  3808→    let top = r.bottom + 8;
+  3809→    const th = tipEl.offsetHeight || 40;
+  3810→    if (top + th > vh - 8) top = r.top - th - 8;
+  3811→    if (top < 8) top = 8;
+  3812→    tipEl.style.left = Math.round(left) + 'px';
+  3813→    tipEl.style.top = Math.round(top) + 'px';
+  3814→  }
+  3815→  function hideTip() { clearTimeout(tipTimer); tipEl.classList.remove('on'); }
+  3816→  function bindTip(el) {
+  3817→    if (!el || el.__tipBound) return;
+  3818→    el.__tipBound = true;
+  3819→    const t = el.getAttribute('title');
+  3820→    if (t && !el.getAttribute('data-tip')) el.setAttribute('data-tip', t);
+  3821→    el.removeAttribute('title');
+  3822→    if (!el.getAttribute('data-tip')) return;
+  3823→    el.addEventListener('mouseenter', () => { clearTimeout(tipTimer); tipTimer = setTimeout(() => showTipFor(el), 320); });
+  3824→    el.addEventListener('mouseleave', hideTip);
+  3825→    el.addEventListener('mousedown', hideTip);
+  3826→    el.addEventListener('focus', () => showTipFor(el));
+  3827→    el.addEventListener('blur', hideTip);
+  3828→  }
+  3829→  const TIPS = [
+  3830→    [badge, 'UACE × PML v' + SCRIPT_VER + ' — свернуть/развернуть панель'],
+  3831→    [bHelp, 'СПРАВКА: инструкция по эксплуатации — старт, темы, стили PDF, хоткеи, приватность'],
+  3832→    [bPass, 'Паспорт панели: сам-аудит контраста/целей + стиль экспорта'],
+  3833→    [b0, 'Свернуть панель в бейдж UP'],
+  3834→    [selFormat, 'Формат экспорта текущего чата (Alt+X — цикл)'],
+  3835→    [selTpl, 'СТИЛЬ PDF/HTML: Имперский (тёмный + золото), МАКТ Светлый, Швейцарская сетка, Нео-брутализм, Сепия Вечер. Применяется к PDF, HTML и ZIP'],
+  3836→    [bSet, 'Настройки: фильтр, комфорт, автономность (Alt+S)'],
+  3837→    [b1, 'Экспорт текущего чата в выбранном формате (Alt+E)'],
+  3838→    [b2, 'Обойти все чаты сайдбара и экспортировать (Alt+A)'],
+  3839→    [b4, 'Остановить пакетный экспорт'],
+  3840→    [bTabs, 'Все чаты — отдельными вкладками браузера'],
+  3841→    [bResume, 'Продолжить прерванный экспорт (Alt+R)'],
+  3842→    [b5, 'Скопировать весь чат как Markdown в буфер (Alt+C)'],
+  3843→    [bCont, 'Скопировать промпт-перенос для продолжения чата'],
+  3844→    [bSide, 'Развернуть и просканировать сайдбар с чатами'],
+  3845→    [themeBtns.auto, 'Тема АВТО: днём — системная схема; вечером (20:00–06:59) — тёплая'],
+  3846→    [themeBtns.light, 'Тема СВЕТ: белый фон, тёмный текст'],
+  3847→    [themeBtns.dark, 'Тема ТЬМА: тёмный фон, светлый текст'],
+  3848→    [themeBtns.warm, 'Тема ТЕПЛО: кремовый фон #f6efe2, охра-акцент — вечерний режим, забота о глазах'],
+  3849→    [fA, 'Кегль панели меньше (минимум 13px)'],
+  3850→    [fB, 'Кегль панели больше (максимум 18px)'],
+  3851→    [mOn, 'Включить анимации панели'],
+  3852→    [mOff, 'Выключить анимации (и уважать prefers-reduced-motion)'],
+  3853→    [eOn, '«Авто» тёплая с 20:00 до 06:59'],
+  3854→    [eOff, '«Авто» всегда по системной схеме, без вечернего сдвига'],
+  3855→    [bPmlRecon, 'PML-разведка: каркас страницы (блоки/скролл/якоря), без чтения текстов (Alt+Shift+E)'],
+  3856→    [bPmlObs, 'PML-наблюдение 60 с: мутации, рециклы, поток (Esc — стоп) (Alt+Shift+D)'],
+  3857→    [bPmlCopyStruct, 'Скопировать struct-JSON последней разведки (Alt+Shift+C)'],
+  3858→    [bPmlStop, 'PML-стоп: прервать наблюдение/разведку (Alt+Shift+S)'],
+  3859→    [bPmlCopyJournal, 'Скопировать журнал PML (последние события)'],
+  3860→    [bPmlCycleTabs, 'Цикл вкладок PML: Разведка → Действия → Журнал (Alt+Shift+X)'],
+  3861→    [bPmlPassport, 'Паспорт PML: канон §15, палитра, акцент, счётчики (Alt+Shift+I)'],
+  3862→    [b6, 'Отладочный дамп в консоль DevTools (F12)'],
+  3863→    [bRep, 'Сохранить debug-отчёт JSON-файлом'],
+  3864→    [bSniff, 'DOM-сниффер: снимок селекторов для отладки детекции'],
+  3865→    [sMore, 'Дополнительные каналы экспорта: вкладками, продолжение, буфер'],
+  3866→    [sPml, 'PML-разведка: вкладки Разведка/Действия/Журнал'],
+  3867→    [sModes, 'Режимы: thinking-блоки в экспорте'],
+  3868→    [sDiag, 'Диагностика: debug, отчёт, сниффер'],
+  3869→    [selZip, 'Что класть внутрь ZIP: формат файлов'],
+  3870→    [bRm1, 'Сбросить отметки «только новые» в манифесте'],
+  3871→    [bRm2, 'Сбросить ВСЕ настройки и манифест (включая тему и стиль)']
+  3872→  ];
+  3873→  TIPS.forEach(p => { if (p[0]) { p[0].setAttribute('data-tip', p[1]); bindTip(p[0]); } });
+  3874→  try { box.querySelectorAll('button, select, summary, input[type="checkbox"], label').forEach(bindTip); } catch (e) {}
+  3875→  try { box.addEventListener('scroll', hideTip, { passive: true }); } catch (e) {}
+  3876→  try { window.addEventListener('scroll', hideTip, { passive: true }); } catch (e) {}
+  3877→
+  3878→  /* --- сборка --- */
+  3879→  box.appendChild(grip);
+  3880→  box.appendChild(rowTheme); /* v28.3.0: темы на виду */
+  3881→  box.appendChild(rowFmt);
+  3882→  box.appendChild(rowTpl); /* v28.3.0: стиль PDF/HTML */
+  3883→  box.appendChild(gridMain);
+  3884→  box.appendChild(dMore);
+  3885→  box.appendChild(dPml);
+  3886→  box.appendChild(dModes);
+  3887→  box.appendChild(dDiag);
+  3888→  box.appendChild(passport);
+  3889→  box.appendChild(helpBox); /* v28.3.0: справка */
+  3890→  box.appendChild(settings);
+  3891→  box.appendChild(st);
+  3892→  box.appendChild(mini);
+  3893→  w.appendChild(badge);
+  3894→  w.appendChild(tipEl); /* v28.3.0: тултип внутри #uaice-28 → наследует --hf-* */
+  3895→  /* v28.2.2: хост в documentElement — переживает замену body при SPA-гидрации (gemini) */
+  3896→  if (shadowRootRef) { shadowRootRef.appendChild(w); (document.documentElement || document.body).appendChild(shadowHost); }
+  3897→  else (document.body || document.documentElement).appendChild(w); /* фейлвер для сред без attachShadow */
+  3898→
+  3899→  /* --- активация UI-ссылок для функций PML --- */
+  3900→  ui = {
+  3901→    pmlReconOut, pmlLogList, pmlStatus, pmlPassport,
+  3902→    tabs: { tRecon, tActs, tLog }
+  3903→  };
+  3904→
+  3905→  const p0 = getPlatform();
+  3906→  const miniBase = 'v' + SCRIPT_VER + ' · ' + (p0 ? p0.name : 'универсальный') + ' · UACE+PML';
+  3907→  mini.textContent = miniBase;
+  3908→  getManifest().then(m => { const n = Object.keys(m || {}).length; if (n > 0) mini.textContent = miniBase + ' · манифест: ' + n; }).catch(() => {});
+  3909→
+  3910→  applyHfTheme(); syncComfort(); refreshResume(); applyCollapsed();
+  3911→  pmlLog('info', 'интеграция UACE v' + UACE_VER + ' × PML v' + UPOLY_VER + ' готова');
+  3912→}
+  3913→
+  3914→/* ==========================================================================
+  3915→ *  E. Экспорт внутренних функций (для отладки)
+  3916→ * ========================================================================== */
+  3917→try {
+  3918→  window.__UAICE_INTERNALS__ = {
+  3919→    ver: SCRIPT_VER, UACE_VER, UPOLY_VER, FORMATS, CFG,
+  3920→    crc32, zipStore, dosDateTime,
+  3921→    toMarkdown, toJSON, toTXT, toHTML, toShareGPT, toJSONL, toAlpaca, contentFor,
+  3922→    sanitize, dedupeText, stripUiPrefix, domToMarkdown, detectRole, roleFromValue, getPlatform,
+  3923→    isChatUrl, buildChatUrl, extractChatTarget, scrape, findMessages, debugDump,
+  3924→    loadSession, clearSession, loadManifest, activateChatItem,
+  3925→    hashString, manifestKey, chatHash, processMermaid, mermaidEnabled, adaptiveMs, splitZipVolumes,
+  3926→    collectArtifacts, fingerprintSidebar, getManifest, flushManifest, clearManifestAll,
+  3927→    HAS_IDB, toast,
+  3928→    /* v28.2: новые модули */
+  3929→    HAS_DEFLATE, zipStoreAsync, zipStoreSmart, deflateRawU8, poolMap, NavGuard,
+  3930→    fetchViaGM, extractImageViaCanvas, extractImageViaCanvasFresh, collectShadowRoots, saveSettingsMirror, loadSettingsMirror,
+  3931→    /* PML */
+  3932→    fnv1a, sigOf, sigHash, pathOf, prefixPath, subtreeDepth, closestUp,
+  3933→    pmlBuildStruct, pmlScoreGroup, pmlResolveRecon, pmlScanSync,
+  3934→    pmlStartObservation, pmlFinishObservation, pmlRunRecon, pmlCopyStruct,
+  3935→    pmlGetPassport, pmlMetrics, pmlJournal,
+  3936→    /* v28.2.2: TT/PDF/монтаж */
+  3937→    TT_ACTIVE, setHTML, fillPrintDoc, pdfPrintCss, renderPdfBlob, printFallback, exportAsPDF,
+  3938→    /* v28.3.0: стилевой движок экспорта (возвращён из v27.3.0 STYLES+ACCENT) */
+  3939→    TPL_STYLES, TPL_KEY, tplStyleId, tplCss, tplEscape, buildStyledHTML, styledParts, fillStyledDoc, openPrintWindow,
+  3940→    /* UI */
+  3941→    pmlState, pmlCurPalette: () => pmlCurPalette, pmlAccentInfo: () => pmlAccentInfo
+  3942→  };
+  3943→} catch (e) {}
+  3944→
+  3945→/* ==========================================================================
+  3946→ *  F. Boot
+  3947→ * ========================================================================== */
+  3948→let bootTries = 0, mountWatchdog = null;
+  3949→function boot() {
+  3950→  if (IS_FRAME) return;
+  3951→  try {
+  3952→    buildUI(); /* v28.2.2: ретрай при исключении (TT-сайты, SPA-гидрация) */
+  3953→  } catch (e) {
+  3954→    try { console.error('[UACE v' + UACE_VER + '] buildUI не удался (попытка ' + (bootTries + 1) + '):', e); } catch (e2) {}
+  3955→    if (bootTries++ < 8) setTimeout(boot, 1500);
+  3956→    return;
+  3957→  }
+  3958→  const p = getPlatform();
+  3959→  console.log('[UACE v' + UACE_VER + ' × PML v' + UPOLY_VER + '] Интеграция готова. Платформа: ' + (p ? p.name : 'универсальный режим') + '. Форматы: ' + FORMATS.join('/') + '. Стилей PDF/HTML: ' + Object.keys(TPL_STYLES).length + ' (дефолт: Имперский — тёмный + золото). Хранилище: ' + (HAS_IDB ? 'IndexedDB' : 'localStorage') + (TT_ACTIVE ? ' · Trusted Types: совместимо' : ''));
+  3960→  getManifest().catch(() => {});
+  3961→  /* v28.2.2: watchdog самовосстановления монтажа (период ≤2 с — по стандарту PML-PANEL) */
+  3962→  if (!mountWatchdog) {
+  3963→    mountWatchdog = setInterval(() => {
+  3964→      try {
+  3965→        if (shadowHost && !shadowHost.isConnected) {
+  3966→          (document.documentElement || document.body).appendChild(shadowHost);
+  3967→          pmlLog('info', 'watchdog: хост панели переподключён');
+  3968→        }
+  3969→        if (shadowRootRef && shadowRootRef.getElementById && !shadowRootRef.getElementById(UI_ID + '-styles')) injectModernStyles(shadowRootRef);
+  3970→      } catch (e) {}
+  3971→    }, 2000);
+  3972→  }
+  3973→}
+  3974→
+  3975→if (document.readyState === 'complete' || document.readyState === 'interactive') {
+  3976→  setTimeout(boot, 1000);
+  3977→} else {
+  3978→  window.addEventListener('load', () => setTimeout(boot, 1000));
+  3979→}
+  3980→
+  3981→/* опциональная автозагрузка PML-разведки при старте (можно отключить через localStorage) */
+  3982→try {
+  3983→  if (safeStorageGet('uaice_pml_autorecon') === '1') {
+  3984→    setTimeout(() => { try { pmlRunRecon(); } catch (e) {} }, 2500);
+  3985→  }
+  3986→} catch (e) {}
+  3987→
+  3988→})();

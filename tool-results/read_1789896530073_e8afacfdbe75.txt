@@ -1,0 +1,496 @@
+  1321→function sigOfEl(el) { /* pre-order сигнатура глубиной ≤3, UPPERCASE (канон §5) */
+  1322→  const out = [];
+  1323→  (function walk(n, d) { if (!n || n.nodeType !== 1 || d > 3) return; out.push(n.tagName.toUpperCase()); for (let c = n.firstElementChild; c; c = c.nextElementSibling) walk(c, d + 1); })(el, 1);
+  1324→  return out.join('>');
+  1325→}
+  1326→const subtreeDepth = (el, cap) => { let max = 1; (function walk(n, cur) { if (cur > cap) return; for (let c = n.firstElementChild; c; c = c.nextElementSibling) { max = Math.max(max, cur + 1); walk(c, cur + 1); } })(el, 1); return max; };
+  1327→const PML_CAP = { groups: 12, landmarks: 24, containers: 8, scanMs: 600 };
+  1328→async function pmlCollectElements(deadline) {
+  1329→  const all = [document.body];
+  1330→  try { all.push(...document.body.querySelectorAll('*')); } catch (e) { journal.debug('pml', 'body-qsa-fail', String(e && e.message || e)); }
+  1331→  try { for (const sr of await shadowRootsCached()) { try { all.push(...sr.querySelectorAll('*')); } catch (e) { journal.debug('pml', 'shadow-qsa-fail', String(e && e.message || e)); } } } catch (e) { journal.debug('pml', 'shadow-cached-fail', String(e && e.message || e)); }
+  1332→  return all;
+  1333→}
+  1334→function pmlPickPrimary(all, vh) {
+  1335→  const cands = [];
+  1336→  for (const el of all) {
+  1337→    if (el.scrollHeight <= el.clientHeight + 4) continue;
+  1338→    let ov = 'visible'; try { ov = getComputedStyle(el).overflowY; } catch (e) { journal.debug('pml', 'overflow-fail', String(e && e.message || e)); }
+  1339→    if (ov !== 'auto' && ov !== 'scroll' && ov !== 'overlay') continue;
+  1340→    let main = false; try { main = !!el.closest('main,[role="main"]'); } catch (e) { journal.debug('pml', 'closest-fail', String(e && e.message || e)); }
+  1341→    cands.push({ el, path: pathOf(el), clientHeight: el.clientHeight, scrollHeight: el.scrollHeight, visibleShare: round2(el.clientHeight / vh), insideMain: main });
+  1342→  }
+  1343→  cands.sort((a, b) => b.visibleShare - a.visibleShare || b.scrollHeight - a.scrollHeight || b.clientHeight - a.clientHeight || (b.insideMain - a.insideMain) || (a.path < b.path ? -1 : 1));
+  1344→  return { primary: cands[0] ? { path: cands[0].path, ratio: round2(cands[0].clientHeight / Math.max(1, cands[0].scrollHeight)), clientHeight: cands[0].clientHeight, scrollHeight: cands[0].scrollHeight } : null, containers: cands.slice(0, PML_CAP.containers).map(c => ({ path: c.path, scrollHeight: c.scrollHeight, clientHeight: c.clientHeight })), truncated: cands.length > PML_CAP.containers };
+  1345→}
+  1346→function pmlFindGroups(all, primaryPath, deadline) {
+  1347→  const out = [];
+  1348→  for (const parent of all) {
+  1349→    if (performance.now() > deadline) { out.budgetHit = true; break; }
+  1350→    if (parent.childElementCount < 3) continue;
+  1351→    const bySig = new Map();
+  1352→    for (const k of parent.children) { const h = fnv1aHex(sigHashIn(sigOfEl(k))); if (!bySig.has(h)) bySig.set(h, []); bySig.get(h).push(k); }
+  1353→    let best = null;
+  1354→    for (const [h, arr] of bySig) if (!best || arr.length > best.arr.length) best = { h, arr };
+  1355→    if (!best || best.arr.length < 3) continue;
+  1356→    const u = best.arr.length / parent.childElementCount;
+  1357→    if (u < 0.6) continue;
+  1358→    let pr; try { pr = parent.getBoundingClientRect(); } catch (e) { continue; }
+  1359→    let sumH = 0, ok = true;
+  1360→    for (const k of best.arr) { const r = k.getBoundingClientRect(); if (r.height < 32) { ok = false; break; } sumH += r.height; }
+  1361→    if (!ok || sumH < 0.4 * pr.height) continue;
+  1362→    const samplePath = pathOf(best.arr[0]);
+  1363→    out.push({ sigHash: best.h, count: best.arr.length, depth: subtreeDepth(best.arr[0], 6), uniformity: round2(u), samplePath, parentPath: pathOf(parent), inPrimary: !!primaryPath && (samplePath === primaryPath || samplePath.startsWith(primaryPath + '>')) });
+  1364→  }
+  1365→  out.sort((a, b) => b.count * b.uniformity - a.count * a.uniformity || (a.parentPath < b.parentPath ? -1 : 1));
+  1366→  return out;
+  1367→}
+  1368→function pmlFindMounts(all, vh, deadline) {
+  1369→  const out = [];
+  1370→  for (const el of all) {
+  1371→    if (performance.now() > deadline) { out.budgetHit = true; break; }
+  1372→    if (el.closest && el.closest('#' + UI_HOST_ID)) continue;
+  1373→    if (el.childElementCount < 1) continue;
+  1374→    let cs; try { cs = getComputedStyle(el); } catch (e) { continue; }
+  1375→    if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+  1376→    if (cs.position !== 'fixed' && cs.position !== 'sticky') continue;
+  1377→    const r = el.getBoundingClientRect();
+  1378→    if (!(r.top < 0.15 * vh && r.height >= 32 && r.height <= 96 && r.width >= 120)) continue;
+  1379→    out.push({ path: pathOf(el), mode: cs.position, h: Math.round(r.height), top: Math.round(r.top), x: Math.round(r.x) });
+  1380→  }
+  1381→  out.sort((a, b) => a.top - b.top || a.x - b.x);
+  1382→  return out;
+  1383→}
+  1384→function pmlFindLandmarks(all) {
+  1385→  const out = [];
+  1386→  const tags = { MAIN: 1, NAV: 1, HEADER: 1, FOOTER: 1, ASIDE: 1, SECTION: 1 };
+  1387→  for (const el of all) {
+  1388→    const role = el.getAttribute('role');
+  1389→    if (!tags[el.tagName] && !role) continue;
+  1390→    out.push({ tag: el.tagName.toLowerCase(), role: role || null, path: pathOf(el) });
+  1391→    if (out.length > PML_CAP.landmarks * 2) break;
+  1392→  }
+  1393→  return out.slice(0, PML_CAP.landmarks);
+  1394→}
+  1395→/* Скоринг r2 §2: u/c/p/s/l = 0.35/0.25/0.20/0.10/0.10; резерв r2 §3 (порог 75) */
+  1396→function scoreGroup(g, s) {
+  1397→  const u = Math.round(100 * clamp((g.uniformity - 0.6) / 0.4, 0, 1));
+  1398→  const c = Math.round(100 * clamp((g.count - 3) / 17, 0, 1));
+  1399→  const p = g.inPrimary ? 100 : 0;
+  1400→  const sz = Math.round(100 * clamp((s ? s.primary && s.primary.ratio || 0 : 0), 0, 1));
+  1401→  const l = Math.round(100 * clamp(g.depth / 6, 0, 1));
+  1402→  return { u, c, p, s: sz, l, confidence: Math.round(0.35 * u + 0.25 * c + 0.20 * p + 0.10 * sz + 0.10 * l) };
+  1403→}
+  1404→let lastStruct = null;
+  1405→async function pmlScan() {
+  1406→  const t0 = performance.now();
+  1407→  const all = await pmlCollectElements();
+  1408→  const vh = innerHeight || 800;
+  1409→  const primary = pmlPickPrimary(all, vh);
+  1410→  const groups = pmlFindGroups(all, primary.primary ? primary.primary.path : null, t0 + PML_CAP.scanMs);
+  1411→  const mounts = pmlFindMounts(all, vh, t0 + PML_CAP.scanMs);
+  1412→  const landmarks = pmlFindLandmarks(all);
+  1413→  let blockCount = 0, maxDepth = 1;
+  1414→  const w = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT);
+  1415→  let n = w.currentNode, depth = 1;
+  1416→  while (n && blockCount < 4000) { blockCount++; n = w.nextNode(); }
+  1417→  let deep = document.body, d = 1;
+  1418→  while (deep && deep.firstElementChild && d < 30) { deep = deep.firstElementChild; d++; }
+  1419→  maxDepth = d;
+  1420→  const dom = { maxDepth, blockCount, landmarks, groups, truncated: !!(groups.budgetHit || mounts.budgetHit) || blockCount >= 4000 };
+  1421→  const candidate = groups.length ? (() => { const g = groups[0]; const sc = scoreGroup(g, primary); return { sigHash: g.sigHash, count: g.count, uniformity: g.uniformity, confidence: sc.confidence, passed: sc.confidence >= 75 }; })() : null;
+  1422→  lastStruct = {
+  1423→    meta: { ts: Date.now(), viewport: { w: innerWidth, h: innerHeight }, dpr: round2(devicePixelRatio || 1), urlHash: urlHashOf(location.href) },
+  1424→    scroll: { primary: primary.primary, containers: primary.containers },
+  1425→    dom, anchors: { mountPoints: mounts },
+  1426→    recon: candidate ? { status: candidate.passed ? 'found' : 'weak', candidate } : { status: 'none', candidate: null },
+  1427→    capture: { ms: Math.round(performance.now() - t0), nodes: all.length }
+  1428→  };
+  1429→  journal.info('pml', 'разведка: групп ' + groups.length + ', монтаж ' + mounts.length, 'ms ' + lastStruct.capture.ms);
+  1430→  return lastStruct;
+  1431→}
+  1432→/* --- Наблюдение 60 с (I-3/I-4b): MutationObserver ≤500/батч, снапшот 0 + каждые 10 с, Esc, pagehide (B-6) --- */
+  1433→let obsSession = null;
+  1434→function startObservation() {
+  1435→  if (obsSession) { toast('Наблюдение уже идёт — Esc для остановки', 2500); return; }
+  1436→  CANCEL = false;
+  1437→  obsSession = { startedAt: Date.now(), snapshots: [], mutTotal: 0, mutBatches: 0, timer: null, escHandler: null, observer: null, pagehide: null };
+  1438→  const snap = async label => { const st = await pmlScan(); obsSession.snapshots.push({ label, t: nowMs(), urlHash: st.meta.urlHash, groups: st.dom.groups.length, candidate: st.recon.candidate ? st.recon.candidate.sigHash : null, conf: st.recon.candidate ? st.recon.candidate.confidence : 0 }); renderPmlRecon(); };
+  1439→  snap('T0');
+  1440→  obsSession.timer = setInterval(() => {
+  1441→    if (!obsSession) return;
+  1442→    if (Date.now() - obsSession.startedAt >= 60000) return stopObservation('60 с истекли');
+  1443→    snap('T+' + Math.round((Date.now() - obsSession.startedAt) / 1000) + 'с');
+  1444→  }, 10000);
+  1445→  try {
+  1446→    let batch = [];
+  1447→    const flush = async () => { if (!batch.length) return; obsSession.mutBatches++; obsSession.mutTotal += batch.length; batch = []; };
+  1448→    obsSession.observer = new MutationObserver(muts => { batch.push(...muts.slice(0, CFG.MUTOBS_BATCH_CAP)); if (batch.length >= CFG.MUTOBS_BATCH_CAP) batch = batch.slice(0, CFG.MUTOBS_BATCH_CAP); flush(); });
+  1449→    obsSession.observer.observe(document.body, { childList: true, subtree: true, attributes: false });
+  1450→  } catch (e) { journal.warn('pml', 'observer-fail', String(e && e.message || e)); }
+  1451→  obsSession.escHandler = ev => { if (ev.key === 'Escape') stopObservation('Esc'); };
+  1452→  document.addEventListener('keydown', obsSession.escHandler, true);
+  1453→  obsSession.pagehide = () => { if (obsSession) { journal.info('pml', 'pagehide: тихий автоснимок (B-6)'); const st = lastStruct; if (st) journal.info('pml', 'pagehide-struct', 'groups=' + st.dom.groups.length); } };
+  1454→  window.addEventListener('pagehide', obsSession.pagehide, { once: true });
+  1455→  toast('Наблюдение 60 с запущено — Esc/кнопка «Стоп»', 3000);
+  1456→  renderPmlRecon();
+  1457→}
+  1458→function stopObservation(reason) {
+  1459→  if (!obsSession) return;
+  1460→  clearInterval(obsSession.timer);
+  1461→  if (obsSession.observer) try { obsSession.observer.disconnect(); } catch (e) { journal.debug('pml', 'observer-disconnect-fail', String(e && e.message || e)); }
+  1462→  if (obsSession.escHandler) document.removeEventListener('keydown', obsSession.escHandler, true);
+  1463→  journal.info('pml', 'наблюдение остановлено: ' + reason + ' · снапшотов ' + obsSession.snapshots.length + ' · мутаций ' + obsSession.mutTotal);
+  1464→  obsSession = null;
+  1465→  renderPmlRecon();
+  1466→}
+  1467→
+  1468→/* --- ПАНЕЛЬ (PML-PANEL 1.0): ShadowRoot, documentElement-host, watchdog 2 с --- */
+  1469→let ui = null, uiHost = null, uiShadow = null, bootTries = 0, watchdogTimer = null;
+  1470→function tplStyleId() { const v = safeStorageGet('uaice_tpl'); return (v && TPL_STYLES[v]) ? v : 'imperial'; }
+  1471→function panelCss(p) {
+  1472→  return ':host{all:initial}*{box-sizing:border-box;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}'
+  1473→  + '.box{position:fixed;z-index:2147483646;right:16px;top:72px;width:340px;max-height:82vh;overflow:auto;background:' + p.panel + ';color:' + p.fg + ';border:1px solid ' + p.line + ';border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.25);font-size:14px;line-height:1.45}'
+  1474→  + '.grip{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid ' + p.line + ';cursor:move;user-select:none}'
+  1475→  + '.badge{font-weight:700;font-size:12px;letter-spacing:.06em;color:' + p.accent + '}'
+  1476→  + '.badge small{display:block;color:' + p.muted + ';font-weight:400;letter-spacing:0}'
+  1477→  + '.row{display:flex;flex-wrap:wrap;gap:6px;padding:8px 12px;border-bottom:1px solid ' + p.line + ';align-items:center}'
+  1478→  + 'button,.btn{min-height:36px;padding:5px 10px;border-radius:8px;border:1px solid ' + p.line + ';background:' + p.surface + ';color:' + p.fg + ';cursor:pointer;font-size:13px}'
+  1479→  + 'button:hover{border-color:' + p.accent + '}button[aria-pressed="true"]{background:' + p.accent + ';border-color:' + p.accent + ';color:' + p.accentTx + ';font-weight:700}'
+  1480→  + 'button:focus-visible{outline:2px solid ' + p.accent + ';outline-offset:2px}'
+  1481→  + 'select{min-height:36px;border-radius:8px;border:1px solid ' + p.line + ';background:' + p.surface + ';color:' + p.fg + ';font-size:13px;max-width:170px}'
+  1482→  + '.grow{flex:1 1 auto}.status{min-height:20px;padding:4px 12px 8px;color:' + p.muted + ';font-size:12px}'
+  1483→  + '.lbl{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:' + p.muted + '}'
+  1484→  + '.passport,.help,.recon,.logbox{margin:0 12px 10px;border:1px solid ' + p.line + ';border-radius:10px;background:' + p.surface + ';padding:10px 12px;font-size:12.5px;white-space:pre-wrap;overflow-wrap:anywhere;display:none;max-height:300px;overflow:auto}'
+  1485→  + '.logbox li{margin:0 0 3px}.logbox ul{margin:4px 0 4px;padding-left:16px}'
+  1486→  + '.tip{position:fixed;z-index:2147483647;max-width:260px;background:' + p.fg + ';color:' + p.panel + ';font-size:12px;line-height:1.4;padding:6px 9px;border-radius:8px;pointer-events:none;opacity:0;transition:opacity .15s}'
+  1487→  + '.tip.on{opacity:1}.collapsed{display:none!important}'
+  1488→  + '.h3{margin:8px 0 2px;font-weight:700;color:' + p.accent + '}'
+  1489→  + 'details{border-top:1px solid ' + p.line + ';padding:6px 12px}summary{cursor:pointer;font-size:12px;font-weight:700;color:' + p.muted + '}';
+  1490→}
+  1491→const TIPS = {
+  1492→  thAuto: 'Тема «Авто»: днём светлая/тёмная по системе, вечером (20:00–07:00) — тёплая',
+  1493→  thLight: 'Светлая тема', thDark: 'Тёмная тема', thWarm: 'Тёплая тема (канон #f6efe2 / акцент #8a5a00)',
+  1494→  fmt: 'Формат экспорта текущего чата', btnExport: 'Экспорт текущего чата в выбранный формат',
+  1495→  btnAll: 'Все чаты: обход списка с активацией кликом; resume/onlyNew; сводный ZIP',
+  1496→  tpl: 'Стиль PDF/HTML-отчёта (МАКТ-2026): ИМПЕРСКИЙ С ЗОЛОТОМ, МАКТ, Швейцарская, Нео-брутализм, Сепия',
+  1497→  btnObs: 'PML-наблюдение 60 с: снапшот 0 + каждые 10 с; Esc — стоп (канон §13: Alt+I)',
+  1498→  btnStruct: 'Скопировать struct — канонный JSON PML-STRUCT (соль PMLSTRUCT)',
+  1499→  btnAgent: 'Скопировать agent-view — a11y-скелет без имён (§15)',
+  1500→  btnStop: 'Стоп: наблюдение/экспорт (Alt+S)', btnLog: 'Скопировать журнал сессии (5 уровней)',
+  1501→  btnDebug: 'Debug-отчёт: журнал + настройки + окружение → .txt',
+  1502→  btnHelp: 'Справка: инструкция по эксплуатации', btnPassport: 'Паспорт панели: версии, приватность, статистика',
+  1503→  btnCollapse: 'Свернуть панель в бейдж', selImg: 'Внешние изображения: ВЫКЛ по умолчанию; при включении каждая загрузка — в журнале сети',
+  1504→  cbMer: 'Mermaid: off = блок как есть; inline = исходник встроен (внешние ссылки запрещены)',
+  1505→  cbOnly: 'onlyNew: пропускать чаты без изменений (по contentHash)'
+  1506→};
+  1507→function buildPanel() {
+  1508→  const p = currentPalette();
+  1509→  uiHost = document.createElement('div');
+  1510→  uiHost.id = UI_HOST_ID + '-host';
+  1511→  uiShadow = uiHost.attachShadow({ mode: 'open' });
+  1512→  const style = document.createElement('style');
+  1513→  style.textContent = panelCss(p);
+  1514→  uiShadow.appendChild(style);
+  1515→  const box = document.createElement('div');
+  1516→  box.className = 'box';
+  1517→  box.setAttribute('role', 'complementary');
+  1518→  box.setAttribute('aria-label', 'Панель UACE × PML');
+  1519→  const h = html => setExportHTML(box, box.innerHTML + h);
+  1520→  /* шапка */
+  1521→  const grip = document.createElement('div'); grip.className = 'grip'; grip.dataset.tip = 'Перетащите, чтобы переместить; панель живёт в Shadow DOM и самовосстанавливается';
+  1522→  const badge = document.createElement('div'); badge.className = 'badge';
+  1523→  badge.textContent = 'UACE × PML ' + UACE_VER + ' EVIDENCE';
+  1524→  const small = document.createElement('small'); small.textContent = 'Evidence First · ChatDocument · ' + PLATFORMS.length + ' платформ';
+  1525→  badge.appendChild(small);
+  1526→  grip.appendChild(badge);
+  1527→  /* темы */
+  1528→  const rowTheme = document.createElement('div'); rowTheme.className = 'row';
+  1529→  const lblT = document.createElement('span'); lblT.className = 'lbl'; lblT.textContent = 'Тема';
+  1530→  rowTheme.appendChild(lblT);
+  1531→  for (const [k, label] of [['auto', 'Авто'], ['light', 'Свет'], ['dark', 'Тьма'], ['warm', 'Тепло']]) {
+  1532→    const b = document.createElement('button');
+  1533→    b.textContent = label; b.dataset.theme = k; b.dataset.tip = TIPS['th' + k.charAt(0).toUpperCase() + k.slice(1)] || TIPS['th' + k];
+  1534→    b.setAttribute('aria-pressed', 'false');
+  1535→    b.addEventListener('click', () => { applyTheme(k); journal.info('ui', 'тема → ' + k); setStatus('Тема: ' + k); });
+  1536→    rowTheme.appendChild(b);
+  1537→  }
+  1538→  /* формат + экспорт + все чаты */
+  1539→  const rowFmt = document.createElement('div'); rowFmt.className = 'row';
+  1540→  const selFmt = document.createElement('select'); selFmt.id = 'fmt'; selFmt.dataset.tip = TIPS.fmt; selFmt.setAttribute('aria-label', 'Формат экспорта');
+  1541→  for (const [v, t] of [['md', 'Markdown'], ['json', 'JSON (ChatDocument)'], ['jsonl', 'JSONL'], ['alpaca', 'Alpaca'], ['sharegpt', 'ShareGPT'], ['html', 'HTML (стиль)'], ['txt', 'TXT'], ['csv', 'CSV'], ['zip', 'ZIP текущего'], ['pdf', 'PDF (печать)']]) {
+  1542→    const o = document.createElement('option'); o.value = v; o.textContent = t; selFmt.appendChild(o);
+  1543→  }
+  1544→  const storedFmt = safeStorageGet('uaice_format'); if (storedFmt) selFmt.value = storedFmt;
+  1545→  selFmt.addEventListener('change', () => safeStorageSet('uaice_format', selFmt.value));
+  1546→  const btnExport = mkBtn('Экспорт', TIPS.btnExport, async () => {
+  1547→    busy(true);
+  1548→    try { const r = await exportCurrent(selFmt.value); handleExportResult(r); } catch (e) { journal.error('export', 'throw', String(e && e.stack || e)); toast('Ошибка экспорта: ' + (e && e.message || e), 5000); }
+  1549→    busy(false);
+  1550→  });
+  1551→  const btnAll = mkBtn('Все чаты → ZIP', TIPS.btnAll, async () => {
+  1552→    busy(true);
+  1553→    try { const r = await exportAllChats('zip'); if (r && r.kind === 'file' && !r.stopped) toast('Готово: чатов ' + (r.results ? r.results.length : 0), 4000); } catch (e) { journal.error('all', 'throw', String(e && e.stack || e)); toast('Ошибка: ' + (e && e.message || e), 5000); }
+  1554→    busy(false);
+  1555→  });
+  1556→  rowFmt.append(selFmt, btnExport, btnAll);
+  1557→  /* стиль PDF/HTML */
+  1558→  const rowTpl = document.createElement('div'); rowTpl.className = 'row';
+  1559→  const lblS = document.createElement('span'); lblS.className = 'lbl'; lblS.textContent = 'Стиль PDF/HTML';
+  1560→  const selTpl = document.createElement('select'); selTpl.dataset.tip = TIPS.tpl; selTpl.setAttribute('aria-label', 'Стиль PDF/HTML');
+  1561→  for (const [k, v] of Object.entries(TPL_STYLES)) { const o = document.createElement('option'); o.value = k; o.textContent = v.name; selTpl.appendChild(o); }
+  1562→  selTpl.value = tplStyleId();
+  1563→  selTpl.addEventListener('change', () => { safeStorageSet('uaice_tpl', selTpl.value); setStatus('Стиль: ' + TPL_STYLES[selTpl.value].name); });
+  1564→  rowTpl.append(lblS, selTpl);
+  1565→  /* опции */
+  1566→  const rowOpt = document.createElement('div'); rowOpt.className = 'row';
+  1567→  rowOpt.appendChild(mkCheck('cbImg', 'Внешние изображения', TIPS.selImg, imagesEnabled(), v => { safeStorageSet('uaice_images', v ? '1' : '0'); setStatus(v ? 'Изображения ВКЛ — сеть журналируется' : 'Изображения ВЫКЛ — 0 внешних запросов'); }));
+  1568→  rowOpt.appendChild(mkCheck('cbMer', 'Mermaid inline', TIPS.cbMer, mermaidEnabled(), v => safeStorageSet('uaice_mermaid', v ? 'inline' : 'off')));
+  1569→  rowOpt.appendChild(mkCheck('cbOnly', 'onlyNew', TIPS.cbOnly, onlyNewEnabled(), v => safeStorageSet('uaice_onlynew', v ? '1' : '0')));
+  1570→  /* действия */
+  1571→  const rowBtns = document.createElement('div'); rowBtns.className = 'row';
+  1572→  rowBtns.append(
+  1573→    mkBtn('Наблюдение', TIPS.btnObs, () => startObservation()),
+  1574→    mkBtn('struct', TIPS.btnStruct, async () => { const st = lastStruct || await pmlScan(); await copyText(JSON.stringify(stripEls(st), null, 2), 'struct скопирован'); }),
+  1575→    mkBtn('agent-view', TIPS.btnAgent, async () => { const st = lastStruct || await pmlScan(); await copyText(agentViewOf(stripEls(st)), 'agent-view скопирован'); }),
+  1576→    mkBtn('Стоп', TIPS.btnStop, () => { CANCEL = true; stopObservation('кнопка Стоп'); }),
+  1577→    mkBtn('Журнал', TIPS.btnLog, async () => { await copyText(journal.dump().map(j => '+' + (j.t / 1000).toFixed(1) + 'с [' + j.level + '][' + j.scope + '] ' + j.msg + (j.data ? ' · ' + j.data : '')).join('\n'), 'журнал скопирован'); }),
+  1578→    mkBtn('Debug', TIPS.btnDebug, () => downloadDebug())
+  1579→  );
+  1580→  /* СПРАВКА СЛЕВА от ПАСПОРТ + collapse (требование пользователя + §27) */
+  1581→  const rowMain = document.createElement('div'); rowMain.className = 'row';
+  1582→  const btnHelp = mkBtn('? Справка', TIPS.btnHelp, () => toggleBox('.help', true));
+  1583→  const btnPass = mkBtn('ⓘ Паспорт', TIPS.btnPassport, () => toggleBox('.passport', true));
+  1584→  const btnCol = mkBtn('—', TIPS.btnCollapse, () => { const c = safeStorageGet('uaice_collapsed') === '1'; safeStorageSet('uaice_collapsed', c ? '0' : '1'); applyCollapsed(!c); });
+  1585→  rowMain.append(btnHelp, btnPass, btnCol);
+  1586→  /* статус + боксы */
+  1587→  const status = document.createElement('div'); status.className = 'status'; status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
+  1588→  const passport = document.createElement('div'); passport.className = 'passport';
+  1589→  const help = document.createElement('div'); help.className = 'help';
+  1590→  const recon = document.createElement('div'); recon.className = 'recon';
+  1591→  const logbox = document.createElement('div'); logbox.className = 'logbox';
+  1592→  const dLog = document.createElement('details');
+  1593→  const sLog = document.createElement('summary'); sLog.textContent = 'PML: журнал разведки';
+  1594→  dLog.appendChild(sLog); dLog.appendChild(logbox);
+  1595→  const dRec = document.createElement('details');
+  1596→  const sRec = document.createElement('summary'); sRec.textContent = 'PML: разведка/наблюдение';
+  1597→  dRec.appendChild(sRec); dRec.appendChild(recon);
+  1598→  box.append(grip, rowTheme, rowFmt, rowTpl, rowOpt, rowBtns, rowMain, status, passport, help, dRec, dLog);
+  1599→  const tip = document.createElement('div'); tip.className = 'tip'; tip.setAttribute('aria-hidden', 'true');
+  1600→  uiShadow.appendChild(box);
+  1601→  uiShadow.appendChild(tip);
+  1602→  document.documentElement.appendChild(uiHost);
+  1603→  ui = { box, grip, rowTheme, selFmt, selTpl, status, passport, help, recon, logbox, tip };
+  1604→  wireTips(tip);
+  1605→  dragify(grip, box);
+  1606→  help.innerHTML = helpHTML();
+  1607→  /* bootstrap поведения */
+  1608→  applyTheme(safeStorageGet('uaice_theme') || 'auto', true);
+  1609→  applyCollapsed(safeStorageGet('uaice_collapsed') === '1');
+  1610→  renderPmlPassport();
+  1611→  journal.info('boot', 'панель смонтирована (Shadow DOM, host=documentElement)', 'стилей ' + Object.keys(TPL_STYLES).length);
+  1612→}
+  1613→function mkBtn(label, tip, fn) { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; if (tip) b.dataset.tip = tip; b.addEventListener('click', fn); return b; }
+  1614→function mkCheck(id, label, tip, checked, onChange) {
+  1615→  const l = document.createElement('label'); l.className = 'btn'; l.style.display = 'inline-flex'; l.style.alignItems = 'center'; l.style.gap = '5px'; if (tip) l.dataset.tip = tip;
+  1616→  const c = document.createElement('input'); c.type = 'checkbox'; c.checked = !!checked; c.addEventListener('change', () => onChange(c.checked));
+  1617→  l.appendChild(c); l.appendChild(document.createTextNode(label));
+  1618→  return l;
+  1619→}
+  1620→function stripEls(st) { /* struct без DOM-ссылок — канонный JSON */
+  1621→  const c = JSON.parse(JSON.stringify(st, (k, v) => k === 'el' ? undefined : v));
+  1622→  return c;
+  1623→}
+  1624→function handleExportResult(r) {
+  1625→  if (!r) { toast('Экспорт: нет результата', 4000); return; }
+  1626→  if (r.kind === 'file') toast('Файл сохранён: ' + r.name, 4000);
+  1627→  else if (r.kind === 'print') toast('Открыта печать — выберите «Сохранить как PDF»', 6000);
+  1628→  else if (r.kind === 'print-html') toast('Popup заблокирован: скачан .print.html — откройте и нажмите Ctrl+P', 7000);
+  1629→  else toast('Не удалось: ' + (r.error || 'причина неизвестна'), 5000);
+  1630→}
+  1631→function setStatus(msg) { if (ui && ui.status) ui.status.textContent = String(msg || '').slice(0, 120); }
+  1632→function busy(on) { if (!ui) return; ui.box.querySelectorAll('button,select').forEach(el => { el.disabled = !!on; }); setStatus(on ? 'Работаю…' : ''); }
+  1633→function toggleBox(sel, show) {
+  1634→  if (!ui) return;
+  1635→  const el = ui.box.querySelector(sel);
+  1636→  if (!el) return;
+  1637→  el.style.display = show && el.style.display !== 'block' ? 'block' : 'none';
+  1638→  if (el.style.display === 'block') { renderPmlPassport(); try { el.scrollIntoView({ block: 'nearest' }); } catch (e) { journal.debug('ui', 'scroll-into-view-fail', String(e && e.message || e)); } }
+  1639→}
+  1640→function applyCollapsed(c) { if (!ui) return; ui.box.querySelectorAll('.row,.status,details,.passport,.help').forEach(el => el.classList.toggle('collapsed', c)); ui.box.classList.toggle('collapsed', false); }
+  1641→function currentPalette() {
+  1642→  const pref = safeStorageGet('uaice_theme') || 'auto';
+  1643→  let prefersDark = false;
+  1644→  try { prefersDark = matchMedia('(prefers-color-scheme: dark)').matches; } catch (e) { journal.debug('ui', 'prefers-dark-fail', String(e && e.message || e)); }
+  1645→  return PAL[resolveTheme(pref, new Date().getHours(), prefersDark)] || PAL.light;
+  1646→}
+  1647→function applyTheme(pref, silent) {
+  1648→  safeStorageSet('uaice_theme', pref); /* единая точка правды — фикс «Тепло»: один путь applyTheme */
+  1649→  const p = currentPalette();
+  1650→  if (ui) {
+  1651→    const styleEl = ui.box.parentNode ? uiShadow.querySelector('style') : null;
+  1652→    if (styleEl) styleEl.textContent = panelCss(p);
+  1653→    ui.box.querySelectorAll('[data-theme]').forEach(b => b.setAttribute('aria-pressed', b.dataset.theme === pref ? 'true' : 'false'));
+  1654→  }
+  1655→  if (!silent) setStatus('Тема: ' + pref + ' → палитра ' + (PAL === p ? '' : Object.keys(PAL).find(k => PAL[k] === p) || 'auto'));
+  1656→  renderPmlPassport();
+  1657→}
+  1658→function dragify(grip, box) {
+  1659→  let sx = 0, sy = 0, ox = 0, oy = 0, drag = false;
+  1660→  grip.addEventListener('mousedown', e => { drag = true; sx = e.clientX; sy = e.clientY; const r = box.getBoundingClientRect(); ox = r.left; oy = r.top; e.preventDefault(); });
+  1661→  document.addEventListener('mousemove', e => { if (!drag) return; box.style.left = clamp(ox + e.clientX - sx, 0, innerWidth - 100) + 'px'; box.style.top = clamp(oy + e.clientY - sy, 0, innerHeight - 60) + 'px'; box.style.right = 'auto'; });
+  1662→  document.addEventListener('mouseup', () => { if (drag) { drag = false; const r = box.getBoundingClientRect(); safeStorageSet('uaice_pos_v1', JSON.stringify({ x: Math.round(r.left), y: Math.round(r.top) })); } });
+  1663→  try { const pos = JSON.parse(safeStorageGet('uaice_pos_v1') || 'null'); if (pos) { box.style.left = clamp(pos.x, 0, innerWidth - 100) + 'px'; box.style.top = clamp(pos.y, 0, innerHeight - 60) + 'px'; box.style.right = 'auto'; } } catch (e) { journal.debug('ui', 'pos-parse-fail', String(e && e.message || e)); }
+  1664→}
+  1665→/* --- Тултипы (требование пользователя): 320 мс, клемп в вьюпорт --- */
+  1666→function wireTips(tip) {
+  1667→  let timer = 0;
+  1668→  const show = el => {
+  1669→    const txt = el.dataset && el.dataset.tip;
+  1670→    if (!txt) return;
+  1671→    tip.textContent = txt;
+  1672→    const r = el.getBoundingClientRect();
+  1673→    tip.classList.add('on');
+  1674→    const tw = tip.offsetWidth, th = tip.offsetHeight;
+  1675→    tip.style.left = clamp(r.left + r.width / 2 - tw / 2, 8, innerWidth - tw - 8) + 'px';
+  1676→    tip.style.top = (r.top - th - 8 > 0 ? r.top - th - 8 : r.bottom + 8) + 'px';
+  1677→  };
+  1678→  const hide = () => { clearTimeout(timer); tip.classList.remove('on'); };
+  1679→  uiShadow.addEventListener('mouseover', e => { const el = e.target.closest && e.target.closest('[data-tip]'); if (el) { clearTimeout(timer); timer = setTimeout(() => show(el), 320); } });
+  1680→  uiShadow.addEventListener('mouseout', hide);
+  1681→  uiShadow.addEventListener('mousedown', hide);
+  1682→  uiShadow.addEventListener('focusin', e => { const el = e.target.closest && e.target.closest('[data-tip]'); if (el) show(el); });
+  1683→  uiShadow.addEventListener('focusout', hide);
+  1684→  addEventListener('scroll', hide, true);
+  1685→}
+  1686→/* --- СПРАВКА (инструкция по эксплуатации) --- */
+  1687→function helpHTML() {
+  1688→  return '<div class="h3">1. Что это</div>Панель экспорта чатов + структурная разведка PML. Всё работает локально; по умолчанию 0 внешних запросов.'
+  1689→  + '<div class="h3">2. Быстрый старт</div>Выберите формат → «Экспорт». «Все чаты → ZIP» обходит список слева с кликами и собирает сводный архив (resume продолжает после перерыва, onlyNew пропускает неизменённые).'
+  1690→  + '<div class="h3">3. Темы</div>Авто/Свет/Тьма/Тепло. Вечером (20:00–07:00) «Авто» включает тёплую. Тёплый канон: фон #f6efe2, акцент #8a5a00 (контраст ≥5:1).'
+  1691→  + '<div class="h3">4. Стили PDF/HTML</div>ИМПЕРСКИЙ С ЗОЛОТОМ (тёмный + золото #d4af37, кегль 18), МАКТ Светлый, Швейцарская сетка, Нео-брутализм, Сепия Вечер. PDF = печать браузера: окно → «Сохранить как PDF». При блоке popup скачивается .print.html — открыть и Ctrl+P.'
+  1692→  + '<div class="h3">5. Форматы</div>Markdown, JSON (полный ChatDocument с уликами), JSONL, Alpaca (unknown пропускаются), ShareGPT, HTML, TXT, CSV, ZIP (внутри md+json+txt+html+.print.html+артефакты+манифест+README).'
+  1693→  + '<div class="h3">6. Кнопки и хоткеи (канон §13: только 6)</div>Alt+E — экспорт JSON · Alt+D — Debug-отчёт · Alt+C — копировать struct · Alt+S — стоп · Alt+X — экспорт ZIP · Alt+I — наблюдение 60 с. Наблюдение: снапшот T0 + каждые 10 с, Esc — стоп. «struct»/«agent-view» — канонный JSON и a11y-скелет без имён.'
+  1694→  + '<div class="h3">7. Приватность (честно)</div>0 внешних запросов по умолчанию. «Внешние изображения» — явная опция: HTTPS-only, приватные адреса запрещены, GM-запросы anonymous, каждое обращение в Журнале сети (Debug-отчёт). Текст страницы читается только по команде экспорта; struct — только структурные агрегаты.'
+  1695→  + '<div class="h3">8. Траблшутинг</div>Панель пропала — вернётся сама ≤2 с (watchdog). На сайтах с Trusted Types используется именованная политика uace-export. Диагностика: «Debug» → пришлите файл. Если чат не распознался — экспорт честно пометит captureMode=snapshot.';
+  1696→}
+  1697→/* --- Паспорт: честная модель приватности (§3) --- */
+  1698→async function renderPmlPassport() {
+  1699→  if (!ui) return;
+  1700→  const p = currentPalette();
+  1701→  const palName = Object.keys(PAL).find(k => PAL[k] === p) || 'auto';
+  1702→  const st = lastStruct;
+  1703→  const net = journal.stats();
+  1704→  const lines = [
+  1705→    'Версия: UACE × PML ' + UACE_VER + ' (Evidence First) · схема ' + SCHEMA_VER,
+  1706→    'Платформа: ' + ((getPlatform() || {}).name || 'не распознана') + ' · домен ' + location.host,
+  1707→    'Тема UACE: ' + (safeStorageGet('uaice_theme') || 'auto') + ' → палитра ' + palName + ' (акцент ' + p.accent + ')',
+  1708→    'Стиль PDF/HTML: ' + (TPL_STYLES[tplStyleId()] ? TPL_STYLES[tplStyleId()].name : 'imperial') + ' · форматов: 9 + ZIP · платформ: ' + PLATFORMS.length,
+  1709→    'Приватность: 0 внешних запросов по умолчанию; изображения ' + (imagesEnabled() ? 'ВКЛ (сеть журналируется)' : 'ВЫКЛ') + '; сетевых записей в журнале: ' + (net.net || 0),
+  1710→    'PML: ' + (st ? 'разведка ' + st.dom.groups.length + ' групп, кандидат ' + (st.recon.candidate ? st.recon.candidate.sigHash + ' conf ' + st.recon.candidate.confidence : '—') : 'ещё не выполнялась'),
+  1711→    'Журнал: ' + journalBuf.length + ' записей · уровни ' + JSON.stringify(journal.stats()),
+  1712→    'Хоткеи: Alt+E/D/C/S/X/I (канон §13, новые запрещены)'
+  1713→  ];
+  1714→  ui.passport.textContent = lines.join('\n');
+  1715→}
+  1716→function renderPmlRecon() {
+  1717→  if (!ui) return;
+  1718→  const st = lastStruct;
+  1719→  const L = [];
+  1720→  if (obsSession) {
+  1721→    L.push('НАБЛЮДЕНИЕ идёт: ' + Math.round((Date.now() - obsSession.startedAt) / 1000) + ' с / 60 · Esc — стоп');
+  1722→    L.push('мутаций: ' + obsSession.mutTotal + ' (батчей ' + obsSession.mutBatches + ', кап ' + CFG.MUTOBS_BATCH_CAP + ')');
+  1723→  } else L.push('Наблюдение не активно (кнопка «Наблюдение» / Alt+I).');
+  1724→  if (st) {
+  1725→    L.push('');
+  1726→    L.push('Каркас: блоков ' + st.dom.blockCount + ', глубина ' + st.dom.maxDepth + (st.dom.truncated ? ' (УСЕЧЕНО)' : ''));
+  1727→    L.push('Первичный скролл: ' + (st.scroll.primary ? st.scroll.primary.path + ' ratio ' + st.scroll.primary.ratio : '—'));
+  1728→    L.push('Группы (' + st.dom.groups.length + '):');
+  1729→    for (const g of st.dom.groups.slice(0, 6)) L.push('  ' + g.sigHash + ' ×' + g.count + ' u=' + g.uniformity + (g.inPrimary ? ' ✓скролл' : '') + ' ' + g.samplePath);
+  1730→    L.push('Кандидат: ' + (st.recon.candidate ? st.recon.candidate.sigHash + ' conf ' + st.recon.candidate.confidence + (st.recon.candidate.passed ? ' (порог 75 пройден)' : ' (ниже порога резерва)') : '—'));
+  1731→    if (obsSession && obsSession.snapshots.length) {
+  1732→      L.push('');
+  1733→      L.push('Снапшоты:');
+  1734→      for (const s of obsSession.snapshots.slice(-6)) L.push('  ' + s.label + ': групп ' + s.groups + ', кандидат ' + (s.candidate || '—') + ' conf ' + s.conf);
+  1735→    }
+  1736→  } else L.push('Разведка ещё не выполнялась.');
+  1737→  ui.recon.textContent = L.join('\n');
+  1738→  if (ui.logbox) {
+  1739→    ui.logbox.textContent = journal.dump(40).map(j => '+' + (j.t / 1000).toFixed(1) + 'с [' + j.level + '][' + j.scope + '] ' + j.msg).join('\n') || 'пусто';
+  1740→  }
+  1741→}
+  1742→/* --- toast --- */
+  1743→let toastEl = null, toastTimer = 0;
+  1744→function toast(msg, ms) {
+  1745→  if (!ui) { journal.info('toast', msg); return; }
+  1746→  if (!toastEl) { toastEl = document.createElement('div'); toastEl.className = 'tip'; toastEl.style.maxWidth = '320px'; uiShadow.appendChild(toastEl); }
+  1747→  toastEl.textContent = msg;
+  1748→  const r = ui.box.getBoundingClientRect();
+  1749→  toastEl.classList.add('on');
+  1750→  toastEl.style.left = clamp(r.left, 8, innerWidth - 340) + 'px';
+  1751→  toastEl.style.top = Math.max(8, r.top - 44) + 'px';
+  1752→  clearTimeout(toastTimer);
+  1753→  toastTimer = setTimeout(() => { if (toastEl) toastEl.classList.remove('on'); }, ms || 3500);
+  1754→}
+  1755→/* --- Хоткеи: канон §13, ровно E/D/C/S/X/I + защита полей ввода --- */
+  1756→const isEditableEl = t => t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+  1757→document.addEventListener('keydown', e => {
+  1758→  if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+  1759→  if (isEditableEl(e.target)) return;
+  1760→  const k = (e.key || '').toLowerCase();
+  1761→  const map = {
+  1762→    e: () => exportCurrent('json').then(handleExportResult),
+  1763→    d: () => downloadDebug(),
+  1764→    c: () => pmlScan().then(st => copyText(JSON.stringify(stripEls(st), null, 2), 'struct скопирован (Alt+C)')),
+  1765→    s: () => { CANCEL = true; stopObservation('Alt+S'); },
+  1766→    x: () => exportCurrent('zip').then(handleExportResult),
+  1767→    i: () => startObservation()
+  1768→  };
+  1769→  if (map[k]) { e.preventDefault(); e.stopPropagation(); try { map[k](); } catch (err) { journal.error('hotkey', k, String(err && err.stack || err)); } }
+  1770→}, true);
+  1771→/* --- Watchdog (≤2 с самовосстановление) + boot с ретраями --- */
+  1772→function connected() { return !!(uiHost && uiHost.isConnected && document.documentElement.contains(uiHost)); }
+  1773→function watchdog() {
+  1774→  clearInterval(watchdogTimer);
+  1775→  watchdogTimer = setInterval(() => {
+  1776→    if (!connected()) {
+  1777→      journal.warn('boot', 'watchdog: хост сорван — перемонтирование');
+  1778→      try { uiHost && uiHost.remove(); } catch (e) { journal.debug('boot', 'host-remove-fail', String(e && e.message || e)); }
+  1779→      ui = null;
+  1780→      try { buildPanel(); } catch (e) { journal.error('boot', 'remount-fail', String(e && e.stack || e)); }
+  1781→    }
+  1782→  }, 2000);
+  1783→}
+  1784→function boot() {
+  1785→  try {
+  1786→    if (connected()) return;
+  1787→    buildPanel();
+  1788→    watchdog();
+  1789→    journal.info('boot', 'UACE × PML ' + UACE_VER + ' готов', 'платформа: ' + ((getPlatform() || {}).name || 'generic'));
+  1790→  } catch (e) {
+  1791→    bootTries++;
+  1792→    journal.error('boot', 'попытка ' + bootTries, String(e && e.stack || e));
+  1793→    if (bootTries <= 8) setTimeout(boot, 1500);
+  1794→  }
+  1795→}
+  1796→/* pagehide: тихий автоснимок struct (B-6) */
+  1797→addEventListener('pagehide', () => { if (lastStruct) journal.info('pml', 'pagehide: struct в памяти, групп ' + lastStruct.dom.groups.length); });
+  1798→/* --- API-мост синглтона (PML-PANEL 1.0 §1) + internals для консольной сверки --- */
+  1799→try {
+  1800→  Object.defineProperty(window, '__UACE_INTERNALS__', {
+  1801→    value: Object.freeze({
+  1802→      version: UACE_VER, schema: SCHEMA_VER, SALT, fnv1a32, fnv1aHex, sigHashIn, urlHashIn, sigHashOf, urlHashOf,
+  1803→      pathOf, sigOfEl, subtreeDepth, scoreGroup, pmlScan, lastStruct: () => lastStruct,
+  1804→      simhash64, hammingHex, structFeatures, domSim64, simBetween, agentViewOf, downsample, compareStructs,
+  1805→      crc32, zipBuild, splitVolumesU8, dedupeNested, scoreCandidates, resumePlan, makeChatDocument,
+  1806→      renderByFormat, buildStyledHTML, TPL_STYLES, PAL, resolveTheme, journal, debugReport,
+  1807→      PLATFORMS, canonicalKey, chatIdFrom, exportCurrent, exportZip, fetchImageU8
+  1808→    }), configurable: true
+  1809→  });
+  1810→} catch (e) { journal.debug('boot', 'internals-define-fail', String(e && e.message || e)); }
+  1811→/* --- Старт: document-idle + ретраи до 8×1500 мс (SPA-гидрация) --- */
+  1812→if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => setTimeout(boot, 300));
+  1813→else setTimeout(boot, 300);
+  1814→
+  1815→})();
+  1816→

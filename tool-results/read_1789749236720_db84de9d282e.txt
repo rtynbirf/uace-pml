@@ -1,0 +1,602 @@
+     1→     1→ТЫ ПОЛИМАТ=МНОГОЗНАЮЩИЙ ГРЕЧЕСКИЙ
+     2→     2→С ДОСТУПОМ К ВЭБ ПЕСОЧНИЦА ПАЙТОН=ТВОИ ИНСТРУМЕНТЫ
+     3→     3→ТЫ ИССЛЕДОВАТЕЛЬ-НОВАТОР
+     4→     4→САМ ФОРМУЛИРУЕШЬ ЗАДАЧУ!!! САМ РАССПАРАЛЕЛИВАЕШЬ!!! САМ РЕШАЕШЬ!!! САМ СОЕДИНЯЕШЬ!!! САМ СВЯЗЫВАЕШЬ!!!
+     5→     5→ОТТВЕРГАЯ!!! ПРЕДЛАГАЙ АЛЬТЕРНАТИВУ КРИТИКА ПРИВЕТСТВУЕТСЯ!!
+     6→     6→ДОРАБОТАЙ ПРЕДЛОЖЕНИЯ ВСЕ ЛУЧШИЕ ИЗ ЛУЧШИХ ФИЧ И ПЛЮШЕК  ПРИВЕТСТВУЮТСЯ ВМЕСТЕ С РЕШЕНИЯМИ ГОТОВЫМИ
+     7→     7→РЕЖИМ АНТИГАЛЮЦИНАЦИЙ НЕ ВЫДУМЫВАЙ ТОГО ЧЕГО НЕТ
+     8→     8→// ==UserScript==
+     9→     9→// @name         Universal AI Chat Exporter — Polymat v25.0.0 ULTIMATE
+    10→    10→// @namespace    local.universal.ai.exporter
+    11→    11→// @version      25.0.0
+    12→    12→// @description  Полимат-мерж: движок v22 (29 платформ) + фичи v24 (onlyNew-манифест, stripUiPrefix, снайпер сайдбара, Debug/Sniffer/Report) + форматы ShareGPT/JSONL/Alpaca + собственный ZIP без CDN + Shadow DOM + картинки/артефакты + панель настроек + resume-прогресс + drag-панель. Без диалогов при экспорте. UI в стиле v20.
+    13→    13→// @author       local
+    14→    14→// @license      MIT
+    15→    15→// @match        *://*/*
+    16→    16→// @grant        none
+    17→    17→// @run-at       document-idle
+    18→    18→// ==/UserScript==
+    19→    19→
+    20→    20→(function () {
+    21→    21→  'use strict';
+    22→    22→
+    23→    23→  const SCRIPT_VER = '25.0.0';
+    24→    24→  const UI_ID = 'uaice-25';
+    25→    25→  const IS_FRAME = (function () { try { return window.top !== window.self; } catch (e) { return true; } })();
+    26→    26→
+    27→    27→  function injectModernStyles() {
+    28→    28→    if (document.getElementById(UI_ID + '-styles')) return;
+    29→    29→    // UI в стиле v20: тёмная панель .box со стопкой однотипных кнопок, статус и версия внутри панели.
+    30→    30→    // Дополнения ULTIMATE: grip-заголовок с drag, панель настроек, прокрутка высокой панели.
+    31→    31→    const css = `
+    32→    32→#${UI_ID}{position:fixed;right:16px;bottom:16px;z-index:2147483647;font:13px system-ui,sans-serif;color:#fff;}
+    33→    33→#${UI_ID} .box{display:flex;flex-direction:column;gap:7px;background:rgba(20,20,20,.94);padding:10px;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.3);min-width:230px;max-width:320px;max-height:86vh;overflow-y:auto;box-sizing:border-box;}
+    34→    34→#${UI_ID} button{border:0;border-radius:7px;padding:8px 10px;cursor:pointer;font:inherit;}
+    35→    35→#${UI_ID} button:disabled{opacity:.5;cursor:not-allowed;}
+    36→    36→#${UI_ID} .status{font-size:11px;color:#ddd;max-width:300px;white-space:pre-wrap;}
+    37→    37→#${UI_ID} .mini{font-size:11px;opacity:.75;}
+    38→    38→#${UI_ID} .grip{display:flex;align-items:center;justify-content:space-between;gap:6px;cursor:move;user-select:none;-webkit-user-select:none;font-size:12px;font-weight:600;opacity:.92;padding:1px 2px;}
+    39→    39→#${UI_ID} .grip .title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    40→    40→#${UI_ID} .grip button{flex:0 0 auto;padding:2px 9px;font-size:13px;line-height:1.2;}
+    41→    41→#${UI_ID} .settings{display:flex;flex-direction:column;gap:6px;border-top:1px solid rgba(255,255,255,.18);padding-top:8px;}
+    42→    42→#${UI_ID} .settings input[type="text"]{background:#111;color:#eee;border:1px solid #444;border-radius:6px;padding:4px 6px;font:inherit;font-size:12px;box-sizing:border-box;width:100%;}
+    43→    43→#${UI_ID} .settings select{background:#111;color:#eee;border:1px solid #444;border-radius:6px;padding:4px 6px;font:inherit;font-size:12px;}
+    44→    44→#${UI_ID} .settings label{display:flex;gap:6px;align-items:center;font-size:12px;color:#ddd;cursor:pointer;}
+    45→    45→#${UI_ID} .settings .row{display:flex;gap:6px;}
+    46→    46→#${UI_ID} .settings .row button{flex:1;padding:5px 6px;font-size:11px;}
+    47→    47→`;
+    48→    48→    const s = document.createElement('style');
+    49→    49→    s.id = UI_ID + '-styles';
+    50→    50→    s.textContent = css;
+    51→    51→    (document.head || document.documentElement).appendChild(s);
+    52→    52→  }
+    53→    53→
+    54→    54→  // PDF-рендер — единственная опциональная CDN-зависимость (с fallback на печать).
+    55→    55→  // ZIP — собственная реализация (см. ниже), внешних библиотек не требует.
+    56→    56→  const LIBS = {
+    57→    57→    html2pdf: [
+    58→    58→      'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.12.1/html2pdf.bundle.min.js',
+    59→    59→      'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js'
+    60→    60→    ]
+    61→    61→  };
+    62→    62→
+    63→    63→  function loadScript(urls, globalName) {
+    64→    64→    if (globalName && window[globalName]) return Promise.resolve(window[globalName]);
+    65→    65→    return new Promise((resolve, reject) => {
+    66→    66→      let i = 0;
+    67→    67→      const tryNext = () => {
+    68→    68→        if (i >= urls.length) return reject(new Error('Не удалось загрузить библиотеку (CSP?)'));
+    69→    69→        const s = document.createElement('script');
+    70→    70→        s.src = urls[i++];
+    71→    71→        s.onload = () => resolve(globalName ? window[globalName] : true);
+    72→    72→        s.onerror = () => { s.remove(); tryNext(); };
+    73→    73→        (document.head || document.documentElement).appendChild(s);
+    74→    74→      };
+    75→    75→      tryNext();
+    76→    76→    });
+    77→    77→  }
+    78→    78→
+    79→    79→  const MSG_REQ = 'UAICE_EXPORT_REQUEST';
+    80→    80→  const MSG_RES = 'UAICE_EXPORT_RESULT';
+    81→    81→
+    82→    82→  const CFG = {
+    83→    83→    MIN_TEXT: 8, MIN_TOTAL_TEXT: 80, CLICK_WAIT: 800, STABLE_MS: 1200,
+    84→    84→    MAX_WAIT: 25000, POLL: 300, SCROLL_ROUNDS: 50, SCROLL_WAIT: 550, TAB_CHILD_TIMEOUT: 65000,
+    85→    85→    DEDUPE_CAP: 400, MSG_MIN: 1, MSG_MAX: 800, IMG_PER_MSG: 40, IMG_TOTAL: 60, IMG_TIMEOUT: 10000,
+    86→    86→    SNAPSHOT_MAX: 200000
+    87→    87→  };
+    88→    88→
+    89→    89→  const FORMATS = ['md', 'json', 'txt', 'html', 'pdf', 'zip', 'sharegpt', 'jsonl', 'alpaca'];
+    90→    90→
+    91→    91→  let CANCEL = false;
+    92→    92→  let busy = false;
+    93→    93→  let tabsExportRunning = false;
+    94→    94→
+    95→    95→  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    96→    96→  const ts = () => now().replace(/[: ]/g, '-');
+    97→    97→  function safeStorageGet(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+    98→    98→  function safeStorageSet(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+    99→    99→  function safeStorageRemove(k) { try { localStorage.removeItem(k); } catch (e) {} }
+   100→   100→
+   101→   101→  function now() {
+   102→   102→    const d = new Date();
+   103→   103→    const p = (n) => String(n).padStart(2, '0');
+   104→   104→    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+   105→   105→  }
+   106→   106→  function sanitize(s, m) {
+   107→   107→    m = m || 80;
+   108→   108→    return (String(s || 'export').replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim().slice(0, m)) || 'export';
+   109→   109→  }
+   110→   110→  function pageTitle() {
+   111→   111→    let t = (document.title || '').trim();
+   112→   112→    t = t.replace(/\s*[-–|·]\s*[^-–|·]{0,40}$/i, '').trim();
+   113→   113→    return t.length > 1 ? t.slice(0, 120) : 'export';
+   114→   114→  }
+   115→   115→  // Схлопывание повторяющегося текста (артефакт виртуализированного DOM): "abcabcabc" -> "abc"
+   116→   116→  function dedupeText(s) {
+   117→   117→    s = String(s || '');
+   118→   118→    if (s.length < 6 || s.length > 400) return s;
+   119→   119→    for (let n = 2; n <= 4; n++) {
+   120→   120→      if (s.length % n !== 0) continue;
+   121→   121→      const chunk = s.slice(0, s.length / n);
+   122→   122→      if (!chunk) continue;
+   123→   123→      let rep = true;
+   124→   124→      for (let i = 1; i < n; i++) { if (s.slice(i * chunk.length, (i + 1) * chunk.length) !== chunk) { rep = false; break; } }
+   125→   125→      if (rep) return chunk;
+   126→   126→    }
+   127→   127→    return s;
+   128→   128→  }
+   129→   129→  // Срезание UI-обёрток перед текстом ("Ваш запрос", "Ответ Gemini", "You said" и т.п.)
+   130→   130→  function stripUiPrefix(text) {
+   131→   131→    if (!text) return text;
+   132→   132→    const lines = String(text).split('\n');
+   133→   133→    let i = 0;
+   134→   134→    while (i < lines.length) {
+   135→   135→      const st = lines[i].replace(/^#+\s*/, '').trim();
+   136→   136→      if (/^(Ответ\s+\S+|Ваш\s+запрос|Gemini|You\s+said|ChatGPT\s+said|Assistant\s+said|User\s+said|DeepSeek|Claude|Grok|Kimi|Qwen|Mistral|Copilot|GPT)$/i.test(st)) {
+   137→   137→        i++;
+   138→   138→        while (i < lines.length && !lines[i].trim()) i++;
+   139→   139→      } else break;
+   140→   140→    }
+   141→   141→    return lines.slice(i).join('\n').trim();
+   142→   142→  }
+   143→   143→  // Прогресс-бар в строке статуса: [█████·----] 3/10 Заголовок
+   144→   144→  function progress(i, n, label) {
+   145→   145→    const f = Math.max(0, Math.min(10, Math.round(10 * (i) / Math.max(1, n))));
+   146→   146→    return '[' + '█'.repeat(f) + '·'.repeat(10 - f) + '] ' + (i + 1) + '/' + n + ' ' + (label || '');
+   147→   147→  }
+   148→   148→
+   149→   149→  // ============ ПЛАТФОРМЫ (28 из v22.1.7 + Dola; хосты расширены из v24) ============
+   150→   150→  const PLATFORMS = [
+   151→   151→    { name: 'ChatGPT', hosts: [/(^|\.)(chatgpt\.com|chat\.openai\.com)$/],
+   152→   152→      msgSelectors: ['[data-message-author-role]', 'article[data-testid^="conversation-turn"]'],
+   153→   153→      roleAttr: 'data-message-author-role', chatUrlPattern: '/c/{id}',
+   154→   154→      sidebarSelectors: ['#stage-slideover-sidebar', 'nav[aria-label*="Chat" i]', 'nav', 'aside'] },
+   155→   155→    { name: 'Claude', hosts: [/(^|\.)claude\.ai$/],
+   156→   156→      msgSelectors: ['[data-testid="user-message"]', '[data-testid="assistant-message"]', '.font-claude-message', '.font-user-message'],
+   157→   157→      role: (el) => el.matches('[data-testid="user-message"], .font-user-message') ? 'user' : 'assistant',
+   158→   158→      chatUrlPattern: '/chat/{id}' },
+   159→   159→    { name: 'Gemini', hosts: [/(^|\.)(gemini\.google\.com|bard\.google\.com)$/],
+   160→   160→      msgSelectors: ['user-query', 'model-response', 'conversation-turn', 'ms-chat-turn'],
+   161→   161→      role: (el) => {
+   162→   162→        const t = el.tagName.toLowerCase();
+   163→   163→        if (t === 'user-query') return 'user';
+   164→   164→        if (t === 'model-response') return 'assistant';
+   165→   165→        return /user|query|human/i.test(el.className || '') ? 'user' : 'assistant';
+   166→   166→      },
+   167→   167→      chatUrlPattern: '/app/{id}', sidebarSelectors: ['side-navigation-v2', 'bard-sidenav', 'mat-sidenav'] },
+   168→   168→    { name: 'Google AI Studio', hosts: [/(^|\.)aistudio\.google\.com$/],
+   169→   169→      msgSelectors: ['[data-test-id="user-message"]', '[data-test-id="model-message"]', 'ms-chat-turn'],
+   170→   170→      role: (el) => (el.getAttribute('data-role') || '') === 'user' ? 'user' : 'assistant' },
+   171→   171→    { name: 'DeepSeek', hosts: [/(^|\.)deepseek\.com$/],
+   172→   172→      msgSelectors: ['[class*="message"]', '[class*="_message"]'],
+   173→   173→      role: (el) => /user|human|query/i.test(el.className || '') ? 'user' : 'assistant',
+   174→   174→      chatUrlPattern: '/a/chat/s/{id}',
+   175→   175→      sidebarSelectors: ['aside', 'nav', '[class*="sidebar"]', '[class*="sider"]', '[class*="history"]'] },
+   176→   176→    { name: 'Qwen', hosts: [/(^|\.)(qwen\.ai|tongyi\.aliyun\.com)$/],
+   177→   177→      msgSelectors: ['[class*="_message"]', '[data-message-role]', '[class*="chat-message"]', '[class*="markdown"]'],
+   178→   178→      role: (el) => {
+   179→   179→        const c = (el.className || '') + ' ' + (el.getAttribute('data-message-role') || '') + ' ' + (el.getAttribute('data-role') || '');
+   180→   180→        if (/user|human|question/i.test(c)) return 'user';
+   181→   181→        if (/assistant|bot|ai|model|response/i.test(c)) return 'assistant';
+   182→   182→        return 'unknown';
+   183→   183→      },
+   184→   184→      chatUrlPattern: '/c/{id}',
+   185→   185→      sidebarSelectors: ['.sidebar-side', '.session-list-wrapper', 'a[aria-label="chat-item"]', 'a.chat-item-drag-link', '[class*="sidebar"]', 'aside', 'nav'] },
+   186→   186→    { name: 'Kimi', hosts: [/(^|\.)(kimi\.moonshot\.cn|kimi\.ai|kimi\.com)$/],
+   187→   187→      msgSelectors: ['.segment', '.segment-container', '[class*="message"]'],
+   188→   188→      role: (el) => /user|human/i.test((el.className || '') + ' ' + (el.getAttribute('data-role') || '')) ? 'user' : 'assistant',
+   189→   189→      sidebarSelectors: ['aside', 'nav', '.next-sidebar', '[class*="sidebar"]'] },
+   190→   190→    { name: 'MiniMax', hosts: [/(^|\.)(minimax\.io|minimaxi\.com)$/],
+   191→   191→      msgSelectors: ['[class*="message"]', '[class*="chat-item"]'],
+   192→   192→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   193→   193→    { name: 'Mistral Le Chat', hosts: [/(^|\.)mistral\.ai$/],
+   194→   194→      msgSelectors: ['[data-message-role]', '[class*="Message"]', '[class*="message"]'],
+   195→   195→      role: (el) => {
+   196→   196→        const r = el.getAttribute('data-message-role') || '';
+   197→   197→        if (/user/i.test(r)) return 'user';
+   198→   198→        if (/assistant/i.test(r)) return 'assistant';
+   199→   199→        return /user/i.test(el.className || '') ? 'user' : 'assistant';
+   200→   200→      } },
+   201→   201→    { name: 'Groq', hosts: [/(^|\.)groq\.com$/], msgSelectors: ['[class*="message"]', '[class*="chat"]'],
+   202→   202→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   203→   203→    { name: 'OpenRouter', hosts: [/(^|\.)openrouter\.ai$/], msgSelectors: ['[class*="message"]', '[class*="chat"]'],
+   204→   204→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   205→   205→    { name: 'HuggingChat', hosts: [/(^|\.)huggingface\.co$/], path: /^\/chat/,
+   206→   206→      msgSelectors: ['[class*="message"]', '[class*="chat"]'],
+   207→   207→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   208→   208→    { name: 'NVIDIA NIM', hosts: [/(^|\.)build\.nvidia\.com$/], msgSelectors: ['[class*="message"]', '[class*="chat"]'],
+   209→   209→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   210→   210→    { name: 'Z.ai', hosts: [/(^|\.)(z\.ai|chatglm\.cn|space-z\.ai)$/],
+   211→   211→      msgSelectors: ['[data-role="user"]', '[data-role="assistant"]', '[data-message-role]', '[class*="UserMessage"]', '[class*="AssistantMessage"]', '[class*="message"]', '[class*="chat-message"]'],
+   212→   212→      role: (el) => {
+   213→   213→        const e = el.getAttribute('data-role') || el.getAttribute('data-message-role') || '';
+   214→   214→        if (e) return /user|human/i.test(e) ? 'user' : 'assistant';
+   215→   215→        return /user|human/i.test(el.className || '') ? 'user' : 'assistant';
+   216→   216→      },
+   217→   217→      chatUrlPattern: '/c/{id}',
+   218→   218→      sidebarSelectors: ['.chat-aside', '.chat-history-list', '[class*="chat-aside"]', '[class*="chat-history"]', 'aside', 'nav'] },
+   219→   219→    { name: 'Pollinations', hosts: [/(^|\.)pollinations\.ai$/], msgSelectors: ['[class*="message"]', '[class*="chat"]'],
+   220→   220→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   221→   221→    { name: 'Puter', hosts: [/(^|\.)puter\.com$/], msgSelectors: ['[class*="message"]', '[class*="chat"]'],
+   222→   222→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   223→   223→    { name: 'Open WebUI', hosts: [/openwebui/, /^localhost(?::\d+)?$/, /^127\.0\.0\.1(?::\d+)?$/],
+   224→   224→      msgSelectors: ['[class*="message"]', '[class*="chat"]'],
+   225→   225→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   226→   226→    { name: 'Cloudflare AI', hosts: [/(^|\.)playground\.ai\.cloudflare\.com$/],
+   227→   227→      msgSelectors: ['[class*="message"]', '[class*="chat"]'],
+   228→   228→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   229→   229→    { name: 'Grok', hosts: [/(^|\.)grok\.com$/], msgSelectors: ['[class*="message"]', '[class*="message-bubble"]'],
+   230→   230→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant',
+   231→   231→      chatUrlPattern: '/c/{id}', sidebarSelectors: ['aside', 'nav', '[class*="sidebar"]', '[class*="sidebar-group"]'] },
+   232→   232→    { name: 'Microsoft Copilot', hosts: [/(^|\.)copilot\.microsoft\.com$/],
+   233→   233→      msgSelectors: ['[class*="message"]', '[class*="turn"]'],
+   234→   234→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   235→   235→    { name: 'Perplexity', hosts: [/(^|\.)perplexity\.ai$/],
+   236→   236→      msgSelectors: ['[class*="query"]', '[class*="answer"]', '[class*="message"]'],
+   237→   237→      role: (el) => /query|user|human/i.test(el.className || '') ? 'user' : 'assistant',
+   238→   238→      chatUrlHints: [/\/search\//] },
+   239→   239→    { name: 'Poe', hosts: [/(^|\.)poe\.com$/],
+   240→   240→      msgSelectors: ['[class*="human-message"]', '[class*="chat-message"]', '[class*="message"]'],
+   241→   241→      role: (el) => /human|user/i.test(el.className || '') ? 'user' : 'assistant' },
+   242→   242→    { name: 'Character.ai', hosts: [/(^|\.)character\.ai$/], msgSelectors: ['[class*="message"]', '[class*="chat"]'],
+   243→   243→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   244→   244→    { name: 'You.com', hosts: [/(^|\.)you\.com$/], msgSelectors: ['[class*="message"]', '[class*="chat"]'],
+   245→   245→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   246→   246→    { name: 'Doubao', hosts: [/(^|\.)doubao\.com$/], msgSelectors: ['[class*="message"]', '[class*="chat"]'],
+   247→   247→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   248→   248→    { name: 'Tencent Yuanbao', hosts: [/(^|\.)yuanbao\.tencent\.com$/], msgSelectors: ['[class*="message"]', '[class*="chat"]'],
+   249→   249→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   250→   250→    { name: 'Meta AI', hosts: [/(^|\.)meta\.ai$/], msgSelectors: ['[class*="message"]', '[class*="chat"]'],
+   251→   251→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   252→   252→    { name: 'Yandex Alice AI', hosts: [/(^|\.)alice\.yandex\.ru$/],
+   253→   253→      msgSelectors: ['[class*="message"]', '[class*="chat"]'],
+   254→   254→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   255→   255→    { name: 'Yandex Alice (path)', hosts: [/(^|\.)yandex\.(ru|com)$/], path: /\/alice\//i,
+   256→   256→      msgSelectors: ['[class*="message"]', '[class*="chat"]'],
+   257→   257→      role: (el) => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   258→   258→    { name: 'Dola', hosts: [/(^|\.)dola\.com$/], msgSelectors: ['[class*="message"]', '[class*="chat-message"]'],
+   259→   259→      role: (el) => {
+   260→   260→        const c = (el.className || '').toLowerCase();
+   261→   261→        if (/user|human|question/i.test(c)) return 'user';
+   262→   262→        if (/bot|assistant|ai|response|reply/i.test(c)) return 'assistant';
+   263→   263→        return 'unknown';
+   264→   264→      },
+   265→   265→      chatUrlPattern: '/chat/{id}',
+   266→   266→      sidebarSelectors: ['#flow_chat_sidebar', 'nav[class*="panel-"]', '[class*="conversation-item"]', 'nav', 'aside'] }
+   267→   267→  ];
+   268→   268→
+   269→   269→  function getPlatform() {
+   270→   270→    const host = location.host, path = location.pathname;
+   271→   271→    for (const p of PLATFORMS) {
+   272→   272→      let ok = false;
+   273→   273→      for (const re of p.hosts) { try { if (re.test(host)) { ok = true; break; } } catch (e) {} }
+   274→   274→      if (!ok) continue;
+   275→   275→      if (p.path) { try { if (!p.path.test(path)) continue; } catch (e) {} }
+   276→   276→      return p;
+   277→   277→    }
+   278→   278→    return null;
+   279→   279→  }
+   280→   280→
+   281→   281→  // ============ DOM-ХЕЛПЕРЫ И ФИЛЬТРЫ ============
+   282→   282→  const SKIP_TAGS = new Set(['STYLE','SCRIPT','LINK','META','NOSCRIPT','TEMPLATE','HEAD','TITLE','BASE','HTML','SVG','PATH','G','DEFS','MAT-ICON','BR','HR']);
+   283→   283→  const HARD_EXCLUDE = '#' + UI_ID + ',[class*="tooltip"]:not([class*="content"]),[class*="popover"]:not([class*="content"])';
+   284→   284→  const CHAT_AREA = 'div.chat-container,#chat-history,[data-test-id="chat-history-container"],conversation-container,div.conversation-container,ms-chat-turn,[class*="chat-history-scroll"],[class*="turn-content"],main,[role="main"]';
+   285→   285→
+   286→   286→  function isInHardExclude(el) {
+   287→   287→    let p = el, d = 0;
+   288→   288→    while (p && p !== document.body && d < 15) {
+   289→   289→      try { if (p.matches && p.matches(HARD_EXCLUDE)) return true; } catch (e) {}
+   290→   290→      p = p.parentElement; d++;
+   291→   291→    }
+   292→   292→    return false;
+   293→   293→  }
+   294→   294→  function isInNavigation(el) {
+   295→   295→    let p = el, d = 0;
+   296→   296→    while (p && p !== document.body && d < 12) {
+   297→   297→      const tag = p.tagName ? p.tagName.toLowerCase() : '';
+   298→   298→      const role = p.getAttribute ? (p.getAttribute('role') || '') : '';
+   299→   299→      if (tag === 'nav' || tag === 'aside' || role === 'navigation') return true;
+   300→   300→      if (tag === 'mat-sidenav' || tag === 'bard-sidenav' || tag === 'side-navigation-v2') return true;
+   301→   301→      const c = (typeof p.className === 'string' ? p.className : (p.className && p.className.baseVal) || '').toLowerCase();
+   302→   302→      if (/(^|[-_ ])(sidebar|sidenav|side-nav|drawer|chat-list|conversation-list|history-list|nav-|panel-left)([-_ ]|$)/.test(c)) return true;
+   303→   303→      p = p.parentElement; d++;
+   304→   304→    }
+   305→   305→    return false;
+   306→   306→  }
+   307→   307→  function isInChatArea(el) {
+   308→   308→    if (!el || !el.closest) return false;
+   309→   309→    try { if (el.closest('aside, nav, [role="navigation"], [class*="sidebar"], [class*="sider"]')) return false; } catch (e) {}
+   310→   310→    try { return !!el.closest(CHAT_AREA); } catch (e) { return false; }
+   311→   311→  }
+   312→   312→  function cls(el) { if (!el || !el.className) return ''; const c = el.className; return (typeof c === 'string' ? c : c.baseVal || '').toLowerCase(); }
+   313→   313→  function clean(s) {
+   314→   314→    return String(s || '').replace(/[\u200B-\u200D\uFEFF]/g, '').replace(/\u00A0/g, ' ')
+   315→   315→      .replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+   316→   316→  }
+   317→   317→  function txt(el) {
+   318→   318→    if (!el || SKIP_TAGS.has(el.tagName)) return '';
+   319→   319→    let out = '';
+   320→   320→    try { const x = el.innerText; if (x && x.trim()) out = x.trim(); } catch (e) {}
+   321→   321→    if (!out) out = (el.textContent || '').trim();
+   322→   322→    return dedupeText(out);
+   323→   323→  }
+   324→   324→  function isCssOrJs(s) {
+   325→   325→    if (!s) return false;
+   326→   326→    const head = s.slice(0, 800);
+   327→   327→    if (/_ngcontent|_nghost/.test(head)) return true;
+   328→   328→    const decl = (head.match(/[a-z-]+\s*:\s*[^;{}\n]+\s*[;\n]/gi) || []).length;
+   329→   329→    if (!decl) return false;
+   330→   330→    const lines = head.split('\n').filter((l) => l.trim()).length || 1;
+   331→   331→    const hasBraces = /[{}]/.test(head);
+   332→   332→    if (hasBraces && decl >= 5 && decl / lines > 0.5) return true;
+   333→   333→    if (/@media|@font-face|@keyframes/.test(head) && decl >= 3) return true;
+   334→   334→    return false;
+   335→   335→  }
+   336→   336→  function isSourceListing(s) {
+   337→   337→    if (!s || s.length > 400) return false;
+   338→   338→    if (/\d+\s*(источник|источника|источников|source|sources)/i.test(s)) return true;
+   339→   339→    if (/\d+\s*(дн\.|день|дня|дней|day|days)\s*(назад|ago)/i.test(s)) return true;
+   340→   340→    if (/только для скачивания/i.test(s)) return true;
+   341→   341→    return false;
+   342→   342→  }
+   343→   343→  function isVisible(el) { try { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; } catch (e) { return true; } }
+   344→   344→
+   345→   345→  function dedupeNested(els) {
+   346→   346→    let arr = Array.from(els);
+   347→   347→    if (arr.length > CFG.DEDUPE_CAP) arr = arr.slice(0, CFG.DEDUPE_CAP);
+   348→   348→    const isContainer = new Set();
+   349→   349→    for (const x of arr) {
+   350→   350→      const held = arr.filter((y) => y !== x && x.contains(y) && !arr.some((z) => z !== x && z !== y && z.contains(y) && x.contains(z)));
+   351→   351→      if (held.length >= 2) isContainer.add(x);
+   352→   352→    }
+   353→   353→    const drop = new Set();
+   354→   354→    for (const x of arr) {
+   355→   355→      if (isContainer.has(x)) continue;
+   356→   356→      for (const y of arr) { if (y !== x && y.contains(x) && !isContainer.has(y)) { drop.add(x); break; } }
+   357→   357→    }
+   358→   358→    return arr.filter((e) => !drop.has(e) && !isContainer.has(e));
+   359→   359→  }
+   360→   360→
+   361→   361→  // ============ SHADOW DOM: обход открытых shadow-корней (с TTL-кэшем) ============
+   362→   362→  let _srCache = null, _srCacheAt = 0;
+   363→   363→  function collectShadowRoots(root) {
+   364→   364→    const roots = [];
+   365→   365→    const seen = new Set();
+   366→   366→    const nowMs = Date.now();
+   367→   367→    const cached = (!root && _srCache && (nowMs - _srCacheAt) < 1500) ? _srCache : null;
+   368→   368→    if (cached) return cached.slice();
+   369→   369→    const walk = (r) => {
+   370→   370→      if (!r || seen.has(r)) return;
+   371→   371→      seen.add(r);
+   372→   372→      let all;
+   373→   373→      try { all = r.querySelectorAll('*'); } catch (e) { return; }
+   374→   374→      for (let i = 0; i < all.length; i++) {
+   375→   375→        const sr = all[i].shadowRoot;
+   376→   376→        if (sr) { roots.push(sr); walk(sr); }
+   377→   377→      }
+   378→   378→    };
+   379→   379→    try { walk(root || document); } catch (e) {}
+   380→   380→    if (!root) { _srCache = roots; _srCacheAt = nowMs; }
+   381→   381→    return roots;
+   382→   382→  }
+   383→   383→  // querySelectorAll по документу + всем открытым shadow-корням (в порядке появления)
+   384→   384→  function deepQueryAll(sel, root) {
+   385→   385→    const scopes = [root || document].concat(collectShadowRoots(root));
+   386→   386→    const out = [];
+   387→   387→    for (const sc of scopes) {
+   388→   388→      let found;
+   389→   389→      try { found = sc.querySelectorAll(sel); } catch (e) { continue; }
+   390→   390→      for (const el of found) if (out.indexOf(el) === -1) out.push(el);
+   391→   391→    }
+   392→   392→    return out;
+   393→   393→  }
+   394→   394→
+   395→   395→  function roleFromValue(v) {
+   396→   396→    const x = String(v || '').toLowerCase().trim();
+   397→   397→    if (/^(user|human|you|me|client|prompt|question|query)$/.test(x)) return 'user';
+   398→   398→    if (/^(assistant|bot|ai|model|response|answer|reply)$/.test(x)) return 'assistant';
+   399→   399→    if (/(^|[-_ ])(user|human|query|prompt|question)([-_ ]|$)/.test(x)) return 'user';
+   400→   400→    if (/(^|[-_ ])(assistant|bot|model|response|answer|reply)([-_ ]|$)/.test(x)) return 'assistant';
+   401→   401→    return null;
+   402→   402→  }
+   403→   403→
+   404→   404→  function detectRole(el, platform) {
+   405→   405→    if (platform && platform.roleAttr) { const v = roleFromValue(el.getAttribute(platform.roleAttr)); if (v) return v; }
+   406→   406→    if (platform && typeof platform.role === 'function') { try { const r = platform.role(el); if (r === 'user' || r === 'assistant') return r; } catch (e) {} }
+   407→   407→    if (el.tagName) {
+   408→   408→      const tag = el.tagName.toLowerCase();
+   409→   409→      if (tag === 'user-query') return 'user';
+   410→   410→      if (tag === 'model-response') return 'assistant';
+   411→   411→    }
+   412→   412→    const score = { user: 0, assistant: 0 };
+   413→   413→    const nodes = [el]; let p = el.parentElement;
+   414→   414→    for (let i = 0; i < 5 && p; i++, p = p.parentElement) nodes.push(p);
+   415→   415→    for (let ni = 0; ni < nodes.length; ni++) {
+   416→   416→      const n = nodes[ni]; const w = ni === 0 ? 1 : 0.6;
+   417→   417→      for (const a of n.attributes || []) {
+   418→   418→        const name = a.name.toLowerCase(), value = String(a.value || '').toLowerCase();
+   419→   419→        if (/role|author|sender|speaker|type|side|from/i.test(name)) {
+   420→   420→          if (/user|human|you\b|me\b|client|question|prompt|query/i.test(value)) score.user += 8 * w;
+   421→   421→          if (/assistant|bot|model|response|answer|reply/i.test(value)) score.assistant += 8 * w;
+   422→   422→        }
+   423→   423→      }
+   424→   424→      const r1 = roleFromValue(cls(n));
+   425→   425→      if (r1) score[r1] += (ni === 0 ? 6 : 4) * w;
+   426→   426→    }
+   427→   427→    if (el.querySelector && el.querySelector('[class*="markdown"],[class*="prose"],.katex')) score.assistant += 5;
+   428→   428→    if (score.user >= score.assistant + 4 && score.user >= 5) return 'user';
+   429→   429→    if (score.assistant >= score.user + 4 && score.assistant >= 5) return 'assistant';
+   430→   430→    return 'unknown';
+   431→   431→  }
+   432→   432→
+   433→   433→  function filterValid(found) {
+   434→   434→    const valid = [];
+   435→   435→    found.forEach((el) => {
+   436→   436→      if (isInHardExclude(el)) return;
+   437→   437→      if (isInNavigation(el)) return;
+   438→   438→      if (!isVisible(el)) return;
+   439→   439→      const t = txt(el);
+   440→   440→      if (!t || t.length < CFG.MIN_TEXT) return;
+   441→   441→      if (isCssOrJs(t) || isSourceListing(t)) return;
+   442→   442→      valid.push(el);
+   443→   443→    });
+   444→   444→    return valid;
+   445→   445→  }
+   446→   446→
+   447→   447→  // ============ ПОИСК СООБЩЕНИЙ ============
+   448→   448→  function findMessages() {
+   449→   449→    const platform = getPlatform();
+   450→   450→    const UNIVERSAL = ['[data-message-author-role]','[data-testid="user-message"]','[data-testid="assistant-message"]','user-query','model-response','.segment','.segment-container','[data-message-role]','[data-message-id]','[class*="UserMessage"]','[class*="AssistantMessage"]','[class*="user-message"]:not([class*="input"]):not([class*="fixed"])','[class*="assistant-message"]:not([class*="input"]):not([class*="fixed"])','[class*="Message_container"]','[class*="MessageContainer"]','div.conversation-container'];
+   451→   451→    const trySel = (sel) => {
+   452→   452→      let found = deepQueryAll(sel);
+   453→   453→      if (!found || found.length < 1) return null;
+   454→   454→      const valid = dedupeNested(filterValid(found));
+   455→   455→      return valid.length ? valid : null;
+   456→   456→    };
+   457→   457→    if (platform) {
+   458→   458→      for (let i = 0; i < platform.msgSelectors.length; i++) {
+   459→   459→        const valid = trySel(platform.msgSelectors[i]);
+   460→   460→        if (valid && (i === 0 ? valid.length >= 2 : valid.length >= CFG.MSG_MIN)) {
+   461→   461→          return { items: valid.slice(0, CFG.MSG_MAX), source: platform.msgSelectors[i], platform: platform };
+   462→   462→        }
+   463→   463→      }
+   464→   464→      let best = null, bestSel = '';
+   465→   465→      for (const sel of platform.msgSelectors.concat(UNIVERSAL)) {
+   466→   466→        const valid = trySel(sel);
+   467→   467→        if (valid && valid.length > (best ? best.length : 0)) { best = valid; bestSel = sel; }
+   468→   468→      }
+   469→   469→      if (best) return { items: best.slice(0, CFG.MSG_MAX), source: bestSel, platform: platform };
+   470→   470→    }
+   471→   471→    let best = null, bestSel = '';
+   472→   472→    for (const sel of UNIVERSAL) {
+   473→   473→      const valid = trySel(sel);
+   474→   474→      if (valid && valid.length > (best ? best.length : 0)) { best = valid; bestSel = sel; }
+   475→   475→    }
+   476→   476→    if (best) return { items: best.slice(0, CFG.MSG_MAX), source: bestSel, platform: platform };
+   477→   477→
+   478→   478→    // Эвристика: крупнейшая группа однотипных детей основного контейнера (из v20)
+   479→   479→    const heur = heuristicMessages();
+   480→   480→    if (heur && heur.length >= 2) return { items: heur.slice(0, CFG.MSG_MAX), source: 'heuristic', platform: platform };
+   481→   481→    return null;
+   482→   482→  }
+   483→   483→
+   484→   484→  function heuristicMessages() {
+   485→   485→    const containers = deepQueryAll('main, article, section, [role="main"], [class*="conversation"], [class*="chat"]');
+   486→   486→    let best = null;
+   487→   487→    for (const c of containers) {
+   488→   488→      const groups = {};
+   489→   489→      Array.from(c.children || []).forEach((child) => {
+   490→   490→        const key = child.tagName + '|' + (typeof child.className === 'string' ? child.className : '').split(/\s+/).slice(0, 3).join(' ');
+   491→   491→        (groups[key] = groups[key] || []).push(child);
+   492→   492→      });
+   493→   493→      for (const key of Object.keys(groups)) {
+   494→   494→        const group = dedupeNested(filterValid(groups[key]));
+   495→   495→        if (group.length >= 3 && (!best || group.length > best.length)) best = group;
+   496→   496→      }
+   497→   497→      // второй уровень: внуки (виртуализированные списки)
+   498→   498→      Array.from(c.children || []).forEach((mid) => {
+   499→   499→        Array.from(mid.children || []).forEach((child) => {
+   500→   500→          const key = child.tagName + '|' + (typeof child.className === 'string' ? child.className : '').split(/\s+/).slice(0, 3).join(' ');
+   501→   501→          (groups['@' + key] = groups['@' + key] || []).push(child);
+   502→   502→        });
+   503→   503→      });
+   504→   504→      for (const key of Object.keys(groups)) {
+   505→   505→        if (!/^@/.test(key)) continue;
+   506→   506→        const group = dedupeNested(filterValid(groups[key]));
+   507→   507→        if (group.length >= 3 && (!best || group.length > best.length)) best = group;
+   508→   508→      }
+   509→   509→    }
+   510→   510→    return best;
+   511→   511→  }
+   512→   512→
+   513→   513→  // ============ ТЕКСТ / MARKDOWN ============
+   514→   514→  let renderHolder = null;
+   515→   515→  function getRenderHolder() {
+   516→   516→    if (!renderHolder || !renderHolder.isConnected) {
+   517→   517→      renderHolder = document.createElement('div');
+   518→   518→      renderHolder.style.cssText = 'position:fixed;left:-10000px;top:0;width:900px;pointer-events:none;opacity:0;z-index:-1;white-space:normal;';
+   519→   519→      (document.body || document.documentElement).appendChild(renderHolder);
+   520→   520→    }
+   521→   521→    return renderHolder;
+   522→   522→  }
+   523→   523→  // Клон присоединяется к скрытому держателю в документе — innerText считает переносы корректно.
+   524→   524→  function extractText(el) {
+   525→   525→    const clone = el.cloneNode(true);
+   526→   526→    const remove = clone.querySelectorAll('style,script,link,meta,noscript,template,svg,button,nav,footer,[role="button"],[role="toolbar"],.sr-only,time,[class*="timestamp"],[class*="copy-button"],[class*="action-bar"],[class*="toolbar"],[class*="feedback"],[class*="rating"],mat-icon,[class*="icon"]:not([class*="content"]),[data-icon],i[class*="fa-"]');
+   527→   527→    for (let i = 0; i < remove.length; i++) remove[i].remove();
+   528→   528→    const holder = getRenderHolder();
+   529→   529→    holder.appendChild(clone);
+   530→   530→    let t = '';
+   531→   531→    try { t = clean(clone.innerText || ''); } catch (e) { t = (clone.textContent || '').trim(); }
+   532→   532→    clone.remove();
+   533→   533→    return t;
+   534→   534→  }
+   535→   535→
+   536→   536→  const MD_REMOVE = 'style,script,link,meta,noscript,template,svg,button,nav,footer,header,[role="button"],[role="toolbar"],[aria-hidden="true"],.sr-only,time,[class*="timestamp"],[class*="copy-button"],[class*="action-bar"],[class*="toolbar"],[class*="feedback"],[class*="rating"],mat-icon,[data-icon]';
+   537→   537→
+   538→   538→  function domToMarkdown(el) {
+   539→   539→    const root = el.cloneNode(true);
+   540→   540→    let rm;
+   541→   541→    try { rm = root.querySelectorAll(MD_REMOVE); } catch (e) { rm = []; }
+   542→   542→    for (let i = 0; i < rm.length; i++) rm[i].remove();
+   543→   543→    function children(node) { return Array.from(node.childNodes || []).map(walk).join(''); }
+   544→   544→    function walk(node) {
+   545→   545→      if (node.nodeType === 3) return node.nodeValue || '';
+   546→   546→      if (node.nodeType !== 1) return '';
+   547→   547→      const tag = node.tagName.toLowerCase();
+   548→   548→      if (tag === 'script' || tag === 'style' || tag === 'svg' || tag === 'noscript') return '';
+   549→   549→      if (tag === 'br') return '\n';
+   550→   550→      if (tag === 'hr') return '\n\n---\n\n';
+   551→   551→      if (tag === 'pre') {
+   552→   552→        const code = node.querySelector('code');
+   553→   553→        const lang = code && code.className && (code.className.match(/language-([\w-]+)/) || [])[1] || '';
+   554→   554→        const text = (code ? code.textContent : node.textContent) || '';
+   555→   555→        return '\n\n```' + lang + '\n' + String(text).replace(/\r\n/g, '\n').replace(/\n+$/, '') + '\n```\n\n';
+   556→   556→      }
+   557→   557→      if (tag === 'code') return '`' + clean(node.textContent) + '`';
+   558→   558→      if (tag === 'img') { const src = node.getAttribute('src') || ''; if (!src) return ''; return '![' + (node.getAttribute('alt') || '') + '](' + src + ')'; }
+   559→   559→      if (tag === 'a') { const href = node.getAttribute('href') || ''; const v = clean(children(node)); return href ? '[' + (v || href) + '](' + href + ')' : v; }
+   560→   560→      if (/^h[1-6]$/.test(tag)) return '\n\n' + '#'.repeat(Number(tag[1])) + ' ' + clean(children(node)) + '\n\n';
+   561→   561→      if (tag === 'strong' || tag === 'b') { const v = clean(children(node)); return v ? '**' + v + '**' : ''; }
+   562→   562→      if (tag === 'em' || tag === 'i') { const v = clean(children(node)); return v ? '*' + v + '*' : ''; }
+   563→   563→      if (tag === 'del' || tag === 's') { const v = clean(children(node)); return v ? '~~' + v + '~~' : ''; }
+   564→   564→      if (tag === 'blockquote') { const v = clean(children(node)); return '\n\n' + v.split('\n').map((l) => '> ' + l).join('\n') + '\n\n'; }
+   565→   565→      if (tag === 'li') { const ordered = node.parentElement && node.parentElement.tagName.toLowerCase() === 'ol'; return (ordered ? '1. ' : '- ') + clean(children(node)) + '\n'; }
+   566→   566→      if (tag === 'ul' || tag === 'ol') return '\n\n' + children(node) + '\n';
+   567→   567→      if (tag === 'table') return tableToMarkdown(node);
+   568→   568→      if (tag === 'p' || tag === 'div' || tag === 'section' || tag === 'article' || tag === 'figure') return '\n' + children(node) + '\n';
+   569→   569→      return children(node);
+   570→   570→    }
+   571→   571→    function tableToMarkdown(table) {
+   572→   572→      let rows;
+   573→   573→      try { rows = Array.from(table.querySelectorAll('tr')); } catch (e) { return ''; }
+   574→   574→      if (!rows.length) return '';
+   575→   575→      const matrix = rows.map((row) => Array.from(row.querySelectorAll('th,td')).map((cell) => clean(cell.innerText || cell.textContent || '').replace(/\|/g, '\\|').replace(/\n/g, ' ')));
+   576→   576→      const width = Math.max(1, ...matrix.map((r) => r.length));
+   577→   577→      const norm = matrix.map((r) => { const c = r.slice(); while (c.length < width) c.push(''); return c; });
+   578→   578→      const head = norm[0];
+   579→   579→      let out = '\n\n| ' + head.join(' | ') + ' |\n| ' + head.map(() => '---').join(' | ') + ' |\n';
+   580→   580→      out += norm.slice(1).map((r) => '| ' + r.join(' | ') + ' |').join('\n') + '\n\n';
+   581→   581→      return out;
+   582→   582→    }
+   583→   583→    return clean(walk(root));
+   584→   584→  }
+   585→   585→
+   586→   586→  const THINK_SELECTORS = ['[class*="think"]','[class*="reason"]','[class*="analysis"]','[class*="thought"]','[data-testid*="think"]','[data-testid*="reason"]','[data-testid*="analysis"]','[aria-label*="thinking" i]','[aria-label*="reasoning" i]'];
+   587→   587→  function extractThinking(el) {
+   588→   588→    const nodes = [];
+   589→   589→    for (const sel of THINK_SELECTORS) { nodes.push(...deepQueryAll(sel, el)); }
+   590→   590→    const unique = dedupeNested(nodes);
+   591→   591→    const out = [];
+   592→   592→    for (const n of unique) { const t = domToMarkdown(n); if (t && out.indexOf(t) === -1) out.push(t); }
+   593→   593→    return out;
+   594→   594→  }
+   595→   595→
+   596→   596→  // Сбор картинок и вложений сообщения (для ZIP-режима)
+   597→   597→  function collectMedia(el, msgIndex) {
+   598→   598→    const images = [], attachments = [];
+   599→   599→    try {
+   600→   600→      const imgs = el.querySelectorAll('img[src]');
+
+[showing lines 1-600 of 2002; use offset=601 with limit to continue reading]

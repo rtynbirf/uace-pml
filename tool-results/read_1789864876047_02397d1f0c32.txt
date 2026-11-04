@@ -1,0 +1,2002 @@
+     1→// ==UserScript==
+     2→// @name         UACE × PML — Universal AI Chat Exporter + Recon (Unified)
+     3→// @namespace    local.universal.ai.exporter.pml
+     4→// @version      28.2.0-unified
+     5→// @description  Единая сборка лучших частей v28.0.0 + v28.1.0: 36+ платформ, 9 форматов, IndexedDB, resume/onlyNew. UI изолирован в Shadow DOM (CSS не конфликтует с сайтом). Итеративный обход DOM со стеком и квантом 15 мс (без stack overflow и фризов). 4-уровневый CORS-фейлвер для картинок: fetch → GM_xmlhttpRequest → canvas из DOM → canvas свежей загрузкой. ZIP с DEFLATE (CompressionStream, фейлвер STORED). Параллельная загрузка изображений (пул, ≤4). PDF 0-CDN через скрытый iframe + @media print. Безопасная обёртка history (NavGuard, без повторного патчинга). Настройки в localStorage с JSON-зеркалом. Итеративная pml-разведка (r1+r2), журнал, паспорт, комфорт-темы. Хоткеи UACE = Alt+…, PML = Alt+Shift+…
+     6→// @author       local · PML Line (unified)
+     7→// @license      MIT
+     8→// @match        *://*/*
+     9→// @grant        GM_xmlhttpRequest
+    10→// @grant        GM.xmlHttpRequest
+    11→// @connect      *
+    12→// @run-at       document-idle
+    13→// ==/UserScript==
+    14→
+    15→(function () {
+    16→'use strict';
+    17→
+    18→const SCRIPT_VER = '28.2.0-unified';
+    19→const UACE_VER   = '27.0.0';
+    20→const UPOLY_VER  = '1.0.6';
+    21→const UI_ID      = 'uaice-28';
+    22→const IS_FRAME   = (function () { try { return window.top !== window.self; } catch (e) { return true; } })();
+    23→
+    24→/* ==========================================================================
+    25→ *  A. ОБЩИЕ УТИЛИТЫ И PML-ЯДРО (перенесено из UPOLY v1.0.6)
+    26→ * ========================================================================== */
+    27→
+    28→const SALT = 'PMLSTRUCT';
+    29→const SESSION_T0 = Date.now();
+    30→const nowMs = () => Date.now() - SESSION_T0;
+    31→const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+    32→const round2 = v => Math.round(v * 100) / 100;
+    33→const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+    34→
+    35→const fnvByte = (h, b) => Math.imul(((h ^ b) >>> 0), 0x01000193) >>> 0;
+    36→function fnv1a(str) {
+    37→  let h = 0x811c9dc5 >>> 0;
+    38→  for (let i = 0; i < str.length; i++) {
+    39→    let c = str.codePointAt(i);
+    40→    if (c > 0xffff) i++;
+    41→    if (c < 0x80) h = fnvByte(h, c);
+    42→    else if (c < 0x800) { h = fnvByte(h, 0xc0 | c >> 6); h = fnvByte(h, 0x80 | c & 63); }
+    43→    else if (c < 0x10000) { h = fnvByte(h, 0xe0 | c >> 12); h = fnvByte(h, 0x80 | (c >> 6) & 63); h = fnvByte(h, 0x80 | c & 63); }
+    44→    else { h = fnvByte(h, 0xf0 | c >> 18); h = fnvByte(h, 0x80 | (c >> 12) & 63); h = fnvByte(h, 0x80 | (c >> 6) & 63); h = fnvByte(h, 0x80 | c & 63); }
+    45→  }
+    46→  return (h >>> 0).toString(16).padStart(8, '0');
+    47→}
+    48→const median = arr => {
+    49→  const a = arr.filter(Number.isFinite).sort((x, y) => x - y);
+    50→  if (!a.length) return null;
+    51→  const m = a.length >> 1;
+    52→  return a.length % 2 ? a[m] : Math.round((a[m - 1] + a[m]) / 2);
+    53→};
+    54→function parentOf(n) {
+    55→  const p = n.parentElement;
+    56→  if (p) return { el: p, cross: false };
+    57→  try { const r = n.getRootNode ? n.getRootNode() : null; if (r && r.host) return { el: r.host, cross: true }; } catch (e) {}
+    58→  return { el: null, cross: false };
+    59→}
+    60→function pathOf(el) {
+    61→  const segs = [];
+    62→  let n = el;
+    63→  while (n && n.nodeType === 1 && n.tagName !== 'BODY' && n.tagName !== 'HTML') {
+    64→    let i = 1, s = n;
+    65→    while ((s = s.previousElementSibling)) if (s.tagName === n.tagName) i++;
+    66→    const up = parentOf(n);
+    67→    segs.unshift((up.cross ? '~' : '') + n.tagName.toLowerCase() + (i > 1 ? ':nth(' + i + ')' : ''));
+    68→    n = up.el;
+    69→  }
+    70→  let p = 'body' + (segs.length ? '>' + segs.join('>') : '');
+    71→  if (p.length > 120) p = '~' + p.slice(-119);
+    72→  return p;
+    73→}
+    74→function pathSegs(el) {
+    75→  const segs = []; let n = el;
+    76→  while (n && n.nodeType === 1 && n.tagName !== 'BODY' && n.tagName !== 'HTML') {
+    77→    let i = 1, s = n;
+    78→    while ((s = s.previousElementSibling)) if (s.tagName === n.tagName) i++;
+    79→    const up = parentOf(n);
+    80→    segs.unshift((up.cross ? '~' : '') + n.tagName.toLowerCase() + (i > 1 ? ':nth(' + i + ')' : ''));
+    81→    n = up.el;
+    82→  }
+    83→  return ['body'].concat(segs);
+    84→}
+    85→const prefixPath = (el, d) => pathSegs(el).slice(0, d).join('>');
+    86→function sigOf(el) {
+    87→  const out = [];
+    88→  (function walk(n, d) {
+    89→    if (!n || n.nodeType !== 1 || d > 3) return;
+    90→    out.push(n.tagName.toUpperCase());
+    91→    for (let c = n.firstElementChild; c; c = c.nextElementSibling) walk(c, d + 1);
+    92→  })(el, 1);
+    93→  return out.join('>');
+    94→}
+    95→const sigHash = el => fnv1a(SALT + '>' + sigOf(el));
+    96→const subtreeDepth = (el, cap) => {
+    97→  let max = 1;
+    98→  (function walk(n, cur) {
+    99→    if (cur > cap) return;
+   100→    for (let c = n.firstElementChild; c; c = c.nextElementSibling) { max = Math.max(max, cur + 1); walk(c, cur + 1); }
+   101→  })(el, 1);
+   102→  return max;
+   103→};
+   104→const isEditable = t => t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+   105→function closestUp(el, sel) {
+   106→  let n = el;
+   107→  while (n && n.nodeType === 1) {
+   108→    let hit = null;
+   109→    try { hit = n.closest(sel); } catch (e) { return null; }
+   110→    if (hit) return hit;
+   111→    const up = parentOf(n);
+   112→    if (!up.cross) return null;
+   113→    n = up.el;
+   114→  }
+   115→  return null;
+   116→}
+   117→
+   118→/* OKLCH-контраст для акцента (UPOLY §5–6) */
+   119→const srgbLin = c => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+   120→const pmlLuminance = rgb => 0.2126 * srgbLin(rgb[0]) + 0.7152 * srgbLin(rgb[1]) + 0.0722 * srgbLin(rgb[2]);
+   121→const pmlContrast = (a, b) => { const l1 = pmlLuminance(a), l2 = pmlLuminance(b); return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05); };
+   122→function rgbToOklch(rgb) {
+   123→  const [r, g, b] = rgb.map(srgbLin);
+   124→  const l = 0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b;
+   125→  const m = 0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b;
+   126→  const s = 0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b;
+   127→  const L = 0.2104542553 * Math.cbrt(l) + 0.7936177850 * Math.cbrt(m) - 0.0040720468 * Math.cbrt(s);
+   128→  const A = 1.9779984951 * Math.cbrt(l) - 2.4285922050 * Math.cbrt(m) + 0.4505937099 * Math.cbrt(s);
+   129→  const B = 0.0259040371 * Math.cbrt(l) + 0.7827717662 * Math.cbrt(m) - 0.8086757660 * Math.cbrt(s);
+   130→  const C = Math.sqrt(A * A + B * B);
+   131→  return { L, C, H: (Math.atan2(B, A) * 180 / Math.PI + 360) % 360 };
+   132→}
+   133→function oklchToRgb(L, C, H) {
+   134→  const h = H * Math.PI / 180, a = C * Math.cos(h), b = C * Math.sin(h);
+   135→  const l_ = L + 0.3963377774 * a + 0.2158037573 * b, m_ = L - 0.1055613458 * a - 0.0638541728 * b, s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+   136→  const l = l_ ** 3, m = m_ ** 3, s = s_ ** 3;
+   137→  const f = x => clamp(x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1 / 2.4) - 0.055, 0, 1);
+   138→  return [f(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
+   139→          f(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
+   140→          f(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s)];
+   141→}
+   142→const rgbToHex = rgb => '#' + rgb.map(v => Math.round(v * 255).toString(16).padStart(2, '0')).join('');
+   143→const hexToRgb = hex => [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255);
+   144→function parseColor(str) {
+   145→  const m = /rgba?\(([^)]+)\)/.exec(str);
+   146→  if (m) { const p = m[1].split(',').map(parseFloat); return p.length >= 3 ? [p[0] / 255, p[1] / 255, p[2] / 255] : null; }
+   147→  const h = /^#[0-9a-f]{6}$/i.exec(str.trim());
+   148→  return h ? hexToRgb(h[0]) : null;
+   149→}
+   150→function fitAccent(bgRgb, sysRgb) {
+   151→  const sys = rgbToOklch(sysRgb);
+   152→  if (sys.C < 0.04 || sys.L < 0.05 || sys.L > 0.98) return null;
+   153→  let best = null;
+   154→  for (let L = 0.15; L <= 0.90; L += 0.01) {
+   155→    const rgb = oklchToRgb(L, Math.min(sys.C, 0.16), sys.H);
+   156→    const r1 = pmlContrast(bgRgb, rgb);
+   157→    if (r1 < 4.5) continue;
+   158→    const txWhite = pmlContrast(rgb, [1, 1, 1]), txBlack = pmlContrast(rgb, [0.055, 0.06, 0.075]);
+   159→    const tx = txWhite >= txBlack ? ['#ffffff', txWhite] : ['#0e0f12', txBlack];
+   160→    if (tx[1] < 4.5) continue;
+   161→    const score = Math.min(r1, tx[1]);
+   162→    if (!best || score > best.score) best = { hex: rgbToHex(rgb), txHex: tx[0], ratio: round2(r1), score };
+   163→  }
+   164→  return best;
+   165→}
+   166→
+   167→/* PML-палитры (из UPOLY) */
+   168→const PML_PALETTES = {
+   169→  dark:  { bg:'#16181d', fg:'#e8eaf0', dim:'#a8aeb9', line:'#2c313b', ok:'#4fbf67', warn:'#d9a53f', crit:'#ef6a5f' },
+   170→  light: { bg:'#f2f3f6', fg:'#191b1f', dim:'#565c66', line:'#d7dade', ok:'#1f7a36', warn:'#8a6410', crit:'#b3392e' },
+   171→  warm:  { bg:'#231e15', fg:'#f0e9d9', dim:'#b9ac90', line:'#3b3324', ok:'#7fbf6a', warn:'#d9b25f', crit:'#e57a5f' }
+   172→};
+   173→
+   174→/* PML-хранилище (одноимённый ключ из UPOLY, отдельно от uaice_*) */
+   175→const PML_STORE_KEY = 'pml_panel_v1';
+   176→const PML_WLIST = ['theme', 'fs', 'motion', 'collapsed', 'hotkeys', 'pml_upoly_'];
+   177→const pmlStorage = {
+   178→  load() {
+   179→    try {
+   180→      const raw = localStorage.getItem(PML_STORE_KEY);
+   181→      if (!raw || raw.length > 4096) { if (raw && raw.length > 4096) console.warn('[PML] pmlStorage: превышен лимит 4096 байт, load пропущен'); return {}; }
+   182→      const o = JSON.parse(raw); const ok = {};
+   183→      for (const k of Object.keys(o)) if (PML_WLIST.some(w => k === w || k.startsWith(w))) ok[k] = o[k];
+   184→      return ok;
+   185→    } catch (e) { return {}; }
+   186→  },
+   187→  save(obj) { try { const raw = JSON.stringify(obj); if (raw.length <= 4096) localStorage.setItem(PML_STORE_KEY, raw); else console.warn('[PML] pmlStorage: превышен лимит 4096 байт, save пропущен'); } catch (e) {} }
+   188→};
+   189→
+   190→/* ==========================================================================
+   191→ *  B. UACE-ДВИЖОК (v27; сохранён полностью; ниже — ключевые блоки)
+   192→ * ========================================================================== */
+   193→
+   194→/* ---- B.1. PDF-рендер — единственная CDN, включается опционально ---- */
+   195→const LIBS = { html2pdf: [
+   196→  'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.12.1/html2pdf.bundle.min.js',
+   197→  'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js'
+   198→] };
+   199→function loadScript(urls, globalName) {
+   200→  if (globalName && window[globalName]) return Promise.resolve(window[globalName]);
+   201→  return new Promise((resolve, reject) => {
+   202→    let i = 0;
+   203→    const tryNext = () => {
+   204→      if (i >= urls.length) return reject(new Error('Не удалось загрузить библиотеку (CSP?)'));
+   205→      const s = document.createElement('script');
+   206→      s.src = urls[i++];
+   207→      s.onload = () => resolve(globalName ? window[globalName] : true);
+   208→      s.onerror = () => { s.remove(); tryNext(); };
+   209→      (document.head || document.documentElement).appendChild(s);
+   210→    };
+   211→    tryNext();
+   212→  });
+   213→}
+   214→
+   215→const MSG_REQ = 'UAICE_EXPORT_REQUEST';
+   216→const MSG_RES = 'UAICE_EXPORT_RESULT';
+   217→
+   218→const CFG = {
+   219→  MIN_TEXT: 8, MIN_TOTAL_TEXT: 80, CLICK_WAIT: 800, STABLE_MS: 1200,
+   220→  MAX_WAIT: 25000, POLL: 300, SCROLL_ROUNDS: 50, SCROLL_WAIT: 550, TAB_CHILD_TIMEOUT: 65000,
+   221→  DEDUPE_CAP: 400, MSG_MIN: 1, MSG_MAX: 800, IMG_PER_MSG: 40, IMG_TOTAL: 60, IMG_TIMEOUT: 10000,
+   222→  SNAPSHOT_MAX: 200000, ADAPTIVE: true, BASE_CLICK: 800, BASE_SCROLL: 550, BASE_POLL: 300,
+   223→  MAX_CLICK: 1800, MAX_SCROLL: 900, IMG_RETRIES: 3, MAX_ZIP_MB: 50, ARTIFACTS_MAX: 100
+   224→};
+   225→const FORMATS = ['md','json','txt','html','pdf','zip','sharegpt','jsonl','alpaca'];
+   226→
+   227→let CANCEL = false, busy = false, tabsExportRunning = false;
+   228→const ts = () => now().replace(/[: ]/g, '-');
+   229→const safeStorageGet = k => { try { return localStorage.getItem(k); } catch (e) { return null; } };
+   230→const safeStorageRemove = k => { try { localStorage.removeItem(k); } catch (e) {} };
+   231→
+   232→/* ---- B.1b. JSON-зеркало настроек (v28.2: устойчивость к очистке отдельных ключей) ---- */
+   233→const SETTINGS_KEY = 'uace_pml_settings_v1';
+   234→const SETTINGS_KEYS = ['uaice_filter','uaice_onlynew','uaice_images','uaice_fm','uaice_zipinner','uaice_format','uaice_think','uaice_strip','uaice_collapsed','uaice_pos_v1','uaice_adaptive','uaice_mermaid','uaice_pdfcdn','uaice_theme','uaice_evening','uaice_fsz','uaice_motion','uaice_collapsed'];
+   235→let _mirrorTimer = null;
+   236→function saveSettingsMirror() {
+   237→  /* v28.2: запись синхронная — изменения настроек редки (клики), JSON мал,
+   238→     а отложенная запись через setTimeout не срабатывает в средах без таймеров */
+   239→  try {
+   240→    const snapshot = {};
+   241→    for (const k of SETTINGS_KEYS) { const v = safeStorageGet(k); if (v !== null) snapshot[k] = v; }
+   242→    localStorage.setItem(SETTINGS_KEY, JSON.stringify(snapshot));
+   243→  } catch (e) {}
+   244→}
+   245→function loadSettingsMirror() {
+   246→  try {
+   247→    const raw = localStorage.getItem(SETTINGS_KEY);
+   248→    if (!raw) return;
+   249→    const o = JSON.parse(raw);
+   250→    if (!o || typeof o !== 'object') return;
+   251→    for (const k of Object.keys(o)) {
+   252→      if (SETTINGS_KEYS.indexOf(k) === -1) continue;
+   253→      if (safeStorageGet(k) === null && o[k] !== null && typeof o[k] !== 'object') safeStorageSet(k, String(o[k]));
+   254→    }
+   255→  } catch (e) {}
+   256→}
+   257→const safeStorageSet = (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} if (k && k.indexOf('uaice_') === 0) saveSettingsMirror(); };
+   258→
+   259→/* ---- B.1c. NavGuard: безопасная обёртка History API (v28.2: без повторного патчинга и утечек) ---- */
+   260→const NavGuard = {
+   261→  wrapped: false,
+   262→  origPush: null,
+   263→  origReplace: null,
+   264→  subs: new Set(),
+   265→  ensure() {
+   266→    if (this.wrapped) return true;
+   267→    try {
+   268→      const hp = history.pushState, hr = history.replaceState;
+   269→      if (typeof hp !== 'function' || typeof hr !== 'function') return false;
+   270→      const guard = this;
+   271→      history.pushState = function () { guard._notify(); return hp.apply(this, arguments); };
+   272→      history.replaceState = function () { guard._notify(); return hr.apply(this, arguments); };
+   273→      guard.origPush = hp; guard.origReplace = hr; guard.wrapped = true;
+   274→      return true;
+   275→    } catch (e) { return false; }
+   276→  },
+   277→  _notify() { for (const fn of Array.from(this.subs)) { try { fn(); } catch (e) {} } },
+   278→  subscribe(fn) {
+   279→    if (typeof fn !== 'function' || this.subs.has(fn)) return false;
+   280→    this.ensure();
+   281→    this.subs.add(fn);
+   282→    return true;
+   283→  },
+   284→  unsubscribe(fn) { return this.subs.delete(fn); }
+   285→};
+   286→
+   287→function isPageBusy() { try { return document.querySelectorAll('[class*="loading"],[class*="spinner"],[class*="busy"],[aria-busy="true"],[data-loading="true"]').length > 0; } catch (e) { return false; } }
+   288→function adaptiveMs(base, maxCap) {
+   289→  const enabled = (safeStorageGet('uaice_adaptive') !== '0') && CFG.ADAPTIVE;
+   290→  if (!enabled) return base;
+   291→  const v = Math.round(base * (isPageBusy() ? 2.1 : 1));
+   292→  return maxCap ? Math.min(v, maxCap) : v;
+   293→}
+   294→const clickWait = () => adaptiveMs(CFG.BASE_CLICK || CFG.CLICK_WAIT, CFG.MAX_CLICK);
+   295→const scrollWait = () => adaptiveMs(CFG.BASE_SCROLL || CFG.SCROLL_WAIT, CFG.MAX_SCROLL);
+   296→const pollWait = () => adaptiveMs(CFG.BASE_POLL || CFG.POLL, 800);
+   297→
+   298→/* ---- B.2. IndexedDB манифест ---- */
+   299→const HAS_IDB = (function () { try { return typeof indexedDB !== 'undefined' && !!indexedDB.open; } catch (e) { return false; } })();
+   300→const IDB_NAME = 'UAICE_POLYMATH_DB'; const IDB_STORE_MAN = 'manifest';
+   301→let _idbPromise = null;
+   302→function idbOpen() {
+   303→  if (_idbPromise) return _idbPromise;
+   304→  _idbPromise = new Promise((resolve, reject) => {
+   305→    try {
+   306→      const req = indexedDB.open(IDB_NAME, 1);
+   307→      req.onupgradeneeded = e => { const db = e.target.result; if (!db.objectStoreNames.contains(IDB_STORE_MAN)) db.createObjectStore(IDB_STORE_MAN, { keyPath: 'id' }); };
+   308→      req.onsuccess = e => resolve(e.target.result);
+   309→      req.onerror = () => reject(req.error || new Error('IDB open failed'));
+   310→    } catch (e) { reject(e); }
+   311→  });
+   312→  return _idbPromise;
+   313→}
+   314→function idbRun(store, mode, fn) {
+   315→  return idbOpen().then(db => new Promise((resolve, reject) => {
+   316→    try {
+   317→      const tx = db.transaction(store, mode);
+   318→      const out = fn(tx.objectStore(store));
+   319→      tx.oncomplete = () => resolve(out && out.result !== undefined ? out.result : null);
+   320→      tx.onerror = () => reject(tx.error || new Error('IDB tx failed'));
+   321→    } catch (e) { reject(e); }
+   322→  }));
+   323→}
+   324→const idbGetAll = () => HAS_IDB ? idbRun(IDB_STORE_MAN, 'readonly', s => s.getAll()).catch(() => []) : Promise.resolve([]);
+   325→const idbPutMany = arr => HAS_IDB ? idbRun(IDB_STORE_MAN, 'readwrite', s => { for (let i = 0; i < arr.length; i++) s.put(arr[i]); }).catch(() => {}) : Promise.resolve();
+   326→const idbClearMan = () => HAS_IDB ? idbRun(IDB_STORE_MAN, 'readwrite', s => s.clear()).catch(() => {}) : Promise.resolve();
+   327→
+   328→/* ---- B.3. Общие утилиты ---- */
+   329→function now() {
+   330→  const d = new Date(); const p = n => String(n).padStart(2, '0');
+   331→  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+   332→}
+   333→function hashString(s) {
+   334→  let h = 0xcbf29ce484222325n; const prime = 0x100000001b3n; const mask = 0xffffffffffffffffn;
+   335→  const text = String(s || '');
+   336→  for (let i = 0; i < text.length; i++) { h ^= BigInt(text.charCodeAt(i)); h = (h * prime) & mask; }
+   337→  return h.toString(16).padStart(16, '0');
+   338→}
+   339→function sanitize(s, m) {
+   340→  m = m || 80;
+   341→  const raw = String(s || 'export');
+   342→  const norm = raw.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim();
+   343→  let out = norm.slice(0, m);
+   344→  if (norm.length > m) out += '-' + hashString(raw).slice(0, 6);
+   345→  return out || 'export';
+   346→}
+   347→function pageTitle() {
+   348→  let t = (document.title || '').trim();
+   349→  t = t.replace(/\s*[-–|·]\s*[^-–|·]{0,40}$/i, '').trim();
+   350→  return t.length > 1 ? t.slice(0, 120) : 'export';
+   351→}
+   352→function dedupeText(s) {
+   353→  s = String(s || '');
+   354→  if (s.length < 6 || s.length > 400) return s;
+   355→  for (let n = 2; n <= 4; n++) {
+   356→    if (s.length % n !== 0) continue;
+   357→    const chunk = s.slice(0, s.length / n); if (!chunk) continue;
+   358→    let rep = true;
+   359→    for (let i = 1; i < n; i++) if (s.slice(i * chunk.length, (i + 1) * chunk.length) !== chunk) { rep = false; break; }
+   360→    if (rep) return chunk;
+   361→  }
+   362→  return s;
+   363→}
+   364→function stripUiPrefix(text) {
+   365→  if (!text) return text;
+   366→  const lines = String(text).split('\n'); let i = 0;
+   367→  while (i < lines.length) {
+   368→    const st = lines[i].replace(/^#+\s*/, '').trim();
+   369→    if (/^(Ответ\s+\S+|Ваш\s+запрос|Gemini|You\s+said|ChatGPT\s+said|Assistant\s+said|User\s+said|DeepSeek|Claude|Grok|Kimi|Qwen|Mistral|Copilot|GPT)$/i.test(st)) {
+   370→      i++; while (i < lines.length && !lines[i].trim()) i++;
+   371→    } else break;
+   372→  }
+   373→  return lines.slice(i).join('\n').trim();
+   374→}
+   375→function progress(i, n, label) {
+   376→  const f = Math.max(0, Math.min(10, Math.round(10 * i / Math.max(1, n))));
+   377→  return '[' + '█'.repeat(f) + '·'.repeat(10 - f) + '] ' + (i + 1) + '/' + n + ' ' + (label || '');
+   378→}
+   379→
+   380→/* ---- B.4. Платформы (30+) ---- */
+   381→const PLATFORMS = [
+   382→  { name: 'ChatGPT', hosts: [/(^|\.)(chatgpt\.com|chat\.openai\.com)$/], msgSelectors: ['[data-message-author-role]', 'article[data-testid^="conversation-turn"]'], roleAttr: 'data-message-author-role', chatUrlPattern: '/c/{id}', sidebarSelectors: ['#stage-slideover-sidebar', 'nav[aria-label*="Chat" i]', 'nav', 'aside'] },
+   383→  { name: 'Claude', hosts: [/(^|\.)claude\.ai$/], msgSelectors: ['[data-testid="user-message"]', '[data-testid="assistant-message"]', '.font-claude-message', '.font-user-message'], role: el => el.matches('[data-testid="user-message"], .font-user-message') ? 'user' : 'assistant', chatUrlPattern: '/chat/{id}' },
+   384→  { name: 'Gemini', hosts: [/(^|\.)(gemini\.google\.com|bard\.google\.com)$/], msgSelectors: ['user-query', 'model-response', 'conversation-turn', 'ms-chat-turn'], role: el => { const t = el.tagName.toLowerCase(); if (t === 'user-query') return 'user'; if (t === 'model-response') return 'assistant'; return /user|query|human/i.test(el.className || '') ? 'user' : 'assistant'; }, chatUrlPattern: '/app/{id}', sidebarSelectors: ['side-navigation-v2', 'bard-sidenav', 'mat-sidenav'] },
+   385→  { name: 'Google AI Studio', hosts: [/(^|\.)aistudio\.google\.com$/], msgSelectors: ['[data-test-id="user-message"]', '[data-test-id="model-message"]', 'ms-chat-turn'], role: el => (el.getAttribute('data-role') || '') === 'user' ? 'user' : 'assistant' },
+   386→  { name: 'DeepSeek', hosts: [/(^|\.)deepseek\.com$/], msgSelectors: ['[class*="message"]', '[class*="_message"]'], role: el => /user|human|query/i.test(el.className || '') ? 'user' : 'assistant', chatUrlPattern: '/a/chat/s/{id}', sidebarSelectors: ['aside','nav','[class*="sidebar"]','[class*="sider"]','[class*="history"]'] },
+   387→  { name: 'Qwen', hosts: [/(^|\.)(qwen\.ai|tongyi\.aliyun\.com)$/], msgSelectors: ['[class*="_message"]', '[data-message-role]', '[class*="chat-message"]', '[class*="markdown"]'], role: el => { const c = (el.className || '') + ' ' + (el.getAttribute('data-message-role') || '') + ' ' + (el.getAttribute('data-role') || ''); if (/user|human|question/i.test(c)) return 'user'; if (/assistant|bot|ai|model|response/i.test(c)) return 'assistant'; return 'unknown'; }, chatUrlPattern: '/c/{id}', sidebarSelectors: ['.sidebar-side','.session-list-wrapper','a[aria-label="chat-item"]','a.chat-item-drag-link','[class*="sidebar"]','aside','nav'] },
+   388→  { name: 'Kimi', hosts: [/(^|\.)(kimi\.moonshot\.cn|kimi\.ai|kimi\.com)$/], msgSelectors: ['.segment','.segment-container','[class*="message"]'], role: el => /user|human/i.test((el.className||'') + ' ' + (el.getAttribute('data-role')||'')) ? 'user' : 'assistant', sidebarSelectors: ['aside','nav','.next-sidebar','[class*="sidebar"]'] },
+   389→  { name: 'MiniMax', hosts: [/(^|\.)(minimax\.io|minimaxi\.com)$/], msgSelectors: ['[class*="message"]','[class*="chat-item"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   390→  { name: 'Mistral Le Chat', hosts: [/(^|\.)mistral\.ai$/], msgSelectors: ['[data-message-role]','[class*="Message"]','[class*="message"]'], role: el => { const r = el.getAttribute('data-message-role') || ''; if (/user/i.test(r)) return 'user'; if (/assistant/i.test(r)) return 'assistant'; return /user/i.test(el.className || '') ? 'user' : 'assistant'; } },
+   391→  { name: 'Groq', hosts: [/(^|\.)groq\.com$/], msgSelectors: ['[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   392→  { name: 'OpenRouter', hosts: [/(^|\.)openrouter\.ai$/], msgSelectors: ['[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   393→  { name: 'HuggingChat', hosts: [/(^|\.)huggingface\.co$/], path: /^\/chat/, msgSelectors: ['[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   394→  { name: 'NVIDIA NIM', hosts: [/(^|\.)build\.nvidia\.com$/], msgSelectors: ['[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   395→  { name: 'Z.ai', hosts: [/(^|\.)(z\.ai|chatglm\.cn|space-z\.ai)$/], msgSelectors: ['[data-role="user"]','[data-role="assistant"]','[data-message-role]','[class*="UserMessage"]','[class*="AssistantMessage"]','[class*="message"]','[class*="chat-message"]'], role: el => { const e = el.getAttribute('data-role') || el.getAttribute('data-message-role') || ''; if (e) return /user|human/i.test(e) ? 'user' : 'assistant'; return /user|human/i.test(el.className || '') ? 'user' : 'assistant'; }, chatUrlPattern: '/c/{id}', sidebarSelectors: ['.chat-aside','.chat-history-list','[class*="chat-aside"]','[class*="chat-history"]','aside','nav'] },
+   396→  { name: 'Pollinations', hosts: [/(^|\.)pollinations\.ai$/], msgSelectors: ['[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   397→  { name: 'Puter', hosts: [/(^|\.)puter\.com$/], msgSelectors: ['[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   398→  { name: 'Open WebUI', hosts: [/openwebui/, /^localhost(?::\d+)?$/, /^127\.0\.0\.1(?::\d+)?$/], msgSelectors: ['[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   399→  { name: 'Cloudflare AI', hosts: [/(^|\.)playground\.ai\.cloudflare\.com$/], msgSelectors: ['[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   400→  { name: 'Grok', hosts: [/(^|\.)grok\.com$/], msgSelectors: ['[class*="message"]','[class*="message-bubble"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant', chatUrlPattern: '/c/{id}', sidebarSelectors: ['aside','nav','[class*="sidebar"]','[class*="sidebar-group"]'] },
+   401→  { name: 'Microsoft Copilot', hosts: [/(^|\.)copilot\.microsoft\.com$/], msgSelectors: ['[class*="message"]','[class*="turn"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   402→  { name: 'Perplexity', hosts: [/(^|\.)perplexity\.ai$/], msgSelectors: ['[class*="query"]','[class*="answer"]','[class*="message"]'], role: el => /query|user|human/i.test(el.className || '') ? 'user' : 'assistant', chatUrlHints: [/\/search\//] },
+   403→  { name: 'Poe', hosts: [/(^|\.)poe\.com$/], msgSelectors: ['[class*="human-message"]','[class*="chat-message"]','[class*="message"]'], role: el => /human|user/i.test(el.className || '') ? 'user' : 'assistant' },
+   404→  { name: 'Character.ai', hosts: [/(^|\.)character\.ai$/], msgSelectors: ['[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   405→  { name: 'You.com', hosts: [/(^|\.)you\.com$/], msgSelectors: ['[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   406→  { name: 'Doubao', hosts: [/(^|\.)doubao\.com$/], msgSelectors: ['[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   407→  { name: 'Tencent Yuanbao', hosts: [/(^|\.)yuanbao\.tencent\.com$/], msgSelectors: ['[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   408→  { name: 'Meta AI', hosts: [/(^|\.)meta\.ai$/], msgSelectors: ['[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   409→  { name: 'Yandex Alice AI', hosts: [/(^|\.)alice\.yandex\.ru$/], msgSelectors: ['[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   410→  { name: 'Yandex Alice (path)', hosts: [/(^|\.)yandex\.(ru|com)$/], path: /\/alice\//i, msgSelectors: ['[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   411→  { name: 'Dola', hosts: [/(^|\.)dola\.com$/], msgSelectors: ['[class*="message"]','[class*="chat-message"]'], role: el => { const c = (el.className || '').toLowerCase(); if (/user|human|question/i.test(c)) return 'user'; if (/bot|assistant|ai|response|reply/i.test(c)) return 'assistant'; return 'unknown'; }, chatUrlPattern: '/chat/{id}', sidebarSelectors: ['#flow_chat_sidebar','nav[class*="panel-"]','[class*="conversation-item"]','nav','aside'] },
+   412→  /* --- v28.2: новые платформы --- */
+   413→  { name: 'LM Arena', hosts: [/(^|\.)(lmarena\.ai|chat\.lmarena\.ai)$/], msgSelectors: ['[data-message-author-role]','[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   414→  { name: 'NotebookLM', hosts: [/(^|\.)notebooklm\.google\.com$/], msgSelectors: ['[class*="message"]','[class*="chat-turn"]','[class*="response"]'], role: el => /user|query|question/i.test(el.className || '') ? 'user' : 'assistant' },
+   415→  { name: 'GitHub Copilot', hosts: [/(^|\.)github\.com$/], path: /\/copilot/i, msgSelectors: ['[data-testid="chat-message"]','[class*="ChatMessage"]','[class*="message"]'], role: el => { const t = (el.getAttribute('data-testid') || '') + ' ' + el.className; return /user/i.test(t) ? 'user' : 'assistant'; } },
+   416→  { name: 'Coze', hosts: [/(^|\.)(coze\.com|coze\.cn)$/], msgSelectors: ['[class*="message"]','[class*="chat-item"]','[class*="ChatItem"]'], role: el => /user|human|question/i.test(el.className || '') ? 'user' : 'assistant', sidebarSelectors: ['aside','nav','[class*="session"]','[class*="history"]'] },
+   417→  { name: 'Phind', hosts: [/(^|\.)phind\.com$/], msgSelectors: ['[class*="message"]','[class*="Question"]','[class*="Answer"]'], role: el => /question|user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   418→  { name: 'v0 (Vercel)', hosts: [/(^|\.)v0\.dev$/], msgSelectors: ['[data-testid="message"]','[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' }
+   419→];
+   420→function getPlatform() {
+   421→  const host = location.host, path = location.pathname;
+   422→  for (const p of PLATFORMS) {
+   423→    let ok = false;
+   424→    for (const re of p.hosts) { try { if (re.test(host)) { ok = true; break; } } catch (e) {} }
+   425→    if (!ok) continue;
+   426→    if (p.path) { try { if (!p.path.test(path)) continue; } catch (e) {} }
+   427→    return p;
+   428→  }
+   429→  return null;
+   430→}
+   431→
+   432→/* ---- B.5. DOM-хелперы UACE ---- */
+   433→const SKIP_TAGS = new Set(['STYLE','SCRIPT','LINK','META','NOSCRIPT','TEMPLATE','HEAD','TITLE','BASE','HTML','SVG','PATH','G','DEFS','MAT-ICON','BR','HR']);
+   434→const HARD_EXCLUDE = '#' + UI_ID + ',#' + UI_ID + '-host,#pml-tabs-host,[class*="tooltip"]:not([class*="content"]),[class*="popover"]:not([class*="content"])';
+   435→const CHAT_AREA = 'div.chat-container,#chat-history,[data-test-id="chat-history-container"],conversation-container,div.conversation-container,ms-chat-turn,[class*="chat-history-scroll"],[class*="turn-content"],main,[role="main"]';
+   436→
+   437→function isInHardExclude(el) {
+   438→  let p = el, d = 0;
+   439→  while (p && p !== document.body && d < 15) {
+   440→    try { if (p.matches && p.matches(HARD_EXCLUDE)) return true; } catch (e) {}
+   441→    p = p.parentElement; d++;
+   442→  }
+   443→  return false;
+   444→}
+   445→function isInNavigation(el) {
+   446→  let p = el, d = 0;
+   447→  while (p && p !== document.body && d < 12) {
+   448→    const tag = p.tagName ? p.tagName.toLowerCase() : '';
+   449→    const role = p.getAttribute ? (p.getAttribute('role') || '') : '';
+   450→    if (tag === 'nav' || tag === 'aside' || role === 'navigation') return true;
+   451→    if (tag === 'mat-sidenav' || tag === 'bard-sidenav' || tag === 'side-navigation-v2') return true;
+   452→    const c = (typeof p.className === 'string' ? p.className : (p.className && p.className.baseVal) || '').toLowerCase();
+   453→    if (/(^|[-_ ])(sidebar|sidenav|side-nav|drawer|chat-list|conversation-list|history-list|nav-|panel-left)([-_ ]|$)/.test(c)) return true;
+   454→    p = p.parentElement; d++;
+   455→  }
+   456→  return false;
+   457→}
+   458→function isInChatArea(el) {
+   459→  if (!el || !el.closest) return false;
+   460→  try { if (el.closest('aside, nav, [role="navigation"], [class*="sidebar"], [class*="sider"]')) return false; } catch (e) {}
+   461→  try { return !!el.closest(CHAT_AREA); } catch (e) { return false; }
+   462→}
+   463→function cls(el) { if (!el || !el.className) return ''; const c = el.className; return (typeof c === 'string' ? c : c.baseVal || '').toLowerCase(); }
+   464→function clean(s) {
+   465→  return String(s || '').replace(/[\u200B-\u200D\uFEFF]/g, '').replace(/\u00A0/g, ' ')
+   466→    .replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+   467→}
+   468→function txt(el) {
+   469→  if (!el || SKIP_TAGS.has(el.tagName)) return '';
+   470→  let out = '';
+   471→  try { const x = el.innerText; if (x && x.trim()) out = x.trim(); } catch (e) {}
+   472→  if (!out) out = (el.textContent || '').trim();
+   473→  return dedupeText(out);
+   474→}
+   475→function isCssOrJs(s) {
+   476→  if (!s) return false;
+   477→  const head = s.slice(0, 800);
+   478→  if (/_ngcontent|_nghost/.test(head)) return true;
+   479→  const decl = (head.match(/[a-z-]+\s*:\s*[^;{}\n]+\s*[;\n]/gi) || []).length;
+   480→  if (!decl) return false;
+   481→  const lines = head.split('\n').filter(l => l.trim()).length || 1;
+   482→  const hasBraces = /[{}]/.test(head);
+   483→  if (hasBraces && decl >= 5 && decl / lines > 0.5) return true;
+   484→  if (/@media|@font-face|@keyframes/.test(head) && decl >= 3) return true;
+   485→  return false;
+   486→}
+   487→function isSourceListing(s) {
+   488→  if (!s || s.length > 400) return false;
+   489→  if (/\d+\s*(источник|источника|источников|source|sources)/i.test(s)) return true;
+   490→  if (/\d+\s*(дн\.|день|дня|дней|day|days)\s*(назад|ago)/i.test(s)) return true;
+   491→  if (/только для скачивания/i.test(s)) return true;
+   492→  return false;
+   493→}
+   494→function isVisible(el) { try { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; } catch (e) { return true; } }
+   495→function dedupeNested(els) {
+   496→  let arr = Array.from(els);
+   497→  if (arr.length > CFG.DEDUPE_CAP) arr = arr.slice(0, CFG.DEDUPE_CAP);
+   498→  const isContainer = new Set();
+   499→  for (const x of arr) {
+   500→    const held = arr.filter(y => y !== x && x.contains(y) && !arr.some(z => z !== x && z !== y && z.contains(y) && x.contains(z)));
+   501→    if (held.length >= 2) isContainer.add(x);
+   502→  }
+   503→  const drop = new Set();
+   504→  for (const x of arr) {
+   505→    if (isContainer.has(x)) continue;
+   506→    for (const y of arr) { if (y !== x && y.contains(x) && !isContainer.has(y)) { drop.add(x); break; } }
+   507→  }
+   508→  return arr.filter(e => !drop.has(e) && !isContainer.has(e));
+   509→}
+   510→
+   511→let _srCache = null, _srCacheAt = 0;
+   512→const SR_NODE_CAP = 12000; // v28.2: защита от сверхтяжёлых DOM
+   513→function collectShadowRoots(root) {
+   514→  const roots = []; const seen = new Set();
+   515→  const nowMs = Date.now();
+   516→  const cached = (!root && _srCache && (nowMs - _srCacheAt) < 1500) ? _srCache : null;
+   517→  if (cached) return cached.slice();
+   518→  /* v28.2: полностью итеративный обход (стек) — рекурсия устранена (риск stack overflow);
+   519→     закрытые (closed) shadowRoot недоступны и/или mode!=='open' — пропускаем осознанно */
+   520→  const stack = [root || document];
+   521→  seen.add(root || document);
+   522→  let visited = 0;
+   523→  while (stack.length) {
+   524→    const cur = stack.pop();
+   525→    if (!cur || (cur.nodeType !== 9 && cur.nodeType !== 1 && cur.nodeType !== 11)) continue;
+   526→    let all; try { all = cur.querySelectorAll('*'); } catch (e) { continue; }
+   527→    for (let i = 0; i < all.length; i++) {
+   528→      if (++visited > SR_NODE_CAP) { stack.length = 0; break; }
+   529→      const el = all[i];
+   530→      let sr = null;
+   531→      try { sr = el.shadowRoot; } catch (e) {}
+   532→      if (!sr || seen.has(sr)) continue;
+   533→      if (sr.mode && sr.mode !== 'open') { seen.add(sr); continue; }
+   534→      seen.add(sr); roots.push(sr); stack.push(sr);
+   535→    }
+   536→  }
+   537→  if (!root) { _srCache = roots; _srCacheAt = nowMs; }
+   538→  return roots;
+   539→}
+   540→function deepQueryAll(sel, root) {
+   541→  const scopes = [root || document].concat(collectShadowRoots(root));
+   542→  const out = [];
+   543→  for (const sc of scopes) {
+   544→    let found; try { found = sc.querySelectorAll(sel); } catch (e) { continue; }
+   545→    for (const el of found) if (out.indexOf(el) === -1) out.push(el);
+   546→  }
+   547→  return out;
+   548→}
+   549→function roleFromValue(v) {
+   550→  const x = String(v || '').toLowerCase().trim();
+   551→  if (/^(user|human|you|me|client|prompt|question|query)$/.test(x)) return 'user';
+   552→  if (/^(assistant|bot|ai|model|response|answer|reply)$/.test(x)) return 'assistant';
+   553→  if (/(^|[-_ ])(user|human|query|prompt|question)([-_ ]|$)/.test(x)) return 'user';
+   554→  if (/(^|[-_ ])(assistant|bot|model|response|answer|reply)([-_ ]|$)/.test(x)) return 'assistant';
+   555→  return null;
+   556→}
+   557→function detectRole(el, platform) {
+   558→  if (platform && platform.roleAttr) { const v = roleFromValue(el.getAttribute(platform.roleAttr)); if (v) return v; }
+   559→  if (platform && typeof platform.role === 'function') { try { const r = platform.role(el); if (r === 'user' || r === 'assistant') return r; } catch (e) {} }
+   560→  if (el.tagName) { const tag = el.tagName.toLowerCase(); if (tag === 'user-query') return 'user'; if (tag === 'model-response') return 'assistant'; }
+   561→  const score = { user: 0, assistant: 0 };
+   562→  const nodes = [el]; let p = el.parentElement;
+   563→  for (let i = 0; i < 5 && p; i++, p = p.parentElement) nodes.push(p);
+   564→  for (let ni = 0; ni < nodes.length; ni++) {
+   565→    const n = nodes[ni]; const w = ni === 0 ? 1 : 0.6;
+   566→    for (const a of n.attributes || []) {
+   567→      const name = a.name.toLowerCase(), value = String(a.value || '').toLowerCase();
+   568→      if (/role|author|sender|speaker|type|side|from/i.test(name)) {
+   569→        if (/user|human|you\b|me\b|client|question|prompt|query/i.test(value)) score.user += 8 * w;
+   570→        if (/assistant|bot|model|response|answer|reply/i.test(value)) score.assistant += 8 * w;
+   571→      }
+   572→    }
+   573→    const r1 = roleFromValue(cls(n)); if (r1) score[r1] += (ni === 0 ? 6 : 4) * w;
+   574→  }
+   575→  if (el.querySelector && el.querySelector('[class*="markdown"],[class*="prose"],.katex')) score.assistant += 5;
+   576→  if (score.user >= score.assistant + 4 && score.user >= 5) return 'user';
+   577→  if (score.assistant >= score.user + 4 && score.assistant >= 5) return 'assistant';
+   578→  return 'unknown';
+   579→}
+   580→function filterValid(found) {
+   581→  const valid = [];
+   582→  found.forEach(el => {
+   583→    if (isInHardExclude(el)) return;
+   584→    if (isInNavigation(el)) return;
+   585→    if (!isVisible(el)) return;
+   586→    const t = txt(el);
+   587→    if (!t || t.length < CFG.MIN_TEXT) return;
+   588→    if (isCssOrJs(t) || isSourceListing(t)) return;
+   589→    valid.push(el);
+   590→  });
+   591→  return valid;
+   592→}
+   593→
+   594→/* ---- B.6. Поиск сообщений ---- */
+   595→function findMessages() {
+   596→  const platform = getPlatform();
+   597→  const UNIVERSAL = ['[data-message-author-role]','[data-testid="user-message"]','[data-testid="assistant-message"]','user-query','model-response','.segment','.segment-container','[data-message-role]','[data-message-id]','[class*="UserMessage"]','[class*="AssistantMessage"]','[class*="user-message"]:not([class*="input"]):not([class*="fixed"])','[class*="assistant-message"]:not([class*="input"]):not([class*="fixed"])','[class*="Message_container"]','[class*="MessageContainer"]','div.conversation-container'];
+   598→  const trySel = sel => {
+   599→    let found = deepQueryAll(sel);
+   600→    if (!found || found.length < 1) return null;
+   601→    const valid = dedupeNested(filterValid(found));
+   602→    return valid.length ? valid : null;
+   603→  };
+   604→  if (platform) {
+   605→    for (let i = 0; i < platform.msgSelectors.length; i++) {
+   606→      const valid = trySel(platform.msgSelectors[i]);
+   607→      if (valid && (i === 0 ? valid.length >= 2 : valid.length >= CFG.MSG_MIN)) return { items: valid.slice(0, CFG.MSG_MAX), source: platform.msgSelectors[i], platform };
+   608→    }
+   609→    let best = null, bestSel = '';
+   610→    for (const sel of platform.msgSelectors.concat(UNIVERSAL)) {
+   611→      const valid = trySel(sel);
+   612→      if (valid && valid.length > (best ? best.length : 0)) { best = valid; bestSel = sel; }
+   613→    }
+   614→    if (best) return { items: best.slice(0, CFG.MSG_MAX), source: bestSel, platform };
+   615→  }
+   616→  let best = null, bestSel = '';
+   617→  for (const sel of UNIVERSAL) {
+   618→    const valid = trySel(sel);
+   619→    if (valid && valid.length > (best ? best.length : 0)) { best = valid; bestSel = sel; }
+   620→  }
+   621→  if (best) return { items: best.slice(0, CFG.MSG_MAX), source: bestSel, platform };
+   622→  const heur = heuristicMessages();
+   623→  if (heur && heur.length >= 2) return { items: heur.slice(0, CFG.MSG_MAX), source: 'heuristic', platform };
+   624→  return null;
+   625→}
+   626→function heuristicMessages() {
+   627→  const containers = deepQueryAll('main, article, section, [role="main"], [class*="conversation"], [class*="chat"]');
+   628→  let best = null;
+   629→  for (const c of containers) {
+   630→    const groups = {};
+   631→    Array.from(c.children || []).forEach(child => {
+   632→      const key = child.tagName + '|' + (typeof child.className === 'string' ? child.className : '').split(/\s+/).slice(0, 3).join(' ');
+   633→      (groups[key] = groups[key] || []).push(child);
+   634→    });
+   635→    for (const key of Object.keys(groups)) {
+   636→      const group = dedupeNested(filterValid(groups[key]));
+   637→      if (group.length >= 3 && (!best || group.length > best.length)) best = group;
+   638→    }
+   639→    Array.from(c.children || []).forEach(mid => {
+   640→      Array.from(mid.children || []).forEach(child => {
+   641→        const key = child.tagName + '|' + (typeof child.className === 'string' ? child.className : '').split(/\s+/).slice(0, 3).join(' ');
+   642→        (groups['@' + key] = groups['@' + key] || []).push(child);
+   643→      });
+   644→    });
+   645→    for (const key of Object.keys(groups)) {
+   646→      if (!/^@/.test(key)) continue;
+   647→      const group = dedupeNested(filterValid(groups[key]));
+   648→      if (group.length >= 3 && (!best || group.length > best.length)) best = group;
+   649→    }
+   650→  }
+   651→  return best;
+   652→}
+   653→
+   654→/* ---- B.7. Render holder + markdown ---- */
+   655→let renderHolder = null;
+   656→function getRenderHolder() {
+   657→  if (!renderHolder || !renderHolder.isConnected) {
+   658→    renderHolder = document.createElement('div');
+   659→    renderHolder.style.cssText = 'position:fixed;left:-10000px;top:0;width:900px;pointer-events:none;opacity:0;z-index:-1;white-space:normal;';
+   660→    (document.body || document.documentElement).appendChild(renderHolder);
+   661→  }
+   662→  return renderHolder;
+   663→}
+   664→function extractText(el) {
+   665→  const clone = el.cloneNode(true);
+   666→  const remove = clone.querySelectorAll('style,script,link,meta,noscript,template,svg,button,nav,footer,[role="button"],[role="toolbar"],.sr-only,time,[class*="timestamp"],[class*="copy-button"],[class*="action-bar"],[class*="toolbar"],[class*="feedback"],[class*="rating"],mat-icon,[class*="icon"]:not([class*="content"]),[data-icon],i[class*="fa-"]');
+   667→  for (let i = 0; i < remove.length; i++) remove[i].remove();
+   668→  const holder = getRenderHolder();
+   669→  holder.appendChild(clone);
+   670→  let t = '';
+   671→  try { t = clean(clone.innerText || ''); } catch (e) { t = (clone.textContent || '').trim(); }
+   672→  clone.remove();
+   673→  return t;
+   674→}
+   675→const MD_REMOVE = 'style,script,link,meta,noscript,template,svg,button,nav,footer,header,[role="button"],[role="toolbar"],[aria-hidden="true"],.sr-only,time,[class*="timestamp"],[class*="copy-button"],[class*="action-bar"],[class*="toolbar"],[class*="feedback"],[class*="rating"],mat-icon,[data-icon]';
+   676→const escapeRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+   677→const CHROME_TOKENS = ['python','python3','javascript','js','typescript','ts','jsx','tsx','java','c','c++','cpp','csharp','cs','go','golang','rust','ruby','php','swift','kotlin','scala','bash','sh','shell','zsh','powershell','sql','html','css','scss','less','json','json5','yaml','yml','xml','toml','ini','markdown','md','text','txt','plaintext','perl','r','matlab','dart','lua','groovy','objc','objectivec','pascal','fortran','haskell','elixir','erlang','clojure','vb','vba','asm','assembly','wasm','graphql','dockerfile','makefile','diff','mermaid','run','copy','код','язык','запустить','выполнить','копировать','показать','скрыть','свернуть','развернуть','collapse','expand','toggle','wrap','nowrap','edit','done','save','share','download'];
+   678→const CHROME_TOKENS_SORTED = CHROME_TOKENS.slice().sort((a, b) => b.length - a.length);
+   679→const CHROME_ALT = CHROME_TOKENS_SORTED.map(escapeRe).join('|');
+   680→const CHROME_TOKEN_PREFIX_RE = new RegExp('^(?:' + CHROME_ALT + ')', 'i');
+   681→const CHROME_TOKEN_FULL_RE = new RegExp('^(?:' + CHROME_ALT + ')$', 'i');
+   682→function isChromeText(t) {
+   683→  const s = String(t || '').trim();
+   684→  if (!s || s.length > 40) return false;
+   685→  const words = s.split(/\s+/);
+   686→  if (words.length <= 4 && words.every(w => CHROME_TOKEN_FULL_RE.test(w))) return true;
+   687→  let rest = s.toLowerCase(), guard = 0;
+   688→  while (rest.length && guard++ < 10) {
+   689→    const m = rest.match(CHROME_TOKEN_PREFIX_RE);
+   690→    if (!m) return false;
+   691→    rest = rest.slice(m[0].length);
+   692→  }
+   693→  return rest.length === 0;
+   694→}
+   695→function stripCodeChrome(root) {
+   696→  let pres;
+   697→  try { pres = Array.from(root.querySelectorAll('pre')); } catch (e) { return; }
+   698→  for (const pre of pres) {
+   699→    let anc = pre.parentElement;
+   700→    for (let lvl = 0; anc && lvl < 2; lvl++) {
+   701→      const kids = Array.from(anc.childNodes || []);
+   702→      for (const k of kids) {
+   703→        if (k.nodeType === 3) { if (isChromeText(k.nodeValue)) k.nodeValue = ''; continue; }
+   704→        if (k.nodeType !== 1 || k === pre) continue;
+   705→        const tag = (k.tagName || '').toLowerCase();
+   706→        if (tag === 'pre' || tag === 'code') continue;
+   707→        try { if (k.contains && k.contains(pre)) continue; } catch (e) {}
+   708→        if (isChromeText(k.textContent) && typeof k.remove === 'function') k.remove();
+   709→      }
+   710→      anc = anc.parentElement;
+   711→    }
+   712→  }
+   713→}
+   714→const mermaidEnabled = () => safeStorageGet('uaice_mermaid') !== '0';
+   715→function processMermaid(content) {
+   716→  const s = String(content || '');
+   717→  if (s.indexOf('```mermaid') === -1) return s;
+   718→  return s.replace(/```mermaid\r?\n([\s\S]*?)```/gi, (match, code) => {
+   719→    try {
+   720→      const src = String(code).trim();
+   721→      if (!src || src.length > 50000) return match;
+   722→      const b64 = btoa(unescape(encodeURIComponent(src)));
+   723→      return match + '\n\n> 📊 [SVG-диаграмма](https://mermaid.ink/svg/' + b64 + ')\n';
+   724→    } catch (e) { return match; }
+   725→  });
+   726→}
+   727→function domToMarkdown(el) {
+   728→  const root = el.cloneNode(true);
+   729→  let rm; try { rm = root.querySelectorAll(MD_REMOVE); } catch (e) { rm = []; }
+   730→  for (let i = 0; i < rm.length; i++) rm[i].remove();
+   731→  stripCodeChrome(root);
+   732→  try {
+   733→    const maths = root.querySelectorAll('.katex, .katex-display, mjx-container, math[alttext]');
+   734→    for (let mi = 0; mi < maths.length; mi++) {
+   735→      const mn = maths[mi];
+   736→      if (!mn.parentElement || (root.contains && !root.contains(mn))) continue;
+   737→      let tex = '';
+   738→      const ann = mn.querySelector('annotation[encoding="application/x-tex"]');
+   739→      if (ann && ann.textContent) tex = ann.textContent.trim();
+   740→      if (!tex && mn.getAttribute) tex = mn.getAttribute('alttext') || '';
+   741→      if (!tex) continue;
+   742→      const display = (mn.classList && mn.classList.contains('katex-display')) || mn.getAttribute('display') === 'block';
+   743→      const doc = root.ownerDocument || document;
+   744→      mn.parentElement.replaceChild(doc.createTextNode(display ? '\n\n$$' + tex + '$$\n\n' : ' $' + tex + '$ '), mn);
+   745→    }
+   746→  } catch (e) {}
+   747→  function children(node) { return Array.from(node.childNodes || []).map(walk).join(''); }
+   748→  function walk(node) {
+   749→    if (node.nodeType === 3) return node.nodeValue || '';
+   750→    if (node.nodeType !== 1) return '';
+   751→    const tag = node.tagName.toLowerCase();
+   752→    if (tag === 'script' || tag === 'style' || tag === 'svg' || tag === 'noscript') return '';
+   753→    if (tag === 'br') return '\n';
+   754→    if (tag === 'hr') return '\n\n---\n\n';
+   755→    if (tag === 'pre') {
+   756→      const code = node.querySelector('code');
+   757→      const lang = code && code.className && (code.className.match(/language-([\w-]+)/) || [])[1] || '';
+   758→      const text = (code ? code.textContent : node.textContent) || '';
+   759→      return '\n\n```' + lang + '\n' + String(text).replace(/\r\n/g, '\n').replace(/\n+$/, '') + '\n```\n\n';
+   760→    }
+   761→    if (tag === 'code') return '`' + clean(node.textContent) + '`';
+   762→    if (tag === 'img') { const src = node.getAttribute('src') || ''; if (!src) return ''; return '![' + (node.getAttribute('alt') || '') + '](' + src + ')'; }
+   763→    if (tag === 'a') { const href = node.getAttribute('href') || ''; const v = clean(children(node)); return href ? '[' + (v || href) + '](' + href + ')' : v; }
+   764→    if (/^h[1-6]$/.test(tag)) return '\n\n' + '#'.repeat(Number(tag[1])) + ' ' + clean(children(node)) + '\n\n';
+   765→    if (tag === 'strong' || tag === 'b') { const v = clean(children(node)); return v ? '**' + v + '**' : ''; }
+   766→    if (tag === 'em' || tag === 'i') { const v = clean(children(node)); return v ? '*' + v + '*' : ''; }
+   767→    if (tag === 'del' || tag === 's') { const v = clean(children(node)); return v ? '~~' + v + '~~' : ''; }
+   768→    if (tag === 'blockquote') { const v = clean(children(node)); return '\n\n' + v.split('\n').map(l => '> ' + l).join('\n') + '\n\n'; }
+   769→    if (tag === 'li') { const ordered = node.parentElement && node.parentElement.tagName.toLowerCase() === 'ol'; return (ordered ? '1. ' : '- ') + clean(children(node)) + '\n'; }
+   770→    if (tag === 'ul' || tag === 'ol') {
+   771→      const ordered = tag === 'ol';
+   772→      let lis = [];
+   773→      try { lis = Array.from(node.children || []).filter(c => c && c.tagName && c.tagName.toLowerCase() === 'li'); } catch (e) {}
+   774→      if (lis.length) {
+   775→        const body = lis.map((li, i) => (ordered ? (i + 1) + '. ' : '- ') + clean(children(li)) + '\n').join('');
+   776→        return '\n\n' + body + '\n';
+   777→      }
+   778→      return '\n\n' + children(node) + '\n';
+   779→    }
+   780→    if (tag === 'table') return tableToMarkdown(node);
+   781→    if (tag === 'p' || tag === 'div' || tag === 'section' || tag === 'article' || tag === 'figure') return '\n' + children(node) + '\n';
+   782→    return children(node);
+   783→  }
+   784→  function tableToMarkdown(table) {
+   785→    let rows; try { rows = Array.from(table.querySelectorAll('tr')); } catch (e) { return ''; }
+   786→    if (!rows.length) return '';
+   787→    const matrix = rows.map(row => {
+   788→      const cells = [];
+   789→      try {
+   790→        Array.from(row.querySelectorAll('th,td')).forEach(cell => {
+   791→          const t = clean(cell.innerText || cell.textContent || '').replace(/\|/g, '\\|').replace(/\n/g, ' ');
+   792→          const cs = Math.max(1, parseInt(cell.getAttribute('colspan') || '1', 10) || 1);
+   793→          cells.push(t);
+   794→          for (let k = 1; k < cs; k++) cells.push('');
+   795→        });
+   796→      } catch (e) {}
+   797→      return cells;
+   798→    });
+   799→    const width = Math.max(1, ...matrix.map(r => r.length));
+   800→    const norm = matrix.map(r => { const c = r.slice(); while (c.length < width) c.push(''); return c; });
+   801→    const head = norm[0];
+   802→    let out = '\n\n| ' + head.join(' | ') + ' |\n| ' + head.map(() => '---').join(' | ') + ' |\n';
+   803→    out += norm.slice(1).map(r => '| ' + r.join(' | ') + ' |').join('\n') + '\n\n';
+   804→    return out;
+   805→  }
+   806→  return clean(walk(root));
+   807→}
+   808→const THINK_SELECTORS = ['[class*="think"]','[class*="reason"]','[class*="analysis"]','[class*="thought"]','[data-testid*="think"]','[data-testid*="reason"]','[data-testid*="analysis"]','[aria-label*="thinking" i]','[aria-label*="reasoning" i]'];
+   809→function extractThinking(el) {
+   810→  const nodes = [];
+   811→  for (const sel of THINK_SELECTORS) nodes.push(...deepQueryAll(sel, el));
+   812→  const unique = dedupeNested(nodes);
+   813→  const out = [];
+   814→  for (const n of unique) { const t = domToMarkdown(n); if (t && out.indexOf(t) === -1) out.push(t); }
+   815→  return out;
+   816→}
+   817→function collectMedia(el, msgIndex) {
+   818→  const images = [], attachments = [];
+   819→  try {
+   820→    const imgs = el.querySelectorAll('img[src]');
+   821→    for (let i = 0; i < imgs.length && images.length < CFG.IMG_PER_MSG; i++) {
+   822→      const src = imgs[i].getAttribute('src') || '';
+   823→      if (!src || /^data:/i.test(src)) continue;
+   824→      images.push({ src: new URL(src, location.href).href, alt: imgs[i].getAttribute('alt') || '', msg: msgIndex });
+   825→    }
+   826→  } catch (e) {}
+   827→  try {
+   828→    const atts = el.querySelectorAll('a[href][download],[class*="attachment"] a[href],[data-filename]');
+   829→    for (let i = 0; i < atts.length; i++) {
+   830→      const a = atts[i];
+   831→      const href = a.getAttribute('href') || '';
+   832→      if (!href || /^(#|javascript:)/i.test(href)) continue;
+   833→      attachments.push({ url: new URL(href, location.href).href, name: a.getAttribute('data-filename') || a.getAttribute('download') || (href.split('/').pop() || 'file').split('?')[0] });
+   834→    }
+   835→  } catch (e) {}
+   836→  return { images, attachments };
+   837→}
+   838→const LANG_EXT = { javascript:'js', js:'js', typescript:'ts', ts:'ts', python:'py', py:'py', ruby:'rb', go:'go', golang:'go', rust:'rs', java:'java', c:'c', cpp:'cpp', 'c++':'cpp', csharp:'cs', 'c#':'cs', php:'php', bash:'sh', shell:'sh', sh:'sh', html:'html', css:'css', json:'json', yaml:'yml', yml:'yml', xml:'xml', markdown:'md', md:'md', sql:'sql', r:'r', swift:'swift', kotlin:'kt', scala:'scala', perl:'pl', lua:'lua', dart:'dart', toml:'toml', ini:'ini', tex:'tex', matlab:'m', mermaid:'mmd' };
+   839→function collectArtifacts(el, msgIndex) {
+   840→  const arts = [];
+   841→  try {
+   842→    const pres = el.querySelectorAll('pre');
+   843→    for (let i = 0; i < pres.length && arts.length < 30; i++) {
+   844→      const pre = pres[i];
+   845→      const code = pre.querySelector('code') || pre;
+   846→      let lang = '';
+   847→      const cls = (code.className || '') + ' ' + (pre.className || '');
+   848→      const mm = cls.match(/language-([\w+#-]+)/i) || cls.match(/lang-([\w+#-]+)/i);
+   849→      if (mm) lang = mm[1].toLowerCase();
+   850→      const text = (code.textContent || '').replace(/\r\n/g, '\n').replace(/\n+$/, '');
+   851→      if (!text || text.length < 12) continue;
+   852→      if (isCssOrJs(text) && text.length < 80) continue;
+   853→      const ext = LANG_EXT[lang] || (lang ? lang.replace(/[^a-z0-9]/gi, '') : '') || 'txt';
+   854→      arts.push({ type: 'code', lang: lang || 'text', content: text, ext, msg: msgIndex });
+   855→    }
+   856→  } catch (e) {}
+   857→  return arts;
+   858→}
+   859→
+   860→/* ---- B.8. Scrape ---- */
+   861→function scrape(options) {
+   862→  options = options || {};
+   863→  const found = findMessages();
+   864→  if (!found) return { items: [], platform: null, source: null, images: [], attachments: [], artifacts: [] };
+   865→  const platform = found.platform;
+   866→  const pre = [];
+   867→  found.items.forEach(el => {
+   868→    const content = stripUiPrefix(domToMarkdown(el));
+   869→    const text = stripUiPrefix(extractText(el));
+   870→    if (!content && !text) return;
+   871→    const plain = text || content;
+   872→    if (plain.length < CFG.MIN_TEXT) return;
+   873→    if (isCssOrJs(plain) || isSourceListing(plain)) return;
+   874→    pre.push({ el, content, text, thinking: extractThinking(el) });
+   875→  });
+   876→  const roles = pre.map(m => detectRole(m.el, platform));
+   877→  const allUnknown = roles.length > 0 && roles.every(r => r === 'unknown');
+   878→  const allSame = roles.length > 1 && roles.every(r => r === roles[0]);
+   879→  const parity = allUnknown || (allSame && roles[0] !== 'user');
+   880→  const allImages = [], allAttachments = [], allArtifacts = [];
+   881→  const out = pre.map((m, i) => {
+   882→    let role = roles[i];
+   883→    if (role === 'unknown' && parity) role = i % 2 === 0 ? 'user' : 'assistant';
+   884→    else if (parity && role === roles[0]) role = i % 2 === 0 ? 'user' : 'assistant';
+   885→    let content = m.content;
+   886→    if (options.stripThinking && m.thinking.length) {
+   887→      for (const block of m.thinking) {
+   888→        if (!block || block.length < 3) continue;
+   889→        let guard = 0;
+   890→        while (content.indexOf(block) !== -1 && guard++ < 20) content = content.replace(block, '');
+   891→      }
+   892→      content = clean(content);
+   893→    }
+   894→    if (mermaidEnabled()) content = processMermaid(content);
+   895→    const media = collectMedia(m.el, i);
+   896→    collectArtifacts(m.el, i).forEach(a => allArtifacts.push(a));
+   897→    media.images.forEach(x => allImages.push(x));
+   898→    media.attachments.forEach(x => allAttachments.push(x));
+   899→    return { role, content, text: m.text || clean(m.content), thinking: options.exportThinking ? m.thinking : [] };
+   900→  }).filter(m => (options.stripThinking ? m.content : m.text) && (options.stripThinking ? m.content.length : m.text.length) >= CFG.MIN_TEXT);
+   901→  return { items: out.slice(0, CFG.MSG_MAX), source: found.source, platformName: (platform && platform.name) || null, images: allImages.slice(0, CFG.IMG_TOTAL), attachments: allAttachments.slice(0, CFG.IMG_TOTAL), artifacts: allArtifacts.slice(0, 300) };
+   902→}
+   903→function snapshotScrape() {
+   904→  try {
+   905→    const clone = document.body.cloneNode(true);
+   906→    clone.querySelectorAll('#' + UI_ID + ',#' + UI_ID + '-host,#pml-tabs-host,script,style,noscript,svg').forEach(n => n.remove());
+   907→    const holder = getRenderHolder();
+   908→    holder.appendChild(clone);
+   909→    let t = '';
+   910→    try { t = clean(clone.innerText || ''); } catch (e) { t = (clone.textContent || '').trim(); }
+   911→    clone.remove();
+   912→    if (!t || t.length < CFG.MIN_TOTAL_TEXT) return null;
+   913→    if (t.length > CFG.SNAPSHOT_MAX) t = t.slice(0, CFG.SNAPSHOT_MAX) + '\n\n… (обрезано)';
+   914→    return { items: [{ role: 'unknown', content: '⚠ Автоснимок страницы (структура не распознана точечно):\n\n' + t, text: '⚠ Автоснимок страницы (структура не распознана точечно):\n\n' + t, thinking: [] }], source: 'snapshot', platformName: (getPlatform() || {}).name || null, images: [], attachments: [], artifacts: [] };
+   915→  } catch (e) { return null; }
+   916→}
+   917→function fingerprint() { const found = findMessages(); if (!found) return ''; return found.items.map(el => txt(el).slice(0, 80)).join('|'); }
+   918→function findScrollContainer() {
+   919→  const found = findMessages();
+   920→  const sample = found && found.items && found.items[0];
+   921→  let p = sample;
+   922→  for (let i = 0; i < 14 && p; i++, p = p.parentElement) {
+   923→    try { const st = getComputedStyle(p); if (/auto|scroll/.test(st.overflowY) && p.scrollHeight > p.clientHeight + 100) return p; } catch (e) {}
+   924→  }
+   925→  const candidates = [document.scrollingElement, document.documentElement, document.body];
+   926→  try { candidates.push(...document.querySelectorAll('main,[role="main"],[class*="scroll"],[class*="conversation"]')); } catch (e) {}
+   927→  let sc = null, bestSize = 0;
+   928→  for (const el of candidates) {
+   929→    if (!el) continue;
+   930→    try { const extra = el.scrollHeight - el.clientHeight; if (extra > 100 && el.clientHeight > 150 && el.scrollHeight > bestSize) { bestSize = el.scrollHeight; sc = el; } } catch (e) {}
+   931→  }
+   932→  return sc;
+   933→}
+   934→async function autoScroll(statusFn) {
+   935→  const sc = findScrollContainer(); if (!sc) return;
+   936→  if (statusFn) statusFn('Прокручиваю историю...');
+   937→  let lastH = -1, stable = 0;
+   938→  for (let i = 0; i < CFG.SCROLL_ROUNDS; i++) {
+   939→    if (CANCEL) return;
+   940→    sc.scrollTop = 0;
+   941→    await sleep(CFG.SCROLL_WAIT);
+   942→    const h = sc.scrollHeight;
+   943→    if (h === lastH) stable++; else stable = 0;
+   944→    lastH = h;
+   945→    if (stable >= 3) break;
+   946→    if (statusFn && i % 5 === 0) statusFn('История: ' + (i + 1) + '/' + CFG.SCROLL_ROUNDS);
+   947→  }
+   948→  try { sc.scrollTop = sc.scrollHeight; } catch (e) {}
+   949→  await sleep(400);
+   950→}
+   951→async function waitStable(prevFp, prevHref) {
+   952→  const start = Date.now();
+   953→  let lastFp = '', lastChangeTime = Date.now();
+   954→  let hrefChanged = !!(prevHref && location.href !== prevHref);
+   955→  while (Date.now() - start < CFG.MAX_WAIT) {
+   956→    if (CANCEL) return false;
+   957→    await sleep(CFG.POLL);
+   958→    if (!hrefChanged && prevHref && location.href !== prevHref) { hrefChanged = true; lastChangeTime = Date.now(); }
+   959→    const cur = fingerprint();
+   960→    if (cur && cur !== prevFp) {
+   961→      if (cur !== lastFp) { lastFp = cur; lastChangeTime = Date.now(); }
+   962→      else if (Date.now() - lastChangeTime >= CFG.STABLE_MS) return true;
+   963→    } else if (hrefChanged && Date.now() - lastChangeTime >= CFG.STABLE_MS) return true;
+   964→    if (!hrefChanged && !lastFp && Date.now() - start > 6000) return false;
+   965→  }
+   966→  const fp = fingerprint();
+   967→  return (!!fp && fp !== prevFp) || hrefChanged;
+   968→}
+   969→async function waitForContentChange(beforeHref, prevFp, timeoutMs) {
+   970→  const t0 = Date.now();
+   971→  while (Date.now() - t0 < timeoutMs) {
+   972→    if (CANCEL) return false;
+   973→    await sleep(250);
+   974→    if (location.href !== beforeHref) return true;
+   975→    if (fingerprint() !== prevFp) return true;
+   976→  }
+   977→  return false;
+   978→}
+   979→
+   980→/* ---- B.9. Форматы ---- */
+   981→function platformName(scraped) {
+   982→  const n = scraped && scraped.platformName; if (n) return n;
+   983→  const p = getPlatform(); return p ? p.name : 'universal-heuristic';
+   984→}
+   985→function roleLabel(role) {
+   986→  if (role === 'user') return '🧑‍💻 User';
+   987→  if (role === 'assistant') return '🤖 Assistant';
+   988→  return '❔ ' + (role || 'Unknown');
+   989→}
+   990→const frontMatterEnabled = () => safeStorageGet('uaice_fm') !== '0';
+   991→function toMarkdown(scraped, title) {
+   992→  const L = [];
+   993→  if (frontMatterEnabled()) {
+   994→    const dateTag = '#export-' + now().slice(0, 10);
+   995→    const platTag = '#' + String(platformName(scraped)).toLowerCase().replace(/[^a-zа-я0-9]+/gi, '');
+   996→    L.push('---',
+   997→      'title: ' + JSON.stringify(String(title || 'export')),
+   998→      'platform: ' + JSON.stringify(platformName(scraped)),
+   999→      'url: ' + JSON.stringify(location.href),
+  1000→      'exported_at: ' + JSON.stringify(new Date().toISOString()),
+  1001→      'exporter: ' + JSON.stringify('UACE v' + UACE_VER + ' × PML v' + UPOLY_VER),
+  1002→      'messages_count: ' + scraped.items.length,
+  1003→      'tags: [' + JSON.stringify(platTag) + ', ' + JSON.stringify(dateTag) + ']',
+  1004→      '---', '', '# ' + title, '');
+  1005→  } else {
+  1006→    L.push('# ' + title, '', '- **Platform:** ' + platformName(scraped), '- **URL:** ' + location.href, '- **Exported:** ' + now() + ' (v' + SCRIPT_VER + ')', '- **Messages:** ' + scraped.items.length, '', '---', '');
+  1007→  }
+  1008→  scraped.items.forEach(m => {
+  1009→    L.push('### ' + roleLabel(m.role), '', m.content || m.text, '');
+  1010→    if (m.thinking && m.thinking.length) L.push('<details><summary>🧠 Thinking</summary>', '', m.thinking.join('\n\n'), '', '</details>', '');
+  1011→  });
+  1012→  return L.join('\n');
+  1013→}
+  1014→function toJSON(scraped, title) {
+  1015→  return JSON.stringify({ title, platform: platformName(scraped), exporter: 'UACE v' + UACE_VER + ' × PML v' + UPOLY_VER, url: location.href, exported_at: new Date().toISOString(), messages_count: scraped.items.length, source_selector: scraped.source || null, messages: scraped.items.map((m, i) => ({ index: i, role: m.role, content_markdown: m.content, text: m.text, thinking: m.thinking || [] })) }, null, 2);
+  1016→}
+  1017→function toTXT(scraped, title) {
+  1018→  const lines = [title, '='.repeat(Math.min(title.length, 70)), 'Platform: ' + platformName(scraped), 'URL: ' + location.href, 'Exported: ' + now() + ' (v' + SCRIPT_VER + ')', ''];
+  1019→  scraped.items.forEach(m => {
+  1020→    lines.push('[' + String(m.role || 'unknown').toUpperCase() + ']');
+  1021→    if (m.thinking && m.thinking.length) lines.push('[REASONING]', m.thinking.join('\n\n'), '');
+  1022→    lines.push(m.text || m.content); lines.push('');
+  1023→  });
+  1024→  return lines.join('\n');
+  1025→}
+  1026→function htmlCss() {
+  1027→  return 'body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:800px;margin:2rem auto;padding:0 1rem;line-height:1.6;color:#222}h1{border-bottom:2px solid #eee;padding-bottom:.5rem}.msg{margin:1.5rem 0;padding:1rem;border-radius:8px}.user{background:#e7f3ff;border-left:4px solid #1a73e8}.assistant{background:#f5f5f5;border-left:4px solid #666}.unknown{background:#fff8e1;border-left:4px solid #f0a500}.role{font-weight:600;margin-bottom:.5rem;color:#555}.meta{color:#888;font-size:.9rem;margin-bottom:2rem}.think{background:#fafafa;border:1px dashed #ccc;border-radius:6px;padding:.6rem;margin:.6rem 0;font-size:.92em;color:#555}';
+  1028→}
+  1029→function htmlBody(scraped, title) {
+  1030→  const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  1031→  let h = '<h1>' + esc(title) + '</h1>';
+  1032→  h += '<div class="meta">Platform: ' + esc(platformName(scraped)) + '<br>URL: ' + esc(location.href) + '<br>Exported: ' + now() + ' (v' + SCRIPT_VER + ')<br>Messages: ' + scraped.items.length + '</div>';
+  1033→  scraped.items.forEach(m => {
+  1034→    h += '<div class="msg ' + esc(String(m.role || 'unknown')) + '">';
+  1035→    h += '<div class="role">' + esc(roleLabel(m.role)) + '</div>';
+  1036→    if (m.thinking && m.thinking.length) h += '<div class="think"><b>🧠 Thinking</b><br>' + esc(m.thinking.join('\n\n')).replace(/\n/g, '<br>') + '</div>';
+  1037→    h += '<div>' + esc(m.text || m.content).replace(/\n/g, '<br>') + '</div></div>';
+  1038→  });
+  1039→  return h;
+  1040→}
+  1041→function toHTML(scraped, title) {
+  1042→  const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  1043→  return '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + esc(title) + '</title><style>' + htmlCss() + '</style></head><body>' + htmlBody(scraped, title) + '</body></html>';
+  1044→}
+  1045→function sharegptFrom(role) { return role === 'user' ? 'human' : role === 'assistant' ? 'gpt' : 'system'; }
+  1046→function toShareGPT(scraped, title) {
+  1047→  return JSON.stringify({ title, url: location.href, exported_at: new Date().toISOString(), conversations: scraped.items.map(m => ({ from: sharegptFrom(m.role), value: m.text || m.content })) }, null, 2);
+  1048→}
+  1049→function toJSONL(scraped, title) {
+  1050→  return scraped.items.map((m, i) => JSON.stringify({ chat: title, i, role: m.role, text: m.text || m.content })).join('\n');
+  1051→}
+  1052→function toAlpaca(scraped, title) {
+  1053→  const samples = []; let pending = null;
+  1054→  scraped.items.forEach(m => {
+  1055→    if (m.role === 'user') { if (pending) samples.push({ instruction: pending, input: '', output: '' }); pending = m.text || m.content; }
+  1056→    else if (m.role === 'assistant') { samples.push({ instruction: pending || '', input: '', output: m.text || m.content }); pending = null; }
+  1057→    else if (pending) { samples.push({ instruction: pending, input: '', output: '' }); pending = null; }
+  1058→  });
+  1059→  if (pending) samples.push({ instruction: pending, input: '', output: '' });
+  1060→  return JSON.stringify({ chat: title, url: location.href, samples }, null, 2);
+  1061→}
+  1062→function contentFor(format, scraped, title) {
+  1063→  if (format === 'json') return { content: toJSON(scraped, title), ext: 'json', mime: 'application/json;charset=utf-8' };
+  1064→  if (format === 'txt') return { content: toTXT(scraped, title), ext: 'txt', mime: 'text/plain;charset=utf-8' };
+  1065→  if (format === 'html') return { content: toHTML(scraped, title), ext: 'html', mime: 'text/html;charset=utf-8' };
+  1066→  if (format === 'sharegpt') return { content: toShareGPT(scraped, title), ext: 'sharegpt.json', mime: 'application/json;charset=utf-8' };
+  1067→  if (format === 'jsonl') return { content: toJSONL(scraped, title), ext: 'jsonl', mime: 'application/x-ndjson;charset=utf-8' };
+  1068→  if (format === 'alpaca') return { content: toAlpaca(scraped, title), ext: 'alpaca.json', mime: 'application/json;charset=utf-8' };
+  1069→  return { content: toMarkdown(scraped, title), ext: 'md', mime: 'text/markdown;charset=utf-8' };
+  1070→}
+  1071→
+  1072→/* ---- B.10. Доставка: Blob / ZIP без CDN / PDF ---- */
+  1073→function downloadBlob(content, filename, mime) {
+  1074→  const blob = (content instanceof Blob) ? content : new Blob([content], { type: mime || 'text/plain;charset=utf-8' });
+  1075→  const url = URL.createObjectURL(blob);
+  1076→  const a = document.createElement('a');
+  1077→  a.href = url; a.download = filename; a.rel = 'noopener';
+  1078→  (document.body || document.documentElement).appendChild(a);
+  1079→  a.click(); a.remove();
+  1080→  setTimeout(() => URL.revokeObjectURL(url), 1500);
+  1081→}
+  1082→async function downloadSmart(content, filename, mime) {
+  1083→  const blob = (content instanceof Blob) ? content : new Blob([content], { type: mime || 'text/plain;charset=utf-8' });
+  1084→  if (typeof window.showSaveFilePicker === 'function' && /\.(zip|pdf)$/i.test(String(filename || ''))) {
+  1085→    try {
+  1086→      const h = await window.showSaveFilePicker({ suggestedName: filename });
+  1087→      const wr = await h.createWritable();
+  1088→      await wr.write(blob);
+  1089→      await wr.close();
+  1090→      return true;
+  1091→    } catch (e) { if (e && e.name === 'AbortError') return false; }
+  1092→  }
+  1093→  downloadBlob(blob, filename, mime); return false;
+  1094→}
+  1095→const CRC_TABLE = (function () { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1); t[n] = c >>> 0; } return t; })();
+  1096→function crc32(u8) { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC_TABLE[(c ^ u8[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+  1097→function dosDateTime(d) { const time = ((d.getHours() << 11) | (d.getMinutes() << 5) | Math.floor(d.getSeconds() / 2)) & 0xFFFF; const date = (((d.getFullYear() - 1980) & 0x7f) << 9) | ((d.getMonth() + 1) << 5) | d.getDate(); return { time, date }; }
+  1098→function zipStore(entries) {
+  1099→  const enc = new TextEncoder();
+  1100→  const localChunks = [], centralChunks = []; let offset = 0;
+  1101→  const d = new Date(); const { time, date } = dosDateTime(d);
+  1102→  for (const e of entries) {
+  1103→    const name = enc.encode(e.name);
+  1104→    const data = ArrayBuffer.isView(e.data) ? e.data : enc.encode(String(e.data)); /* v28.2: isView — реалм-независимо */
+  1105→    const crc = crc32(data);
+  1106→    const lh = new DataView(new ArrayBuffer(30));
+  1107→    lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(8, 0, true);
+  1108→    lh.setUint16(10, time, true); lh.setUint16(12, date, true); lh.setUint32(14, crc, true);
+  1109→    lh.setUint32(18, data.length, true); lh.setUint32(22, data.length, true); lh.setUint16(26, name.length, true); lh.setUint16(28, 0, true);
+  1110→    localChunks.push(new Uint8Array(lh.buffer), name, data);
+  1111→    const ch = new DataView(new ArrayBuffer(46));
+  1112→    ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true); ch.setUint16(10, 0, true);
+  1113→    ch.setUint16(12, time, true); ch.setUint16(14, date, true); ch.setUint32(16, crc, true);
+  1114→    ch.setUint32(20, data.length, true); ch.setUint32(24, data.length, true); ch.setUint16(28, name.length, true);
+  1115→    ch.setUint16(30, 0, true); ch.setUint16(32, 0, true); ch.setUint16(34, 0, true); ch.setUint16(36, 0, true);
+  1116→    ch.setUint32(38, 0, true); ch.setUint32(42, offset, true);
+  1117→    centralChunks.push(new Uint8Array(ch.buffer), name);
+  1118→    offset += 30 + name.length + data.length;
+  1119→  }
+  1120→  let cdSize = 0; for (const c of centralChunks) cdSize += c.length;
+  1121→  const eocd = new DataView(new ArrayBuffer(22));
+  1122→  eocd.setUint32(0, 0x06054b50, true); eocd.setUint16(4, 0, true); eocd.setUint16(6, 0, true);
+  1123→  eocd.setUint16(8, entries.length, true); eocd.setUint16(10, entries.length, true);
+  1124→  eocd.setUint32(12, cdSize, true); eocd.setUint32(16, offset, true); eocd.setUint16(20, 0, true);
+  1125→  return new Blob(localChunks.concat(centralChunks, [new Uint8Array(eocd.buffer)]), { type: 'application/zip' });
+  1126→}
+  1127→/* ---- v28.2: ZIP c DEFLATE (native CompressionStream) + фейлвер STORED ---- */
+  1128→const HAS_DEFLATE = (function () { try { return typeof CompressionStream === 'function'; } catch (e) { return false; } })();
+  1129→async function deflateRawU8(u8) {
+  1130→  if (!HAS_DEFLATE) return null;
+  1131→  try {
+  1132→    const cs = new CompressionStream('deflate-raw');
+  1133→    const stream = new Blob([u8]).stream().pipeThrough(cs);
+  1134→    const ab = await new Response(stream).arrayBuffer();
+  1135→    const out = new Uint8Array(ab);
+  1136→    return (out.length && out.length < u8.length) ? out : null; // несжимаемое — храним как есть
+  1137→  } catch (e) { return null; }
+  1138→}
+  1139→async function zipStoreAsync(entries, opts) {
+  1140→  const compress = !(opts && opts.store === true) && HAS_DEFLATE;
+  1141→  const enc = new TextEncoder();
+  1142→  const localChunks = [], centralChunks = []; let offset = 0;
+  1143→  const d = new Date(); const { time, date } = dosDateTime(d);
+  1144→  const plainSizes = new Map(); // v28.2: несжатый размер по имени — для заголовков DEFLATE
+  1145→  for (const e of entries) { try { const dd = ArrayBuffer.isView(e.data) ? e.data : enc.encode(String(e.data)); plainSizes.set(e.name, dd.length); } catch (e2) {} }
+  1146→  for (const e of entries) {
+  1147→    const name = enc.encode(e.name);
+  1148→    let data = ArrayBuffer.isView(e.data) ? e.data : enc.encode(String(e.data)); /* v28.2: isView — реалм-независимо */
+  1149→    let method = 0; // 0 = STORED
+  1150→    let crcPlain = crc32(data);
+  1151→    if (compress && data.length > 96) {
+  1152→      const deflated = await deflateRawU8(data);
+  1153→      if (deflated) { data = deflated; method = 8; } // 8 = DEFLATE
+  1154→    }
+  1155→    const lh = new DataView(new ArrayBuffer(30));
+  1156→    lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(8, method, true);
+  1157→    lh.setUint16(10, time, true); lh.setUint16(12, date, true); lh.setUint32(14, crcPlain, true);
+  1158→    lh.setUint32(18, data.length, true); lh.setUint32(22, plainSizes.get(e.name) || data.length, true);
+  1159→    lh.setUint16(26, name.length, true); lh.setUint16(28, 0, true);
+  1160→    localChunks.push(new Uint8Array(lh.buffer), name, data);
+  1161→    const ch = new DataView(new ArrayBuffer(46));
+  1162→    ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true); ch.setUint16(10, method, true);
+  1163→    ch.setUint16(12, time, true); ch.setUint16(14, date, true); ch.setUint32(16, crcPlain, true);
+  1164→    ch.setUint32(20, data.length, true); ch.setUint32(24, plainSizes.get(e.name) || data.length, true); ch.setUint16(28, name.length, true);
+  1165→    ch.setUint16(30, 0, true); ch.setUint16(32, 0, true); ch.setUint16(34, 0, true); ch.setUint16(36, 0, true);
+  1166→    ch.setUint32(38, 0, true); ch.setUint32(42, offset, true);
+  1167→    centralChunks.push(new Uint8Array(ch.buffer), name);
+  1168→    offset += 30 + name.length + data.length;
+  1169→  }
+  1170→  let cdSize = 0; for (const c of centralChunks) cdSize += c.length;
+  1171→  const eocd = new DataView(new ArrayBuffer(22));
+  1172→  eocd.setUint32(0, 0x06054b50, true); eocd.setUint16(4, 0, true); eocd.setUint16(6, 0, true);
+  1173→  eocd.setUint16(8, entries.length, true); eocd.setUint16(10, entries.length, true);
+  1174→  eocd.setUint32(12, cdSize, true); eocd.setUint32(16, offset, true); eocd.setUint16(20, 0, true);
+  1175→  return new Blob(localChunks.concat(centralChunks, [new Uint8Array(eocd.buffer)]), { type: 'application/zip' });
+  1176→}
+  1177→const u32PlainSize = new Map(); // (совместимость; фактический учёт внутри zipStoreAsync)
+  1178→async function zipStoreSmart(entries, opts) {
+  1179→  if (HAS_DEFLATE) {
+  1180→    try { return await zipStoreAsync(entries, opts); } catch (e) { console.warn('[UACE] ZIP deflate не удался, фейлвер STORED:', e); }
+  1181→  }
+  1182→  return zipStore(entries);
+  1183→}
+  1184→const blobToU8 = blob => blob.arrayBuffer().then(ab => new Uint8Array(ab));
+  1185→function extFromMime(mime) {
+  1186→  const m = String(mime || '').toLowerCase();
+  1187→  if (m.indexOf('jpeg') !== -1) return 'jpg';
+  1188→  if (m.indexOf('png') !== -1) return 'png';
+  1189→  if (m.indexOf('webp') !== -1) return 'webp';
+  1190→  if (m.indexOf('gif') !== -1) return 'gif';
+  1191→  if (m.indexOf('svg') !== -1) return 'svg';
+  1192→  if (m.indexOf('bmp') !== -1) return 'bmp';
+  1193→  return 'bin';
+  1194→}
+  1195→/* ---- v28.2: 4-уровневый CORS-фейлвер для изображений ---- */
+  1196→function gmXhrAvailable() {
+  1197→  try { return typeof GM_xmlhttpRequest === 'function' || !!(typeof GM !== 'undefined' && GM && typeof GM.xmlHttpRequest === 'function'); } catch (e) { return false; }
+  1198→}
+  1199→function fetchViaGM(url) {
+  1200→  return new Promise((resolve, reject) => {
+  1201→    let sent = false;
+  1202→    const run = (fn) => { try { fn({ method: 'GET', url, responseType: 'arraybuffer', timeout: CFG.IMG_TIMEOUT, headers: { 'Accept': 'image/*,*/*' },
+  1203→      onload: (res) => {
+  1204→        if (res.status >= 200 && res.status < 300) {
+  1205→          const u8 = new Uint8Array(res.response);
+  1206→          let mime = '';
+  1207→          if (res.responseHeaders) { const m = res.responseHeaders.match(/content-type:\s*([^\r\n;]+)/i); if (m) mime = m[1].toLowerCase().trim(); }
+  1208→          if (!u8 || u8.length < 24) return reject(new Error('GM_XHR пустой ответ'));
+  1209→          resolve({ data: u8, ext: extFromMime(mime) });
+  1210→        } else reject(new Error('GM_XHR HTTP ' + res.status));
+  1211→      },
+  1212→      onerror: () => reject(new Error('GM_XHR ошибка сети')),
+  1213→      ontimeout: () => reject(new Error('GM_XHR тайм-аут')) }); } catch (e) { reject(e); } };
+  1214→    if (typeof GM_xmlhttpRequest === 'function') { sent = true; run(GM_xmlhttpRequest); }
+  1215→    else if (typeof GM !== 'undefined' && GM && typeof GM.xmlHttpRequest === 'function') { sent = true; run(GM.xmlHttpRequest); }
+  1216→    if (!sent) reject(new Error('GM_xmlhttpRequest недоступен'));
+  1217→  });
+  1218→}
+  1219→function canvasFromImgEl(imgEl) {
+  1220→  const canvas = document.createElement('canvas');
+  1221→  canvas.width = imgEl.naturalWidth; canvas.height = imgEl.naturalHeight;
+  1222→  const ctx = canvas.getContext('2d');
+  1223→  if (!ctx) throw new Error('canvas 2d недоступен');
+  1224→  ctx.drawImage(imgEl, 0, 0);
+  1225→  const dataUrl = canvas.toDataURL('image/png');
+  1226→  const base64 = dataUrl.split(',')[1];
+  1227→  const binary = atob(base64);
+  1228→  const bytes = new Uint8Array(binary.length);
+  1229→  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  1230→  return { data: bytes, ext: 'png' };
+  1231→}
+  1232→function extractImageViaCanvas(imgUrl) {
+  1233→  return new Promise((resolve, reject) => {
+  1234→    try {
+  1235→      const imgs = deepQueryAll('img');
+  1236→      const imgEl = imgs.find(i => i.src === imgUrl || i.currentSrc === imgUrl);
+  1237→      if (!imgEl || !imgEl.complete || !imgEl.naturalWidth) return reject(new Error('Изображение недоступно в DOM'));
+  1238→      resolve(canvasFromImgEl(imgEl));
+  1239→    } catch (e) { reject(new Error('Canvas CORS restriction: ' + (e && e.message || e))); }
+  1240→  });
+  1241→}
+  1242→function extractImageViaCanvasFresh(imgUrl) {
+  1243→  return new Promise((resolve, reject) => {
+  1244→    const img = new Image();
+  1245→    const timer = setTimeout(() => { img.src = ''; reject(new Error('canvas-fresh тайм-аут')); }, CFG.IMG_TIMEOUT);
+  1246→    img.onload = () => {
+  1247→      clearTimeout(timer);
+  1248→      try {
+  1249→        if (!img.naturalWidth) return reject(new Error('canvas-fresh: пустое изображение'));
+  1250→        resolve(canvasFromImgEl(img));
+  1251→      } catch (e) { reject(new Error('Canvas CORS restriction: ' + (e && e.message || e))); }
+  1252→    };
+  1253→    img.onerror = () => { clearTimeout(timer); reject(new Error('canvas-fresh: загрузка не удалась')); };
+  1254→    img.crossOrigin = 'anonymous';
+  1255→    img.referrerPolicy = 'no-referrer';
+  1256→    img.src = imgUrl;
+  1257→  });
+  1258→}
+  1259→async function fetchImageU8(url) {
+  1260→  const tries = CFG.IMG_RETRIES || 3; let lastErr = null;
+  1261→  /* Level 1: нативный fetch (CORS, кэш) */
+  1262→  for (let attempt = 0; attempt < tries; attempt++) {
+  1263→    const ctrl = (typeof AbortController === 'function') ? new AbortController() : null;
+  1264→    const timer = ctrl ? setTimeout(() => { try { ctrl.abort(); } catch (e) {} }, CFG.IMG_TIMEOUT) : null;
+  1265→    try {
+  1266→      const resp = await fetch(url, { mode: 'cors', cache: attempt === 0 ? 'force-cache' : 'no-cache', signal: ctrl ? ctrl.signal : undefined, credentials: 'omit' });
+  1267→      if (!resp.ok) throw new Error('HTTP ' + resp.status + (resp.status === 401 || resp.status === 403 ? ' (session-bound)' : ''));
+  1268→      const blob = await resp.blob();
+  1269→      if (!blob || !blob.size) throw new Error('пустой blob');
+  1270→      return { data: await blobToU8(blob), ext: extFromMime(blob.type) };
+  1271→    } catch (e) { lastErr = e; if (attempt < tries - 1) await sleep(350 * (attempt + 1)); }
+  1272→    finally { if (timer) clearTimeout(timer); }
+  1273→  }
+  1274→  /* Level 2: привилегии юзерскрипта (GM_xmlhttpRequest / GM.xmlHttpRequest) */
+  1275→  if (gmXhrAvailable()) {
+  1276→    try { return await fetchViaGM(url); } catch (e) { lastErr = e; }
+  1277→  }
+  1278→  /* Level 3: растр уже отрендеренного <img> из DOM */
+  1279→  try { return await extractImageViaCanvas(url); } catch (e) { lastErr = e; }
+  1280→  /* Level 4: свежая загрузка <img crossOrigin=anonymous> + canvas */
+  1281→  try { return await extractImageViaCanvasFresh(url); } catch (e) { lastErr = e; }
+  1282→  throw lastErr || new Error('CORS/сессия: все 4 уровня исчерпаны (fetch, GM, canvas-DOM, canvas-fresh)');
+  1283→}
+  1284→const resolveInner = () => { const v = (safeStorageGet('uaice_zipinner') || 'md').toLowerCase(); return ['md','json','txt','html','pdf','both'].indexOf(v) !== -1 ? v : 'md'; };
+  1285→const imagesEnabled = () => safeStorageGet('uaice_images') !== '0';
+  1286→
+  1287→/* ---- v28.2: пул параллельных задач (картинки больше не качаются по одной) ---- */
+  1288→async function poolMap(items, limit, worker, statusTick) {
+  1289→  const arr = Array.isArray(items) ? items.slice() : [];
+  1290→  const out = new Array(arr.length);
+  1291→  let cursor = 0, done = 0;
+  1292→  const lanes = new Array(Math.max(1, Math.min(limit || 4, arr.length || 1))).fill(0).map(async () => {
+  1293→    while (cursor < arr.length) {
+  1294→      const idx = cursor++;
+  1295→      try { out[idx] = { ok: true, value: await worker(arr[idx], idx) }; }
+  1296→      catch (e) { out[idx] = { ok: false, error: e };
+  1297→      } finally { done++; if (statusTick) try { statusTick(done, arr.length); } catch (e) {} }
+  1298→    }
+  1299→  });
+  1300→  await Promise.all(lanes);
+  1301→  return out;
+  1302→}
+  1303→
+  1304→async function buildZipEntries(results, failures, innerFmt, statusFn) {
+  1305→  const entries = []; const index = []; const imagesFailed = []; const attachmentsAll = [];
+  1306→  let imgSeq = 0, artSeq = 0;
+  1307→  for (let i = 0; i < results.length; i++) {
+  1308→    if (CANCEL) break;
+  1309→    const r = results[i];
+  1310→    if (statusFn) statusFn('ZIP ' + progress(i, results.length, sanitize(r.title, 24)));
+  1311→    const base = String(i + 1).padStart(3, '0') + '-' + sanitize(r.title);
+  1312→    const rec = { file: '', title: r.title, url: r.url, messages: r.scraped.items.length };
+  1313→    if (innerFmt === 'both') {
+  1314→      const fm = contentFor('md', r.scraped, r.title);
+  1315→      const fj = contentFor('json', r.scraped, r.title);
+  1316→      rec.file = base + '.md+.json';
+  1317→      entries.push({ name: 'chats/' + base + '.md', data: fm.content });
+  1318→      entries.push({ name: 'chats/' + base + '.json', data: fj.content });
+  1319→    } else if (innerFmt === 'pdf') {
+  1320→      /* v28.2: в ZIP кладём настоящий PDF только при явном CDN-флаге; иначе — печатная HTML-версия без CSP-рисков */
+  1321→      if (safeStorageGet('uaice_pdfcdn') === '1') {
+  1322→        try {
+  1323→          const blob = await renderPdfBlobCdn(r.scraped, r.title);
+  1324→          rec.file = base + '.pdf';
+  1325→          entries.push({ name: 'chats/' + rec.file, data: await blobToU8(blob) });
+  1326→        } catch (e) {
+  1327→          rec.file = base + '.print.html'; rec.note = 'CDN-рендер недоступен (' + (e && e.message) + '), сохранена печатная HTML';
+  1328→          try { const h = await renderPdfBlob(r.scraped, r.title); entries.push({ name: 'chats/' + rec.file, data: await blobToU8(h) }); }
+  1329→          catch (e2) { rec.file = base + '.md'; delete rec.note; entries.push({ name: 'chats/' + rec.file, data: contentFor('md', r.scraped, r.title).content }); }
+  1330→        }
+  1331→      } else {
+  1332→        try {
+  1333→          const h = await renderPdfBlob(r.scraped, r.title);
+  1334→          rec.file = base + '.print.html'; rec.note = '0-CDN: печатная HTML (открыть → Ctrl+P → Сохранить как PDF)';
+  1335→          entries.push({ name: 'chats/' + rec.file, data: await blobToU8(h) });
+  1336→        } catch (e) { rec.file = base + '.md'; entries.push({ name: 'chats/' + rec.file, data: contentFor('md', r.scraped, r.title).content }); }
+  1337→      }
+  1338→    } else {
+  1339→      const f = contentFor(innerFmt, r.scraped, r.title);
+  1340→      rec.file = base + '.' + f.ext;
+  1341→      entries.push({ name: 'chats/' + rec.file, data: f.content });
+  1342→    }
+  1343→    if (imagesEnabled() && r.scraped && Array.isArray(r.scraped.images)) {
+  1344→      /* v28.2: параллельная загрузка (пул ≤4) вместо последовательной */
+  1345→      const queue = [];
+  1346→      let perChat = 0;
+  1347→      for (const im of r.scraped.images) {
+  1348→        if (imgSeq >= CFG.IMG_TOTAL || perChat >= 20) break;
+  1349→        queue.push(im); perChat++;
+  1350→      }
+  1351→      const gotList = await poolMap(queue, 4, im => fetchImageU8(im.src));
+  1352→      for (let q = 0; q < gotList.length; q++) {
+  1353→        const got = gotList[q];
+  1354→        if (got && got.ok) {
+  1355→          imgSeq++;
+  1356→          entries.push({ name: 'images/' + String(i + 1).padStart(3, '0') + '-' + String(q + 1).padStart(2, '0') + '.' + got.value.ext, data: got.value.data });
+  1357→          rec.images = (rec.images || 0) + 1;
+  1358→        } else {
+  1359→          imagesFailed.push(queue[q].src + ' — ' + ((got && got.error && got.error.message) || 'ошибка'));
+  1360→        }
+  1361→      }
+  1362→    }
+  1363→    if (r.scraped && Array.isArray(r.scraped.attachments)) r.scraped.attachments.forEach(a => attachmentsAll.push({ chat: r.title, url: a.url, name: a.name }));
+  1364→    if (r.scraped && Array.isArray(r.scraped.artifacts)) {
+  1365→      for (const a of r.scraped.artifacts) {
+  1366→        if (artSeq >= CFG.ARTIFACTS_MAX) break;
+  1367→        artSeq++;
+  1368→        entries.push({ name: 'artifacts/' + String(i + 1).padStart(3, '0') + '-' + String((a.msg || 0) + 1).padStart(2, '0') + '-' + sanitize(a.lang || 'text', 20) + '.' + (a.ext || 'txt'), data: a.content || '' });
+  1369→        rec.artifacts = (rec.artifacts || 0) + 1;
+  1370→      }
+  1371→    }
+  1372→    index.push(rec);
+  1373→  }
+  1374→  if (imagesEnabled()) {
+  1375→    const links = [];
+  1376→    for (const r of results) if (r.scraped && Array.isArray(r.scraped.images)) r.scraped.images.forEach(im => links.push('- [' + sanitize(r.title, 40) + '] ' + im.src));
+  1377→    if (links.length) entries.push({ name: '_image-links.txt', data: ['# Все найденные изображения (для ручной загрузки при CORS-блоках)', ''].concat(links).join('\n') });
+  1378→  }
+  1379→  if (failures.length) entries.push({ name: '_FAILURES.txt', data: ['# Не удалось', ''].concat(failures.map(f => '- ' + f.title + ': ' + f.error)).join('\n') });
+  1380→  if (attachmentsAll.length) entries.push({ name: '_attachments.txt', data: attachmentsAll.map(a => '- [' + sanitize(a.chat, 40) + '] ' + a.name + ' — ' + a.url).join('\n') });
+  1381→  if (imagesFailed.length) entries.push({ name: '_images-failed.txt', data: ['# Не скачались (CORS/доступ)', ''].concat(imagesFailed).join('\n') });
+  1382→  entries.push({ name: '_index.json', data: JSON.stringify({ exporter: 'UACE v' + UACE_VER + ' × PML v' + UPOLY_VER, created: now(), format: innerFmt, chats: index, failures, images_failed: imagesFailed.length }, null, 2) });
+  1383→  return entries;
+  1384→}
+  1385→function splitZipVolumes(entries, maxBytes) {
+  1386→  const limit = maxBytes || CFG.MAX_ZIP_MB * 1024 * 1024;
+  1387→  const size = e => 30 + (e.name ? e.name.length : 0) + (e.data ? (e.data.length || 0) : 0) + 46;
+  1388→  const total = entries.reduce((s, e) => s + size(e), 0);
+  1389→  if (total <= limit) return [entries];
+  1390→  const vols = []; let cur = [], curSize = 0;
+  1391→  for (const e of entries) {
+  1392→    const s = size(e);
+  1393→    if (cur.length && curSize + s > limit) { vols.push(cur); cur = []; curSize = 0; }
+  1394→    cur.push(e); curSize += s;
+  1395→  }
+  1396→  if (cur.length) vols.push(cur);
+  1397→  return vols;
+  1398→}
+  1399→async function volumesToDownloads(vols, baseName, statusFn) {
+  1400→  for (let i = 0; i < vols.length; i++) {
+  1401→    if (statusFn && vols.length > 1) statusFn('ZIP: том ' + (i + 1) + '/' + vols.length + '...');
+  1402→    const name = vols.length > 1 ? baseName + '-part' + (i + 1) + '.zip' : baseName + '.zip';
+  1403→    const blob = HAS_DEFLATE ? await zipStoreSmart(vols[i]) : zipStore(vols[i]);
+  1404→    await downloadSmart(blob, name, 'application/zip');
+  1405→  }
+  1406→  if (vols.length > 1) toast('⚠ ZIP разбит на ' + vols.length + ' томов (лимит ' + CFG.MAX_ZIP_MB + ' МБ)', 5000);
+  1407→}
+  1408→/* ---- v28.2: PDF 0-CDN — скрытый iframe + @media print (нативное «Сохранить как PDF») ---- */
+  1409→function renderPdfBlob(scraped, title) {
+  1410→  return new Promise((resolve, reject) => {
+  1411→    try {
+  1412→      const htmlContent = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + String(title || 'export').replace(/[&<>]/g, '') + '</title><style>' + htmlCss() + '</style></head><body>' + htmlBody(scraped, title) + '</body></html>';
+  1413→      const iframe = document.createElement('iframe');
+  1414→      iframe.setAttribute('aria-hidden', 'true');
+  1415→      iframe.style.cssText = 'position:fixed;right:100%;bottom:100%;width:0;height:0;border:0;';
+  1416→      (document.body || document.documentElement).appendChild(iframe);
+  1417→      const doc = iframe.contentWindow.document;
+  1418→      doc.open();
+  1419→      doc.write(htmlContent);
+  1420→      const printStyle = doc.createElement('style');
+  1421→      printStyle.textContent = '@media print { @page { margin: 14mm; size: A4; } body { font-family: system-ui, sans-serif; color: #000; background: #fff; } .msg { page-break-inside: avoid; } .think { page-break-inside: avoid; } pre, code { white-space: pre-wrap; word-break: break-all; background: #f4f4f4; padding: 6px; } }';
+  1422→      doc.head.appendChild(printStyle);
+  1423→      doc.close();
+  1424→      setTimeout(() => {
+  1425→        try {
+  1426→          iframe.contentWindow.focus();
+  1427→          iframe.contentWindow.print();
+  1428→          setTimeout(() => { try { iframe.remove(); } catch (e) {} resolve(new Blob([htmlContent], { type: 'text/html;charset=utf-8' })); }, 400);
+  1429→        } catch (e) { try { iframe.remove(); } catch (e2) {} reject(e); }
+  1430→      }, 250);
+  1431→    } catch (err) { reject(err); }
+  1432→  });
+  1433→}
+  1434→/* v28.2: прежний CDN-рендер переименован и включается только флагом uaice_pdfcdn=1 */
+  1435→async function renderPdfBlobCdn(scraped, title) {
+  1436→  await loadScript(LIBS.html2pdf, 'html2pdf');
+  1437→  const holder = document.createElement('div');
+  1438→  holder.style.cssText = 'position:fixed;left:-10000px;top:0;width:800px;background:#fff;';
+  1439→  holder.innerHTML = '<style>' + htmlCss() + '</style>' + htmlBody(scraped, title);
+  1440→  (document.body || document.documentElement).appendChild(holder);
+  1441→  try {
+  1442→    const pdf = await window.html2pdf().set({ margin: 10, image: { type: 'jpeg', quality: 0.98 }, html2canvas: { scale: 2, useCORS: true }, jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' } }).from(holder).toPdf().get('pdf');
+  1443→    return pdf.output('blob');
+  1444→  } finally { holder.remove(); }
+  1445→}
+  1446→function printFallback(scraped, title) {
+  1447→  const w = window.open('', '_blank');
+  1448→  if (!w) { setStatusSafe('PDF: popup заблокирован, откройте окно печати вручную.'); return; }
+  1449→  w.document.open(); w.document.write(toHTML(scraped, title)); w.document.close();
+  1450→  setTimeout(() => { try { w.focus(); w.print(); } catch (e) {} }, 500);
+  1451→}
+  1452→const setStatusSafe = t => { try { console.warn('[UACE] ' + t); } catch (e) {} };
+  1453→async function exportAsPDF(scraped, title) {
+  1454→  /* v28.2: основной путь — 0-CDN iframe-печать (нативное «Сохранить как PDF»);
+  1455→     CDN-рендер — только по явному флагу uaice_pdfcdn=1 (CSP-совместимость по умолчанию) */
+  1456→  if (safeStorageGet('uaice_pdfcdn') === '1') {
+  1457→    try { const blob = await renderPdfBlobCdn(scraped, title); downloadBlob(blob, sanitize(title) + '-' + ts() + '.pdf', 'application/pdf'); return; }
+  1458→    catch (e) { console.error('PDF CDN error:', e); setStatusSafe('PDF: CDN-рендер не удался (CSP?), переключаюсь на печать браузера'); }
+  1459→  }
+  1460→  try { await renderPdfBlob(scraped, title); }
+  1461→  catch (e) { console.error('PDF print error:', e); printFallback(scraped, title); }
+  1462→}
+  1463→async function saveInFormat(scraped, title, format) {
+  1464→  if (format === 'pdf') { await exportAsPDF(scraped, title); return; }
+  1465→  if (format === 'zip') {
+  1466→    const entries = await buildZipEntries([{ title, url: location.href, scraped }], [], resolveInner(), null);
+  1467→    await volumesToDownloads(splitZipVolumes(entries), sanitize(title) + '-' + ts(), null);
+  1468→    return;
+  1469→  }
+  1470→  const f = contentFor(format, scraped, title);
+  1471→  downloadBlob(f.content, sanitize(title) + '-' + ts() + '.' + f.ext, f.mime);
+  1472→}
+  1473→function buildMerged(results, innerFmt) {
+  1474→  if (innerFmt === 'json') return JSON.stringify({ exporter: 'UACE v' + UACE_VER + ' × PML v' + UPOLY_VER, created: now(), chats: results.map(r => ({ title: r.title, url: r.url, platform: platformName(r.scraped), messages: r.scraped.items })) }, null, 2);
+  1475→  if (innerFmt === 'sharegpt') return JSON.stringify({ exporter: 'UACE v' + UACE_VER + ' × PML v' + UPOLY_VER, created: now(), chats: results.map(r => ({ title: r.title, url: r.url, conversations: r.scraped.items.map(m => ({ from: sharegptFrom(m.role), value: m.text || m.content })) })) }, null, 2);
+  1476→  if (innerFmt === 'alpaca') return JSON.stringify({ exporter: 'UACE v' + UACE_VER + ' × PML v' + UPOLY_VER, created: now(), chats: results.map(r => JSON.parse(toAlpaca(r.scraped, r.title))) }, null, 2);
+  1477→  if (innerFmt === 'jsonl') return results.map(r => toJSONL(r.scraped, r.title)).join('\n');
+  1478→  if (innerFmt === 'html') { let h = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>AI Chats</title><style>' + htmlCss() + 'section{page-break-after:always}</style></head><body>'; results.forEach(r => { h += '<section>' + htmlBody(r.scraped, r.title) + '</section>'; }); return h + '</body></html>'; }
+  1479→  const sep = '='.repeat(60);
+  1480→  return results.map((r, i) => { const f = contentFor(innerFmt === 'pdf' ? 'md' : innerFmt, r.scraped, r.title); return '\n\n' + sep + '\n' + (i + 1) + '. ' + r.title + '\n' + r.url + '\n' + sep + '\n\n' + f.content; }).join('\n');
+  1481→}
+  1482→async function finalizeResults(results, failures, format, inner, statusFn) {
+  1483→  if (!results.length) {
+  1484→    if (failures.length) downloadBlob(['# Не удалось', ''].concat(failures.map(f => '- ' + f.title + ': ' + f.error)).join('\n'), '_FAILURES-' + ts() + '.txt', 'text/plain;charset=utf-8');
+  1485→    return;
+  1486→  }
+  1487→  if (format === 'zip') {
+  1488→    try {
+  1489→      if (statusFn) statusFn('Собираю ZIP...');
+  1490→      const entries = await buildZipEntries(results, failures, inner, statusFn);
+  1491→      await volumesToDownloads(splitZipVolumes(entries), 'ai-chats-' + ts(), statusFn);
+  1492→      return;
+  1493→    } catch (e) { console.error(e); if (statusFn) statusFn('⚠ ZIP не удался, объединённый файл'); }
+  1494→  }
+  1495→  if (inner === 'pdf') {
+  1496→    for (let i = 0; i < results.length; i++) {
+  1497→      if (CANCEL) break;
+  1498→      const r = results[i];
+  1499→      if (statusFn) statusFn('PDF ' + progress(i, results.length, sanitize(r.title, 24)));
+  1500→      try { await exportAsPDF(r.scraped, String(i + 1).padStart(3, '0') + '-' + r.title); } catch (e) {}
+  1501→      await sleep(700);
+  1502→    }
+  1503→  } else {
+  1504→    const merged = buildMerged(results, inner);
+  1505→    const f = contentFor(inner, results[0].scraped, results[0].title);
+  1506→    downloadBlob(merged, 'ai-chats-' + ts() + '.' + f.ext, f.mime);
+  1507→  }
+  1508→  if (failures.length) downloadBlob(['# Не удалось', ''].concat(failures.map(f => '- ' + f.title + ': ' + f.error)).join('\n'), '_FAILURES-' + ts() + '.txt', 'text/plain;charset=utf-8');
+  1509→}
+  1510→
+  1511→/* ---- B.11. Сайдбар UACE ---- */
+  1512→const UUID_RE = /([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/i;
+  1513→function extractChatTarget(el) {
+  1514→  if (!el) return { href: null, id: null };
+  1515→  if (el.attributes) {
+  1516→    for (let i = 0; i < el.attributes.length; i++) {
+  1517→      const a = el.attributes[i]; const v = a.value || '';
+  1518→      if (a.name === 'href' && v) { try { return { href: new URL(v, location.href).href, id: null }; } catch (e) {} }
+  1519→      const m = v.match(UUID_RE); if (m) return { href: null, id: m[1] };
+  1520→      if (/^(data-(chat|conversation|session|thread|id)|id)$/i.test(a.name) && v.length >= 6 && v.length <= 80) return { href: null, id: v };
+  1521→    }
+  1522→  }
+  1523→  const innerA = el.querySelector && el.querySelector('a[href]');
+  1524→  if (innerA && innerA.href) return { href: innerA.href, id: null };
+  1525→  const html = el.outerHTML || '';
+  1526→  const m1 = html.match(UUID_RE);
+  1527→  if (m1) return { href: null, id: m1[1] };
+  1528→  try {
+  1529→    const keys = Object.keys(el);
+  1530→    for (let ki = 0; ki < keys.length; ki++) {
+  1531→      const k = keys[ki];
+  1532→      if (k.indexOf('__reactProps$') !== 0 && k.indexOf('__reactFiber$') !== 0) continue;
+  1533→      let node = el[k];
+  1534→      for (let depth = 0; depth < 10 && node; depth++) {
+  1535→        const props = node.memoizedProps;
+  1536→        if (props && typeof props === 'object') {
+  1537→          const keys2 = Object.keys(props);
+  1538→          for (let pi = 0; pi < keys2.length; pi++) {
+  1539→            const pv = props[keys2[pi]];
+  1540→            if (typeof pv === 'string') {
+  1541→              const m = pv.match(UUID_RE); if (m) return { href: null, id: m[1] };
+  1542→              if (/^(id|chatId|conversationId|sessionId|threadId|key)$/i.test(keys2[pi]) && pv.length >= 6 && pv.length <= 80) return { href: null, id: pv };
+  1543→              if (/^href$|^to$|^url$/i.test(keys2[pi]) && pv.length > 1) { try { return { href: new URL(pv, location.href).href, id: null }; } catch (e) {} }
+  1544→            } else if (pv && typeof pv === 'object') {
+  1545→              const innerKeys = Object.keys(pv);
+  1546→              for (let ii = 0; ii < innerKeys.length; ii++) {
+  1547→                const ipv = pv[innerKeys[ii]];
+  1548→                if (typeof ipv === 'string') { const m = ipv.match(UUID_RE); if (m) return { href: null, id: m[1] }; }
+  1549→              }
+  1550→            }
+  1551→          }
+  1552→        }
+  1553→        node = node.return;
+  1554→      }
+  1555→    }
+  1556→  } catch (e) {}
+  1557→  return { href: null, id: null };
+  1558→}
+  1559→function buildChatUrl(id) {
+  1560→  if (!id) return null;
+  1561→  const platform = getPlatform();
+  1562→  if (platform && platform.chatUrlPattern) return location.origin + platform.chatUrlPattern.replace('{id}', id);
+  1563→  const m = location.pathname.match(/^(.*\/)(c|chat|conversation|app|thread)\/[^\/]+/i);
+  1564→  if (m) return location.origin + m[1] + m[2] + '/' + id;
+  1565→  return location.origin + '/c/' + id;
+  1566→}
+  1567→function tryReactOnClick(el) {
+  1568→  try {
+  1569→    const keys = Object.keys(el);
+  1570→    for (let i = 0; i < keys.length; i++) {
+  1571→      if (keys[i].indexOf('__reactProps$') !== 0) continue;
+  1572→      const props = el[keys[i]];
+  1573→      if (props && typeof props.onClick === 'function') {
+  1574→        const evt = { type: 'click', target: el, currentTarget: el, nativeEvent: { button: 0, ctrlKey: false, metaKey: false, shiftKey: false, altKey: false }, preventDefault: () => {}, stopPropagation: () => {}, isDefaultPrevented: () => false, isPropagationStopped: () => false, persist: () => {}, defaultPrevented: false, bubbles: true, cancelable: true };
+  1575→        props.onClick(evt); return true;
+  1576→      }
+  1577→    }
+  1578→  } catch (e) {}
+  1579→  return false;
+  1580→}
+  1581→function isChatUrl(href) {
+  1582→  if (!href) return false;
+  1583→  try {
+  1584→    const u = new URL(href, location.href);
+  1585→    if (u.origin !== location.origin) return false;
+  1586→    if (/^\/(new|create|edit|settings|help|login|signup|logout|terms|privacy|about|contact|faq|legal|pricing|billing|account|profile|drive|create-image|cron-jobs|tasks|discover|explore|search|upgrade|download|auth|oauth|reset|verify)/i.test(u.pathname)) return false;
+  1587→    if (/\/(chat|work|code|c|conversation|thread|app|gem|s|share|session|talk|a)\/[a-zA-Z0-9][a-zA-Z0-9_\/-]{7,}/i.test(u.pathname)) return true;
+  1588→    if (/[?&](id|chat|conversation|thread|session)=/i.test(u.search)) return true;
+  1589→    return false;
+  1590→  } catch (e) { return false; }
+  1591→}
+  1592→const NAV_KEYWORDS = ['проекты','проект','новая папка','новый проект','vibe','work','code','chat','projects','настройки','settings','профиль','profile','новый чат','new chat','помощь','help','сообщество','community','обновления','updates','поиск','search','архив','archive','избранное','library','библиотека','gpts','sora','explore','discover','temporary chat','временный чат','新对话','新建对话','新聊天','新建会话','设置','帮助','delete','удалить','rename','переименовать','pin','закрепить','share','поделиться','все чаты','all chats','история','history','activity','gemini','extensions','расширения','gems','notebooklm','new notebook','upgrade','обновить','попробовать','блокноты','недавние','artifacts','customize','pinned','new','claude','images','scheduled','plugins','health','codex','создание контента ии','запланированные задачи','диск','dola','поиск по чатам','новый блокнот','новая беседа'];
+  1593→const normalizeNavKey = s => String(s || '').replace(/[\s.…,;:!?—–-]+$/g, '').toLowerCase().trim();
+  1594→function isNavKeyword(s) { if (!s) return false; const low = normalizeNavKey(s); if (!low || low.length > 40) return false; return NAV_KEYWORDS.indexOf(low) !== -1; }
+  1595→function isClickable(el) {
+  1596→  if (!el) return false;
+  1597→  const tag = (el.tagName || '').toLowerCase();
+  1598→  if (tag === 'a' && el.hasAttribute && el.hasAttribute('href')) return true;
+  1599→  if (tag === 'button') return true;
+  1600→  const role = el.getAttribute ? (el.getAttribute('role') || '') : '';
+  1601→  if (role === 'button' || role === 'link' || role === 'listitem' || role === 'option' || role === 'tab') return true;
+  1602→  const tab = el.getAttribute ? el.getAttribute('tabindex') : null;
+  1603→  if (tab !== null && tab !== undefined && tab !== '-1') return true;
+  1604→  return false;
+  1605→}
+  1606→function isNavContainer(el) {
+  1607→  if (!el) return false;
+  1608→  const tag = (el.tagName || '').toLowerCase();
+  1609→  const role = el.getAttribute ? (el.getAttribute('role') || '') : '';
+  1610→  if (tag === 'mat-sidenav' || tag === 'bard-sidenav' || tag === 'side-navigation-v2') return true;
+  1611→  if (tag === 'aside' || tag === 'nav' || role === 'navigation') return true;
+  1612→  const c = (typeof el.className === 'string' ? el.className : '').toLowerCase();
+  1613→  if (/sidenav|sidebar|side-nav|drawer|history-list|chat-list|conversation-list|side-bar|chat-aside|chat-history/.test(c)) return true;
+  1614→  return false;
+  1615→}
+  1616→function isLeftSide(el) {
+  1617→  if (!el) return false;
+  1618→  try {
+  1619→    const r = el.getBoundingClientRect();
+  1620→    const vw = window.innerWidth || document.documentElement.clientWidth || 1920;
+  1621→    if (r.height < 100) return false;
+  1622→    if (r.width < 20) return false;
+  1623→    if (r.left > vw * 0.40) return false;
+  1624→    if (r.left + r.width > vw * 0.65) return false;
+  1625→    return true;
+  1626→  } catch (e) { return false; }
+  1627→}
+  1628→function looksLikeCode(s) {
+  1629→  if (!s) return true;
+  1630→  const t = s.trim();
+  1631→  if (t.length < 2) return true;
+  1632→  if (/\b(is not defined|is not a function|TypeError|ReferenceError|SyntaxError)\b/.test(t)) return true;
+  1633→  if (/^https?:\/\/\S+$/i.test(t)) return true;
+  1634→  if (/^Thought for \d+/i.test(t)) return true;
+  1635→  if (/^```/.test(t)) return true;
+  1636→  return false;
+  1637→}
+  1638→function looksLikeChatItem(el) {
+  1639→  if (!el || !isVisible(el)) return false;
+  1640→  if (el.closest && el.closest('#' + UI_ID)) return false;
+  1641→  if (el.closest && el.closest('#pml-tabs-host')) return false;
+  1642→  if (isInChatArea(el)) return false;
+  1643→  let t = txt(el);
+  1644→  if (!t || t.length < 2) { const p = el.parentElement; if (p) t = txt(p); }
+  1645→  if (!t || t.length < 2 || t.length > 120) return false;
+  1646→  if (isNavKeyword(t) || isCssOrJs(t) || isSourceListing(t)) return false;
+  1647→  if (t.indexOf('\n') !== -1) return false;
+  1648→  if (looksLikeCode(t)) return false;
+  1649→  if (t.indexOf('::') !== -1) return false;
+  1650→  if (/^[#>*-]\s/.test(t)) return false;
+  1651→  if (/[.…]{2,}\s*$/.test(t)) return false;
+  1652→  if (/^[A-Za-z]{2,6}$/.test(t)) return false;
+  1653→  return true;
+  1654→}
+  1655→function findLeftPanel() {
+  1656→  const cands = [];
+  1657→  const sels = 'mat-sidenav, bard-sidenav, side-navigation-v2, aside, nav, [role="navigation"], [class*="sidenav"], [class*="sidebar"], [class*="sider"], [class*="side-bar"], [class*="history"], [class*="conversation"], [class*="chat-aside"], [class*="chat-history"], [class*="chat-list"], #flow_chat_sidebar, nav[class*="panel-"]';
+  1658→  let els = [];
+  1659→  try { els = document.querySelectorAll(sels); } catch (e) { els = []; }
+  1660→  els.forEach(el => {
+  1661→    try {
+  1662→      if (el.closest && el.closest('#' + UI_ID)) return;
+  1663→      if (!isLeftSide(el)) return;
+  1664→      const r = el.getBoundingClientRect();
+  1665→      const st = getComputedStyle(el);
+  1666→      const scrollable = /auto|scroll/.test(st.overflowY) || /auto|scroll/.test(st.overflow);
+  1667→      let score = Math.max(r.height, 200) * (scrollable ? 2 : 1);
+  1668→      if (isNavContainer(el)) score *= 4;
+  1669→      const cc = el.querySelectorAll('a[href*="/a/chat/s/"], a[href*="/chat/"], a[href*="/c/"], [class*="conversation-item"]').length;
+  1670→      if (cc > 0) score *= 5;
+  1671→      cands.push({ el, score });
+  1672→    } catch (e) {}
+  1673→  });
+  1674→  cands.sort((a, b) => b.score - a.score);
+  1675→  return cands[0] ? cands[0].el : null;
+  1676→}
+  1677→function isDrawerOpen() { return !!document.querySelector('mat-sidenav.mat-drawer-opened, mat-sidenav.mat-drawer-opening, bard-sidenav.mat-drawer-opened, bard-sidenav.mat-drawer-opening, aside.mat-drawer-opened'); }
+  1678→function isSidebarOpen() {
+  1679→  if (isDrawerOpen()) return true;
+  1680→  const panel = findLeftPanel(); if (!panel) return false;
+  1681→  const r = panel.getBoundingClientRect();
+  1682→  return r.left >= -5 && r.width >= 20 && r.height >= 100;
+  1683→}
+  1684→async function waitForDrawerOpen(t) {
+  1685→  const s = Date.now();
+  1686→  while (Date.now() - s < t) { if (isDrawerOpen()) { await sleep(600); return true; } await sleep(150); }
+  1687→  return isDrawerOpen();
+  1688→}
+  1689→async function dispatchFullClick(el) {
+  1690→  try { el.scrollIntoView({ block: 'center' }); } catch (e) {}
+  1691→  await sleep(120);
+  1692→  try { if (typeof el.focus === 'function') el.focus(); } catch (e) {}
+  1693→  let cx = 1, cy = 1;
+  1694→  try { const r = el.getBoundingClientRect(); cx = Math.floor(r.left + r.width / 2) || 1; cy = Math.floor(r.top + r.height / 2) || 1; } catch (e) {}
+  1695→  const base = { bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy, button: 0, detail: 1 };
+  1696→  const fire = (type, Ctor, extra) => { try { el.dispatchEvent(new Ctor(type, Object.assign({}, base, extra))); } catch (e) {} };
+  1697→  fire('pointerover', PointerEvent || MouseEvent, { pointerId: 1, pointerType: 'mouse', buttons: 0, isPrimary: true });
+  1698→  fire('mouseover', MouseEvent, { buttons: 0 });
+  1699→  fire('pointerenter', PointerEvent || MouseEvent, { pointerId: 1, pointerType: 'mouse', buttons: 0, isPrimary: true });
+  1700→  fire('mouseenter', MouseEvent, { buttons: 0 });
+  1701→  fire('mousemove', MouseEvent, {});
+  1702→  fire('pointerdown', PointerEvent || MouseEvent, { pointerId: 1, pointerType: 'mouse', buttons: 1, isPrimary: true });
+  1703→  fire('mousedown', MouseEvent, { buttons: 1 });
+  1704→  fire('pointerup', PointerEvent || MouseEvent, { pointerId: 1, pointerType: 'mouse', buttons: 0, isPrimary: true });
+  1705→  fire('mouseup', MouseEvent, { buttons: 0 });
+  1706→  fire('click', MouseEvent, {});
+  1707→  try { if (typeof el.click === 'function') el.click(); } catch (e) {}
+  1708→}
+  1709→async function tryOpenSidebar() {
+  1710→  if (isSidebarOpen()) return true;
+  1711→  const seen = new Set(), cands = [];
+  1712→  const pushC = el => { if (!el || seen.has(el)) return; if (!isVisible(el)) return; seen.add(el); cands.push(el); };
+  1713→  try { const q = document.querySelector('#sidebar-toggle-button'); if (q) pushC(q); } catch (e) {}
+  1714→  const sels = ['button[aria-label*="Main menu" i]','button[aria-label*="Side panel" i]','button[aria-label*="sidebar" i]','button[aria-label*="sidenav" i]','button[aria-label*="Toggle sidebar" i]','button[aria-label*="menu" i]','button[aria-label*="Open" i]','button[aria-label*="Открыть" i]','button[aria-label*="меню" i]','[class*="sidebar-toggle"]','[class*="menu-toggle"]','[class*="hamburger"]','.slide-switch'];
+  1715→  for (const sel of sels) { try { document.querySelectorAll(sel).forEach(pushC); } catch (e) {} }
+  1716→  for (const c of cands) { try { await dispatchFullClick(c); if (await waitForDrawerOpen(2000)) return true; } catch (e) {} }
+  1717→  return isSidebarOpen();
+  1718→}
+  1719→async function ensureSidebar() {
+  1720→  let ok = await tryOpenSidebar();
+  1721→  if (!ok) { await sleep(800); ok = await tryOpenSidebar(); }
+  1722→  if (!ok) { await sleep(1200); ok = await tryOpenSidebar(); }
+  1723→  return ok;
+  1724→}
+  1725→function extractItemsFromPanel(panel) {
+  1726→  if (!panel) return [];
+  1727→  const groups = {};
+  1728→  panel.querySelectorAll('*').forEach(el => {
+  1729→    try {
+  1730→      if (el.closest && el.closest('#' + UI_ID)) return;
+  1731→      if (!looksLikeChatItem(el)) return;
+  1732→      if (el.children.length > 10) return;
+  1733→      let clickable = isClickable(el);
+  1734→      if (!clickable) { const anc = el.closest && el.closest('a[href], button, [role="button"], [role="listitem"]'); if (anc) clickable = true; }
+  1735→      if (!clickable) return;
+  1736→      const key = el.tagName;
+  1737→      (groups[key] = groups[key] || []).push(el);
+  1738→    } catch (e) {}
+  1739→  });
+  1740→  let best = null;
+  1741→  Object.keys(groups).forEach(key => {
+  1742→    const els = groups[key];
+  1743→    if (els.length < 2) return;
+  1744→    const cleanList = els.filter(el => !els.some(o => o !== el && o.contains(el)));
+  1745→    if (cleanList.length < 2) return;
+  1746→    if (!best || cleanList.length > best.items.length) best = { key, items: cleanList };
+  1747→  });
+  1748→  if (!best) return [];
+  1749→  return best.items.map(el => {
+  1750→    const ex = extractChatTarget(el);
+  1751→    const title = txt(el).slice(0, 120);
+  1752→    return { el, href: (ex && ex.href) || '', title, dataId: (ex && ex.id) || null };
+  1753→  });
+  1754→}
+  1755→function collectChatLinks(rootEl) {
+  1756→  const root = rootEl || document;
+  1757→  const out = []; const seen = new Set();
+  1758→  const curUrl = location.href.split('?')[0].replace(/\/$/, '');
+  1759→  const push = item => {
+  1760→    if (!item || !item.el) return;
+  1761→    if (seen.has(item.el)) return;
+  1762→    for (let i = 0; i < out.length; i++) {
+  1763→      if (out[i].el === item.el) return;
+  1764→      if (out[i].el.contains(item.el) || item.el.contains(out[i].el)) return;
+  1765→    }
+  1766→    seen.add(item.el); out.push(item);
+  1767→  };
+  1768→  const platform = getPlatform();
+  1769→  const hints = platform && platform.chatUrlHints;
+  1770→  if (hints && hints.length) {
+  1771→    try {
+  1772→      root.querySelectorAll('a[href]').forEach(a => {
+  1773→        if (!isVisible(a)) return;
+  1774→        const href = a.getAttribute('href') || '';
+  1775→        let matched = false;
+  1776→        for (const h of hints) { try { if (h.test(href)) { matched = true; break; } } catch (e) {} }
+  1777→        if (!matched) return;
+  1778→        if (!isChatUrl(a.href)) return;
+  1779→        const t = txt(a);
+  1780→        if (!t || t.length < 2 || t.length > 200) return;
+  1781→        if (looksLikeCode(t) || isNavKeyword(t)) return;
+  1782→        push({ el: a, href: a.href || '', title: t.slice(0, 120), dataId: null });
+  1783→      });
+  1784→    } catch (e) {}
+  1785→  }
+  1786→  try {
+  1787→    const sel = 'a[aria-label="chat-item"], a.chat-item-drag-link, [class*="conversation-item"], [class*="chat-item"], [class*="history-item"], [class*="session-item"], [data-chat-id], [data-conversation-id], [data-session-id], [data-thread-id]';
+  1788→    root.querySelectorAll(sel).forEach(el => {
+  1789→      if (!isVisible(el)) return;
+  1790→      const t = txt(el);
+  1791→      if (!t || t.length < 2 || t.length > 200) return;
+  1792→      if (looksLikeCode(t) || isNavKeyword(t)) return;
+  1793→      const extracted = extractChatTarget(el);
+  1794→      const innerA = el.querySelector('a[href]');
+  1795→      const dataId = el.getAttribute('data-chat-id') || el.getAttribute('data-conversation-id') || el.getAttribute('data-session-id') || el.getAttribute('data-thread-id') || (extracted && extracted.id) || null;
+  1796→      const href = (innerA && innerA.href) || (extracted && extracted.href) || '';
+  1797→      if (!href && !dataId) return;
+  1798→      if (href && href.split('?')[0].replace(/\/$/, '') === curUrl) return;
+  1799→      push({ el, href, title: t.slice(0, 120), dataId });
+  1800→    });
+  1801→  } catch (e) {}
+  1802→  try {
+  1803→    root.querySelectorAll('a[href]').forEach(a => {
+  1804→      if (isInChatArea(a)) return;
+  1805→      if (!isVisible(a)) return;
+  1806→      const t = txt(a);
+  1807→      if (!t || t.length < 2 || t.length > 200) return;
+  1808→      if (isNavKeyword(t) || isCssOrJs(t) || isSourceListing(t) || looksLikeCode(t)) return;
+  1809→      try { const u = new URL(a.href, location.href); if (u.origin !== location.origin) return; } catch (e) { return; }
+  1810→      if (!isChatUrl(a.href)) return;
+  1811→      if (a.href.split('?')[0].replace(/\/$/, '') === curUrl) return;
+  1812→      push({ el: a, href: a.href || '', title: t.slice(0, 120), dataId: null });
+  1813→    });
+  1814→  } catch (e) {}
+  1815→  try {
+  1816→    const panel = (root === document) ? findLeftPanel() : root;
+  1817→    if (panel) extractItemsFromPanel(panel).forEach(it => {
+  1818→      if (it.href && it.href.split('?')[0].replace(/\/$/, '') === curUrl) return;
+  1819→      push(it);
+  1820→    });
+  1821→  } catch (e) {}
+  1822→  return out;
+  1823→}
+  1824→function scanContainers(selector) {
+  1825→  let containers; try { containers = document.querySelectorAll(selector); } catch (e) { return null; }
+  1826→  const cands = [];
+  1827→  for (const c of containers) {
+  1828→    if (c.closest && c.closest('#' + UI_ID)) continue;
+  1829→    if (!isLeftSide(c)) continue;
+  1830→    const links = collectChatLinks(c);
+  1831→    if (links.length >= 2) cands.push({ container: c, items: links, score: links.length, via: 'container' });
+  1832→  }
+  1833→  cands.sort((a, b) => b.score - a.score);
+  1834→  return cands[0] || null;
+  1835→}
+  1836→function findStructuralChatItems() {
+  1837→  const panel = findLeftPanel(); if (!panel) return null;
+  1838→  const items = extractItemsFromPanel(panel);
+  1839→  return items.length >= 2 ? { container: panel, items, score: items.length, via: 'left-panel' } : null;
+  1840→}
+  1841→function findClickableChatItems() {
+  1842→  const panel = findLeftPanel(); if (!panel) return null;
+  1843→  const items = []; const curUrl = location.href.split('?')[0].replace(/\/$/, '');
+  1844→  let nl = [];
+  1845→  try { nl = panel.querySelectorAll('[role="button"], [role="link"], [role="listitem"], [tabindex]:not([tabindex="-1"]), button, li, a[aria-label="chat-item"], a.chat-item-drag-link, [class*="conversation-item"]'); } catch (e) {}
+  1846→  for (const el of nl) {
+  1847→    if (el.closest && el.closest('#' + UI_ID)) continue;
+  1848→    if (!isVisible(el)) continue;
+  1849→    if (el.children.length > 6) continue;
+  1850→    const t = txt(el);
+  1851→    if (!t || t.length < 2 || t.length > 120) continue;
+  1852→    if (looksLikeCode(t) || isNavKeyword(t) || isCssOrJs(t)) continue;
+  1853→    if (t.indexOf('\n') !== -1) continue;
+  1854→    const href = el.href || '';
+  1855→    if (href && href.split('?')[0].replace(/\/$/, '') === curUrl) continue;
+  1856→    items.push({ el, href, title: t.slice(0, 120), dataId: null });
+  1857→  }
+  1858→  if (items.length >= 2) return { container: panel, items, score: items.length, via: 'click-items' };
+  1859→  return null;
+  1860→}
+  1861→function findList() {
+  1862→  const platform = getPlatform();
+  1863→  const strategies = [];
+  1864→  if (platform && platform.sidebarSelectors && platform.sidebarSelectors.length) strategies.push({ name: 'platform', fn: () => scanContainers(platform.sidebarSelectors.join(',')) });
+  1865→  strategies.push({ name: 'generic', fn: () => scanContainers('nav,aside,[role="navigation"],[class*="sidebar"],[class*="history"],[class*="chat-list"],[class*="conversation-list"],[class*="sider"]') });
+  1866→  strategies.push({ name: 'conversation-item', fn: () => {
+  1867→    const items = [];
+  1868→    try {
+  1869→      document.querySelectorAll('[class*="conversation-item"], a[id^="conversation_"]').forEach(el => {
+  1870→        const t = txt(el); if (!t || t.length < 2) return;
+  1871→        const href = el.href || '';
+  1872→        if (href && href.split('?')[0] === location.href.split('?')[0]) return;
+  1873→        items.push({ el, href, title: t.slice(0, 120), dataId: null });
+  1874→      });
+  1875→    } catch (e) {}
+  1876→    return items.length >= 2 ? { container: null, items, score: items.length, via: 'conversation-item' } : null;
+  1877→  } });
+  1878→  strategies.push({ name: 'structural', fn: findStructuralChatItems });
+  1879→  strategies.push({ name: 'click-items', fn: findClickableChatItems });
+  1880→  for (const st of strategies) {
+  1881→    try { const r = st.fn(); if (r && r.items && r.items.length >= 2) return r; } catch (e) {}
+  1882→  }
+  1883→  const docLinks = collectChatLinks(document).filter(it => it.href || it.dataId);
+  1884→  if (docLinks.length >= 2) return { container: null, items: docLinks, score: docLinks.length, via: 'doc-links', fallback: true };
+  1885→  return null;
+  1886→}
+  1887→async function prescrollList(container) {
+  1888→  if (!container) return;
+  1889→  const step = Math.max(200, Math.floor(container.clientHeight * 0.8));
+  1890→  for (let k = 0; k < 4; k++) {
+  1891→    container.scrollTop = 0; await sleep(150);
+  1892→    for (let y = 0; y < container.scrollHeight; y += step) { container.scrollTop = y; await sleep(120); }
+  1893→    container.scrollTop = container.scrollHeight; await sleep(200);
+  1894→  }
+  1895→  container.scrollTop = 0; await sleep(150);
+  1896→}
+  1897→
+  1898→/* ---- B.12. Манифест + сессия ---- */
+  1899→const MANIFEST_KEY = 'uaice_manifest_v1';
+  1900→const SESSION_KEY = 'uaice_bulk_v1';
+  1901→function chatHash(s) { const items = (s && Array.isArray(s.items)) ? s.items : []; return hashString(items.map(x => (x.role || 'unknown') + '\u0000' + (x.text || x.content || '')).join('\u0001')); }
+  1902→function manifestKey(it) {
+  1903→  if (!it) return '';
+  1904→  if (it.href) { try { const u = new URL(it.href, location.href); u.hash = ''; return u.href; } catch (e) {} }
+  1905→  if (it.dataId) return 'id:' + String(it.dataId);
+  1906→  return 'title:' + normalizeNavKey(it.title || '');
+  1907→}
+  1908→function fingerprintSidebar() {
+  1909→  try {
+  1910→    const list = findList(); if (!list || !list.items) return '';
+  1911→    return hashString(list.items.slice(0, 40).map(x => (x.dataId || '') + '\u0000' + normalizeNavKey(x.title || '') + '\u0000' + (x.href || '')).join('\u0001'));
+  1912→  } catch (e) { return ''; }
+  1913→}
+  1914→let MANIFEST_MEM = null;
+  1915→const loadManifest = () => { try { return JSON.parse(safeStorageGet(MANIFEST_KEY) || '{}'); } catch (e) { return {}; } };
+  1916→async function getManifest() {
+  1917→  if (MANIFEST_MEM) return MANIFEST_MEM;
+  1918→  const base = loadManifest();
+  1919→  try {
+  1920→    const rows = await idbGetAll();
+  1921→    if (rows && rows.length) {
+  1922→      const o = {};
+  1923→      rows.forEach(r => { if (r && r.id) o[r.id] = { hash: r.hash, exported_at: r.exported_at, title: r.title }; });
+  1924→      MANIFEST_MEM = Object.assign({}, base, o);
+  1925→      return MANIFEST_MEM;
+  1926→    }
+  1927→  } catch (e) {}
+  1928→  MANIFEST_MEM = base; return MANIFEST_MEM;
+  1929→}
+  1930→let _persistTimer = null;
+  1931→function saveManifest(m) { MANIFEST_MEM = m || {}; if (_persistTimer) clearTimeout(_persistTimer); _persistTimer = setTimeout(() => { flushManifest(); }, 400); }
+  1932→async function flushManifest() {
+  1933→  const m = MANIFEST_MEM || loadManifest();
+  1934→  try { safeStorageSet(MANIFEST_KEY, JSON.stringify(m)); } catch (e) {}
+  1935→  const rows = Object.keys(m).map(k => ({ id: k, hash: m[k].hash, exported_at: m[k].exported_at, title: m[k].title }));
+  1936→  try { await idbPutMany(rows); } catch (e) {}
+  1937→}
+  1938→async function clearManifestAll() {
+  1939→  MANIFEST_MEM = {};
+  1940→  if (_persistTimer) { clearTimeout(_persistTimer); _persistTimer = null; }
+  1941→  safeStorageRemove(MANIFEST_KEY);
+  1942→  try { await idbClearMan(); } catch (e) {}
+  1943→}
+  1944→const loadSession = () => { try { const s = JSON.parse(safeStorageGet(SESSION_KEY) || 'null'); return (s && Array.isArray(s.items)) ? s : null; } catch (e) { return null; } };
+  1945→function saveSession(s) { try { s.sidebarFp = fingerprintSidebar(); } catch (e) {} safeStorageSet(SESSION_KEY, JSON.stringify(s)); }
+  1946→const clearSession = () => safeStorageRemove(SESSION_KEY);
+  1947→const askOptions = () => ({
+  1948→  filter: (safeStorageGet('uaice_filter') || '').toLowerCase(),
+  1949→  onlyNew: safeStorageGet('uaice_onlynew') === '1',
+  1950→  exportThinking: safeStorageGet('uaice_think') === '1',
+  1951→  stripThinking: safeStorageGet('uaice_strip') === '1'
+  1952→});
+  1953→
+  1954→/* ---- B.13. Копирование ---- */
+  1955→async function copyTextToClipboard(text) {
+  1956→  if (navigator.clipboard && navigator.clipboard.writeText) { await navigator.clipboard.writeText(text); return; }
+  1957→  const ta = document.createElement('textarea');
+  1958→  ta.value = text; ta.style.cssText = 'position:fixed;left:-9999px;top:0;';
+  1959→  (document.body || document.documentElement).appendChild(ta);
+  1960→  ta.select(); document.execCommand('copy'); ta.remove();
+  1961→}
+  1962→async function copyCurrentMd(options) {
+  1963→  await autoScroll(null);
+  1964→  const scraped = scrape(options);
+  1965→  if (!scraped.items.length) throw new Error('Сообщения не найдены');
+  1966→  await copyTextToClipboard(toMarkdown(scraped, pageTitle()));
+  1967→  return scraped.items.length;
+  1968→}
+  1969→async function copyContinuePrompt(options) {
+  1970→  await autoScroll(null);
+  1971→  const scraped = scrape(options);
+  1972→  if (!scraped.items.length) throw new Error('Сообщения не найдены');
+  1973→  const L = ['# Перенос диалога в другой AI', '', 'Продолжи диалог ниже. История от другого AI-ассистента:', ''];
+  1974→  scraped.items.forEach(m => { L.push(m.role === 'user' ? 'USER:' : 'ASSISTANT:'); L.push(m.text || m.content); L.push(''); });
+  1975→  L.push('---', 'Продолжи с этого места. Не пересказывай, отвечай как продолжение.');
+  1976→  await copyTextToClipboard(L.join('\n'));
+  1977→  return scraped.items.length;
+  1978→}
+  1979→
+  1980→/* ---- B.14. Экспорт текущего / массовый ---- */
+  1981→async function exportCurrent(format, options, statusFn) {
+  1982→  if (statusFn) statusFn('Ищу сообщения...');
+  1983→  await autoScroll(statusFn);
+  1984→  let scraped = scrape(options);
+  1985→  if (!scraped.items.length) {
+  1986→    for (let i = 0; i < 20; i++) {
+  1987→      await sleep(500);
+  1988→      if (statusFn) statusFn('Жду текста... (' + (i + 1) + ')');
+  1989→      scraped = scrape(options);
+  1990→      if (scraped.items.length > 0) break;
+  1991→    }
+  1992→  }
+  1993→  if (!scraped.items.length) {
+  1994→    const snap = snapshotScrape();
+  1995→    if (snap) { await saveInFormat(snap, pageTitle() + '-snapshot', format === 'zip' ? 'md' : format); return { count: 1, snapshot: true }; }
+  1996→    debugDump();
+  1997→    throw new Error('Сообщения не найдены. F12 → Console.');
+  1998→  }
+  1999→  await saveInFormat(scraped, pageTitle(), format);
+  2000→  return { count: scraped.items.length };
+
+[showing lines 1-2000 of 3346; use offset=2001 with limit to continue reading]

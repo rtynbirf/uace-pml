@@ -1,0 +1,462 @@
+   301→      guard.origPush = hp; guard.origReplace = hr; guard.wrapped = true;
+   302→      return true;
+   303→    } catch (e) { return false; }
+   304→  },
+   305→  _notify() { for (const fn of Array.from(this.subs)) { try { fn(); } catch (e) {} } },
+   306→  subscribe(fn) {
+   307→    if (typeof fn !== 'function' || this.subs.has(fn)) return false;
+   308→    this.ensure();
+   309→    this.subs.add(fn);
+   310→    return true;
+   311→  },
+   312→  unsubscribe(fn) { return this.subs.delete(fn); }
+   313→};
+   314→
+   315→function isPageBusy() { try { return document.querySelectorAll('[class*="loading"],[class*="spinner"],[class*="busy"],[aria-busy="true"],[data-loading="true"]').length > 0; } catch (e) { return false; } }
+   316→function adaptiveMs(base, maxCap) {
+   317→  const enabled = (safeStorageGet('uaice_adaptive') !== '0') && CFG.ADAPTIVE;
+   318→  if (!enabled) return base;
+   319→  const v = Math.round(base * (isPageBusy() ? 2.1 : 1));
+   320→  return maxCap ? Math.min(v, maxCap) : v;
+   321→}
+   322→const clickWait = () => adaptiveMs(CFG.BASE_CLICK || CFG.CLICK_WAIT, CFG.MAX_CLICK);
+   323→const scrollWait = () => adaptiveMs(CFG.BASE_SCROLL || CFG.SCROLL_WAIT, CFG.MAX_SCROLL);
+   324→const pollWait = () => adaptiveMs(CFG.BASE_POLL || CFG.POLL, 800);
+   325→
+   326→/* ---- B.2. IndexedDB манифест ---- */
+   327→const HAS_IDB = (function () { try { return typeof indexedDB !== 'undefined' && !!indexedDB.open; } catch (e) { return false; } })();
+   328→const IDB_NAME = 'UAICE_POLYMATH_DB'; const IDB_STORE_MAN = 'manifest';
+   329→let _idbPromise = null;
+   330→function idbOpen() {
+   331→  if (_idbPromise) return _idbPromise;
+   332→  _idbPromise = new Promise((resolve, reject) => {
+   333→    try {
+   334→      const req = indexedDB.open(IDB_NAME, 1);
+   335→      req.onupgradeneeded = e => { const db = e.target.result; if (!db.objectStoreNames.contains(IDB_STORE_MAN)) db.createObjectStore(IDB_STORE_MAN, { keyPath: 'id' }); };
+   336→      req.onsuccess = e => resolve(e.target.result);
+   337→      req.onerror = () => reject(req.error || new Error('IDB open failed'));
+   338→    } catch (e) { reject(e); }
+   339→  });
+   340→  return _idbPromise;
+   341→}
+   342→function idbRun(store, mode, fn) {
+   343→  return idbOpen().then(db => new Promise((resolve, reject) => {
+   344→    try {
+   345→      const tx = db.transaction(store, mode);
+   346→      const out = fn(tx.objectStore(store));
+   347→      tx.oncomplete = () => resolve(out && out.result !== undefined ? out.result : null);
+   348→      tx.onerror = () => reject(tx.error || new Error('IDB tx failed'));
+   349→    } catch (e) { reject(e); }
+   350→  }));
+   351→}
+   352→const idbGetAll = () => HAS_IDB ? idbRun(IDB_STORE_MAN, 'readonly', s => s.getAll()).catch(() => []) : Promise.resolve([]);
+   353→const idbPutMany = arr => HAS_IDB ? idbRun(IDB_STORE_MAN, 'readwrite', s => { for (let i = 0; i < arr.length; i++) s.put(arr[i]); }).catch(() => {}) : Promise.resolve();
+   354→const idbClearMan = () => HAS_IDB ? idbRun(IDB_STORE_MAN, 'readwrite', s => s.clear()).catch(() => {}) : Promise.resolve();
+   355→
+   356→/* ---- B.3. Общие утилиты ---- */
+   357→function now() {
+   358→  const d = new Date(); const p = n => String(n).padStart(2, '0');
+   359→  return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+   360→}
+   361→function hashString(s) {
+   362→  let h = 0xcbf29ce484222325n; const prime = 0x100000001b3n; const mask = 0xffffffffffffffffn;
+   363→  const text = String(s || '');
+   364→  for (let i = 0; i < text.length; i++) { h ^= BigInt(text.charCodeAt(i)); h = (h * prime) & mask; }
+   365→  return h.toString(16).padStart(16, '0');
+   366→}
+   367→function sanitize(s, m) {
+   368→  m = m || 80;
+   369→  const raw = String(s || 'export');
+   370→  const norm = raw.replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, ' ').trim();
+   371→  let out = norm.slice(0, m);
+   372→  if (norm.length > m) out += '-' + hashString(raw).slice(0, 6);
+   373→  return out || 'export';
+   374→}
+   375→function pageTitle() {
+   376→  let t = (document.title || '').trim();
+   377→  t = t.replace(/\s*[-–|·]\s*[^-–|·]{0,40}$/i, '').trim();
+   378→  return t.length > 1 ? t.slice(0, 120) : 'export';
+   379→}
+   380→function dedupeText(s) {
+   381→  s = String(s || '');
+   382→  if (s.length < 6 || s.length > 400) return s;
+   383→  for (let n = 2; n <= 4; n++) {
+   384→    if (s.length % n !== 0) continue;
+   385→    const chunk = s.slice(0, s.length / n); if (!chunk) continue;
+   386→    let rep = true;
+   387→    for (let i = 1; i < n; i++) if (s.slice(i * chunk.length, (i + 1) * chunk.length) !== chunk) { rep = false; break; }
+   388→    if (rep) return chunk;
+   389→  }
+   390→  return s;
+   391→}
+   392→function stripUiPrefix(text) {
+   393→  if (!text) return text;
+   394→  const lines = String(text).split('\n'); let i = 0;
+   395→  while (i < lines.length) {
+   396→    const st = lines[i].replace(/^#+\s*/, '').trim();
+   397→    if (/^(Ответ\s+\S+|Ваш\s+запрос|Gemini|You\s+said|ChatGPT\s+said|Assistant\s+said|User\s+said|DeepSeek|Claude|Grok|Kimi|Qwen|Mistral|Copilot|GPT)$/i.test(st)) {
+   398→      i++; while (i < lines.length && !lines[i].trim()) i++;
+   399→    } else break;
+   400→  }
+   401→  return lines.slice(i).join('\n').trim();
+   402→}
+   403→function progress(i, n, label) {
+   404→  const f = Math.max(0, Math.min(10, Math.round(10 * i / Math.max(1, n))));
+   405→  return '[' + '█'.repeat(f) + '·'.repeat(10 - f) + '] ' + (i + 1) + '/' + n + ' ' + (label || '');
+   406→}
+   407→
+   408→/* ---- B.4. Платформы (30+) ---- */
+   409→const PLATFORMS = [
+   410→  { name: 'ChatGPT', hosts: [/(^|\.)(chatgpt\.com|chat\.openai\.com)$/], msgSelectors: ['[data-message-author-role]', 'article[data-testid^="conversation-turn"]'], roleAttr: 'data-message-author-role', chatUrlPattern: '/c/{id}', sidebarSelectors: ['#stage-slideover-sidebar', 'nav[aria-label*="Chat" i]', 'nav', 'aside'] },
+   411→  { name: 'Claude', hosts: [/(^|\.)claude\.ai$/], msgSelectors: ['[data-testid="user-message"]', '[data-testid="assistant-message"]', '.font-claude-message', '.font-user-message'], role: el => el.matches('[data-testid="user-message"], .font-user-message') ? 'user' : 'assistant', chatUrlPattern: '/chat/{id}' },
+   412→  { name: 'Gemini', hosts: [/(^|\.)(gemini\.google\.com|bard\.google\.com)$/], msgSelectors: ['user-query', 'model-response', 'conversation-turn', 'ms-chat-turn'], role: el => { const t = el.tagName.toLowerCase(); if (t === 'user-query') return 'user'; if (t === 'model-response') return 'assistant'; return /user|query|human/i.test(el.className || '') ? 'user' : 'assistant'; }, chatUrlPattern: '/app/{id}', sidebarSelectors: ['side-navigation-v2', 'bard-sidenav', 'mat-sidenav'] },
+   413→  { name: 'Google AI Studio', hosts: [/(^|\.)aistudio\.google\.com$/], msgSelectors: ['[data-test-id="user-message"]', '[data-test-id="model-message"]', 'ms-chat-turn'], role: el => (el.getAttribute('data-role') || '') === 'user' ? 'user' : 'assistant' },
+   414→  { name: 'DeepSeek', hosts: [/(^|\.)deepseek\.com$/], msgSelectors: ['[class*="message"]', '[class*="_message"]'], role: el => /user|human|query/i.test(el.className || '') ? 'user' : 'assistant', chatUrlPattern: '/a/chat/s/{id}', sidebarSelectors: ['aside','nav','[class*="sidebar"]','[class*="sider"]','[class*="history"]'] },
+   415→  { name: 'Qwen', hosts: [/(^|\.)(qwen\.ai|tongyi\.aliyun\.com)$/], msgSelectors: ['[class*="_message"]', '[data-message-role]', '[class*="chat-message"]', '[class*="markdown"]'], role: el => { const c = (el.className || '') + ' ' + (el.getAttribute('data-message-role') || '') + ' ' + (el.getAttribute('data-role') || ''); if (/user|human|question/i.test(c)) return 'user'; if (/assistant|bot|ai|model|response/i.test(c)) return 'assistant'; return 'unknown'; }, chatUrlPattern: '/c/{id}', sidebarSelectors: ['.sidebar-side','.session-list-wrapper','a[aria-label="chat-item"]','a.chat-item-drag-link','[class*="sidebar"]','aside','nav'] },
+   416→  { name: 'Kimi', hosts: [/(^|\.)(kimi\.moonshot\.cn|kimi\.ai|kimi\.com)$/], msgSelectors: ['.segment','.segment-container','[class*="message"]'], role: el => /user|human/i.test((el.className||'') + ' ' + (el.getAttribute('data-role')||'')) ? 'user' : 'assistant', sidebarSelectors: ['aside','nav','.next-sidebar','[class*="sidebar"]'] },
+   417→  { name: 'MiniMax', hosts: [/(^|\.)(minimax\.io|minimaxi\.com)$/], msgSelectors: ['[class*="message"]','[class*="chat-item"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   418→  { name: 'Mistral Le Chat', hosts: [/(^|\.)mistral\.ai$/], msgSelectors: ['[data-message-role]','[class*="Message"]','[class*="message"]'], role: el => { const r = el.getAttribute('data-message-role') || ''; if (/user/i.test(r)) return 'user'; if (/assistant/i.test(r)) return 'assistant'; return /user/i.test(el.className || '') ? 'user' : 'assistant'; } },
+   419→  { name: 'Groq', hosts: [/(^|\.)groq\.com$/], msgSelectors: ['[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   420→  { name: 'OpenRouter', hosts: [/(^|\.)openrouter\.ai$/], msgSelectors: ['[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   421→  { name: 'HuggingChat', hosts: [/(^|\.)huggingface\.co$/], path: /^\/chat/, msgSelectors: ['[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   422→  { name: 'NVIDIA NIM', hosts: [/(^|\.)build\.nvidia\.com$/], msgSelectors: ['[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   423→  { name: 'Z.ai', hosts: [/(^|\.)(z\.ai|chatglm\.cn|space-z\.ai)$/], msgSelectors: ['[data-role="user"]','[data-role="assistant"]','[data-message-role]','[class*="UserMessage"]','[class*="AssistantMessage"]','[class*="message"]','[class*="chat-message"]'], role: el => { const e = el.getAttribute('data-role') || el.getAttribute('data-message-role') || ''; if (e) return /user|human/i.test(e) ? 'user' : 'assistant'; return /user|human/i.test(el.className || '') ? 'user' : 'assistant'; }, chatUrlPattern: '/c/{id}', sidebarSelectors: ['.chat-aside','.chat-history-list','[class*="chat-aside"]','[class*="chat-history"]','aside','nav'] },
+   424→  { name: 'Pollinations', hosts: [/(^|\.)pollinations\.ai$/], msgSelectors: ['[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   425→  { name: 'Puter', hosts: [/(^|\.)puter\.com$/], msgSelectors: ['[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   426→  { name: 'Open WebUI', hosts: [/openwebui/, /^localhost(?::\d+)?$/, /^127\.0\.0\.1(?::\d+)?$/], msgSelectors: ['[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   427→  { name: 'Cloudflare AI', hosts: [/(^|\.)playground\.ai\.cloudflare\.com$/], msgSelectors: ['[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   428→  { name: 'Grok', hosts: [/(^|\.)grok\.com$/], msgSelectors: ['[class*="message"]','[class*="message-bubble"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant', chatUrlPattern: '/c/{id}', sidebarSelectors: ['aside','nav','[class*="sidebar"]','[class*="sidebar-group"]'] },
+   429→  { name: 'Microsoft Copilot', hosts: [/(^|\.)copilot\.microsoft\.com$/], msgSelectors: ['[class*="message"]','[class*="turn"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   430→  { name: 'Perplexity', hosts: [/(^|\.)perplexity\.ai$/], msgSelectors: ['[class*="query"]','[class*="answer"]','[class*="message"]'], role: el => /query|user|human/i.test(el.className || '') ? 'user' : 'assistant', chatUrlHints: [/\/search\//] },
+   431→  { name: 'Poe', hosts: [/(^|\.)poe\.com$/], msgSelectors: ['[class*="human-message"]','[class*="chat-message"]','[class*="message"]'], role: el => /human|user/i.test(el.className || '') ? 'user' : 'assistant' },
+   432→  { name: 'Character.ai', hosts: [/(^|\.)character\.ai$/], msgSelectors: ['[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   433→  { name: 'You.com', hosts: [/(^|\.)you\.com$/], msgSelectors: ['[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   434→  { name: 'Doubao', hosts: [/(^|\.)doubao\.com$/], msgSelectors: ['[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   435→  { name: 'Tencent Yuanbao', hosts: [/(^|\.)yuanbao\.tencent\.com$/], msgSelectors: ['[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   436→  { name: 'Meta AI', hosts: [/(^|\.)meta\.ai$/], msgSelectors: ['[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   437→  { name: 'Yandex Alice AI', hosts: [/(^|\.)alice\.yandex\.ru$/], msgSelectors: ['[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   438→  { name: 'Yandex Alice (path)', hosts: [/(^|\.)yandex\.(ru|com)$/], path: /\/alice\//i, msgSelectors: ['[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   439→  { name: 'Dola', hosts: [/(^|\.)dola\.com$/], msgSelectors: ['[class*="message"]','[class*="chat-message"]'], role: el => { const c = (el.className || '').toLowerCase(); if (/user|human|question/i.test(c)) return 'user'; if (/bot|assistant|ai|response|reply/i.test(c)) return 'assistant'; return 'unknown'; }, chatUrlPattern: '/chat/{id}', sidebarSelectors: ['#flow_chat_sidebar','nav[class*="panel-"]','[class*="conversation-item"]','nav','aside'] },
+   440→  /* --- v28.2: новые платформы --- */
+   441→  { name: 'LM Arena', hosts: [/(^|\.)(lmarena\.ai|chat\.lmarena\.ai)$/], msgSelectors: ['[data-message-author-role]','[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   442→  { name: 'NotebookLM', hosts: [/(^|\.)notebooklm\.google\.com$/], msgSelectors: ['[class*="message"]','[class*="chat-turn"]','[class*="response"]'], role: el => /user|query|question/i.test(el.className || '') ? 'user' : 'assistant' },
+   443→  { name: 'GitHub Copilot', hosts: [/(^|\.)github\.com$/], path: /\/copilot/i, msgSelectors: ['[data-testid="chat-message"]','[class*="ChatMessage"]','[class*="message"]'], role: el => { const t = (el.getAttribute('data-testid') || '') + ' ' + el.className; return /user/i.test(t) ? 'user' : 'assistant'; } },
+   444→  { name: 'Coze', hosts: [/(^|\.)(coze\.com|coze\.cn)$/], msgSelectors: ['[class*="message"]','[class*="chat-item"]','[class*="ChatItem"]'], role: el => /user|human|question/i.test(el.className || '') ? 'user' : 'assistant', sidebarSelectors: ['aside','nav','[class*="session"]','[class*="history"]'] },
+   445→  { name: 'Phind', hosts: [/(^|\.)phind\.com$/], msgSelectors: ['[class*="message"]','[class*="Question"]','[class*="Answer"]'], role: el => /question|user|human/i.test(el.className || '') ? 'user' : 'assistant' },
+   446→  { name: 'v0 (Vercel)', hosts: [/(^|\.)v0\.dev$/], msgSelectors: ['[data-testid="message"]','[class*="message"]','[class*="chat"]'], role: el => /user|human/i.test(el.className || '') ? 'user' : 'assistant' }
+   447→];
+   448→function getPlatform() {
+   449→  const host = location.host, path = location.pathname;
+   450→  for (const p of PLATFORMS) {
+   451→    let ok = false;
+   452→    for (const re of p.hosts) { try { if (re.test(host)) { ok = true; break; } } catch (e) {} }
+   453→    if (!ok) continue;
+   454→    if (p.path) { try { if (!p.path.test(path)) continue; } catch (e) {} }
+   455→    return p;
+   456→  }
+   457→  return null;
+   458→}
+   459→
+   460→/* ---- B.5. DOM-хелперы UACE ---- */
+   461→const SKIP_TAGS = new Set(['STYLE','SCRIPT','LINK','META','NOSCRIPT','TEMPLATE','HEAD','TITLE','BASE','HTML','SVG','PATH','G','DEFS','MAT-ICON','BR','HR']);
+   462→const HARD_EXCLUDE = '#' + UI_ID + ',#' + UI_ID + '-host,#pml-tabs-host,[class*="tooltip"]:not([class*="content"]),[class*="popover"]:not([class*="content"])';
+   463→const CHAT_AREA = 'div.chat-container,#chat-history,[data-test-id="chat-history-container"],conversation-container,div.conversation-container,ms-chat-turn,[class*="chat-history-scroll"],[class*="turn-content"],main,[role="main"]';
+   464→
+   465→function isInHardExclude(el) {
+   466→  let p = el, d = 0;
+   467→  while (p && p !== document.body && d < 15) {
+   468→    try { if (p.matches && p.matches(HARD_EXCLUDE)) return true; } catch (e) {}
+   469→    p = p.parentElement; d++;
+   470→  }
+   471→  return false;
+   472→}
+   473→function isInNavigation(el) {
+   474→  let p = el, d = 0;
+   475→  while (p && p !== document.body && d < 12) {
+   476→    const tag = p.tagName ? p.tagName.toLowerCase() : '';
+   477→    const role = p.getAttribute ? (p.getAttribute('role') || '') : '';
+   478→    if (tag === 'nav' || tag === 'aside' || role === 'navigation') return true;
+   479→    if (tag === 'mat-sidenav' || tag === 'bard-sidenav' || tag === 'side-navigation-v2') return true;
+   480→    const c = (typeof p.className === 'string' ? p.className : (p.className && p.className.baseVal) || '').toLowerCase();
+   481→    if (/(^|[-_ ])(sidebar|sidenav|side-nav|drawer|chat-list|conversation-list|history-list|nav-|panel-left)([-_ ]|$)/.test(c)) return true;
+   482→    p = p.parentElement; d++;
+   483→  }
+   484→  return false;
+   485→}
+   486→function isInChatArea(el) {
+   487→  if (!el || !el.closest) return false;
+   488→  try { if (el.closest('aside, nav, [role="navigation"], [class*="sidebar"], [class*="sider"]')) return false; } catch (e) {}
+   489→  try { return !!el.closest(CHAT_AREA); } catch (e) { return false; }
+   490→}
+   491→function cls(el) { if (!el || !el.className) return ''; const c = el.className; return (typeof c === 'string' ? c : c.baseVal || '').toLowerCase(); }
+   492→function clean(s) {
+   493→  return String(s || '').replace(/[\u200B-\u200D\uFEFF]/g, '').replace(/\u00A0/g, ' ')
+   494→    .replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+   495→}
+   496→function txt(el) {
+   497→  if (!el || SKIP_TAGS.has(el.tagName)) return '';
+   498→  let out = '';
+   499→  try { const x = el.innerText; if (x && x.trim()) out = x.trim(); } catch (e) {}
+   500→  if (!out) out = (el.textContent || '').trim();
+   501→  return dedupeText(out);
+   502→}
+   503→function isCssOrJs(s) {
+   504→  if (!s) return false;
+   505→  const head = s.slice(0, 800);
+   506→  if (/_ngcontent|_nghost/.test(head)) return true;
+   507→  const decl = (head.match(/[a-z-]+\s*:\s*[^;{}\n]+\s*[;\n]/gi) || []).length;
+   508→  if (!decl) return false;
+   509→  const lines = head.split('\n').filter(l => l.trim()).length || 1;
+   510→  const hasBraces = /[{}]/.test(head);
+   511→  if (hasBraces && decl >= 5 && decl / lines > 0.5) return true;
+   512→  if (/@media|@font-face|@keyframes/.test(head) && decl >= 3) return true;
+   513→  return false;
+   514→}
+   515→function isSourceListing(s) {
+   516→  if (!s || s.length > 400) return false;
+   517→  if (/\d+\s*(источник|источника|источников|source|sources)/i.test(s)) return true;
+   518→  if (/\d+\s*(дн\.|день|дня|дней|day|days)\s*(назад|ago)/i.test(s)) return true;
+   519→  if (/только для скачивания/i.test(s)) return true;
+   520→  return false;
+   521→}
+   522→function isVisible(el) { try { const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; } catch (e) { return true; } }
+   523→function dedupeNested(els) {
+   524→  let arr = Array.from(els);
+   525→  if (arr.length > CFG.DEDUPE_CAP) arr = arr.slice(0, CFG.DEDUPE_CAP);
+   526→  const isContainer = new Set();
+   527→  for (const x of arr) {
+   528→    const held = arr.filter(y => y !== x && x.contains(y) && !arr.some(z => z !== x && z !== y && z.contains(y) && x.contains(z)));
+   529→    if (held.length >= 2) isContainer.add(x);
+   530→  }
+   531→  const drop = new Set();
+   532→  for (const x of arr) {
+   533→    if (isContainer.has(x)) continue;
+   534→    for (const y of arr) { if (y !== x && y.contains(x) && !isContainer.has(y)) { drop.add(x); break; } }
+   535→  }
+   536→  return arr.filter(e => !drop.has(e) && !isContainer.has(e));
+   537→}
+   538→
+   539→let _srCache = null, _srCacheAt = 0;
+   540→const SR_NODE_CAP = 12000; // v28.2: защита от сверхтяжёлых DOM
+   541→function collectShadowRoots(root) {
+   542→  const roots = []; const seen = new Set();
+   543→  const nowMs = Date.now();
+   544→  const cached = (!root && _srCache && (nowMs - _srCacheAt) < 1500) ? _srCache : null;
+   545→  if (cached) return cached.slice();
+   546→  /* v28.2: полностью итеративный обход (стек) — рекурсия устранена (риск stack overflow);
+   547→     закрытые (closed) shadowRoot недоступны и/или mode!=='open' — пропускаем осознанно */
+   548→  const stack = [root || document];
+   549→  seen.add(root || document);
+   550→  let visited = 0;
+   551→  while (stack.length) {
+   552→    const cur = stack.pop();
+   553→    if (!cur || (cur.nodeType !== 9 && cur.nodeType !== 1 && cur.nodeType !== 11)) continue;
+   554→    let all; try { all = cur.querySelectorAll('*'); } catch (e) { continue; }
+   555→    for (let i = 0; i < all.length; i++) {
+   556→      if (++visited > SR_NODE_CAP) { stack.length = 0; break; }
+   557→      const el = all[i];
+   558→      let sr = null;
+   559→      try { sr = el.shadowRoot; } catch (e) {}
+   560→      if (!sr || seen.has(sr)) continue;
+   561→      if (sr.mode && sr.mode !== 'open') { seen.add(sr); continue; }
+   562→      seen.add(sr); roots.push(sr); stack.push(sr);
+   563→    }
+   564→  }
+   565→  if (!root) { _srCache = roots; _srCacheAt = nowMs; }
+   566→  return roots;
+   567→}
+   568→function deepQueryAll(sel, root) {
+   569→  const scopes = [root || document].concat(collectShadowRoots(root));
+   570→  const out = [];
+   571→  for (const sc of scopes) {
+   572→    let found; try { found = sc.querySelectorAll(sel); } catch (e) { continue; }
+   573→    for (const el of found) if (out.indexOf(el) === -1) out.push(el);
+   574→  }
+   575→  return out;
+   576→}
+   577→function roleFromValue(v) {
+   578→  const x = String(v || '').toLowerCase().trim();
+   579→  if (/^(user|human|you|me|client|prompt|question|query)$/.test(x)) return 'user';
+   580→  if (/^(assistant|bot|ai|model|response|answer|reply)$/.test(x)) return 'assistant';
+   581→  if (/(^|[-_ ])(user|human|query|prompt|question)([-_ ]|$)/.test(x)) return 'user';
+   582→  if (/(^|[-_ ])(assistant|bot|model|response|answer|reply)([-_ ]|$)/.test(x)) return 'assistant';
+   583→  return null;
+   584→}
+   585→function detectRole(el, platform) {
+   586→  if (platform && platform.roleAttr) { const v = roleFromValue(el.getAttribute(platform.roleAttr)); if (v) return v; }
+   587→  if (platform && typeof platform.role === 'function') { try { const r = platform.role(el); if (r === 'user' || r === 'assistant') return r; } catch (e) {} }
+   588→  if (el.tagName) { const tag = el.tagName.toLowerCase(); if (tag === 'user-query') return 'user'; if (tag === 'model-response') return 'assistant'; }
+   589→  const score = { user: 0, assistant: 0 };
+   590→  const nodes = [el]; let p = el.parentElement;
+   591→  for (let i = 0; i < 5 && p; i++, p = p.parentElement) nodes.push(p);
+   592→  for (let ni = 0; ni < nodes.length; ni++) {
+   593→    const n = nodes[ni]; const w = ni === 0 ? 1 : 0.6;
+   594→    for (const a of n.attributes || []) {
+   595→      const name = a.name.toLowerCase(), value = String(a.value || '').toLowerCase();
+   596→      if (/role|author|sender|speaker|type|side|from/i.test(name)) {
+   597→        if (/user|human|you\b|me\b|client|question|prompt|query/i.test(value)) score.user += 8 * w;
+   598→        if (/assistant|bot|model|response|answer|reply/i.test(value)) score.assistant += 8 * w;
+   599→      }
+   600→    }
+   601→    const r1 = roleFromValue(cls(n)); if (r1) score[r1] += (ni === 0 ? 6 : 4) * w;
+   602→  }
+   603→  if (el.querySelector && el.querySelector('[class*="markdown"],[class*="prose"],.katex')) score.assistant += 5;
+   604→  if (score.user >= score.assistant + 4 && score.user >= 5) return 'user';
+   605→  if (score.assistant >= score.user + 4 && score.assistant >= 5) return 'assistant';
+   606→  return 'unknown';
+   607→}
+   608→function filterValid(found) {
+   609→  const valid = [];
+   610→  found.forEach(el => {
+   611→    if (isInHardExclude(el)) return;
+   612→    if (isInNavigation(el)) return;
+   613→    if (!isVisible(el)) return;
+   614→    const t = txt(el);
+   615→    if (!t || t.length < CFG.MIN_TEXT) return;
+   616→    if (isCssOrJs(t) || isSourceListing(t)) return;
+   617→    valid.push(el);
+   618→  });
+   619→  return valid;
+   620→}
+   621→
+   622→/* ---- B.6. Поиск сообщений ---- */
+   623→function findMessages() {
+   624→  const platform = getPlatform();
+   625→  const UNIVERSAL = ['[data-message-author-role]','[data-testid="user-message"]','[data-testid="assistant-message"]','user-query','model-response','.segment','.segment-container','[data-message-role]','[data-message-id]','[class*="UserMessage"]','[class*="AssistantMessage"]','[class*="user-message"]:not([class*="input"]):not([class*="fixed"])','[class*="assistant-message"]:not([class*="input"]):not([class*="fixed"])','[class*="Message_container"]','[class*="MessageContainer"]','div.conversation-container'];
+   626→  const trySel = sel => {
+   627→    let found = deepQueryAll(sel);
+   628→    if (!found || found.length < 1) return null;
+   629→    const valid = dedupeNested(filterValid(found));
+   630→    return valid.length ? valid : null;
+   631→  };
+   632→  if (platform) {
+   633→    for (let i = 0; i < platform.msgSelectors.length; i++) {
+   634→      const valid = trySel(platform.msgSelectors[i]);
+   635→      if (valid && (i === 0 ? valid.length >= 2 : valid.length >= CFG.MSG_MIN)) return { items: valid.slice(0, CFG.MSG_MAX), source: platform.msgSelectors[i], platform };
+   636→    }
+   637→    let best = null, bestSel = '';
+   638→    for (const sel of platform.msgSelectors.concat(UNIVERSAL)) {
+   639→      const valid = trySel(sel);
+   640→      if (valid && valid.length > (best ? best.length : 0)) { best = valid; bestSel = sel; }
+   641→    }
+   642→    if (best) return { items: best.slice(0, CFG.MSG_MAX), source: bestSel, platform };
+   643→  }
+   644→  let best = null, bestSel = '';
+   645→  for (const sel of UNIVERSAL) {
+   646→    const valid = trySel(sel);
+   647→    if (valid && valid.length > (best ? best.length : 0)) { best = valid; bestSel = sel; }
+   648→  }
+   649→  if (best) return { items: best.slice(0, CFG.MSG_MAX), source: bestSel, platform };
+   650→  const heur = heuristicMessages();
+   651→  if (heur && heur.length >= 2) return { items: heur.slice(0, CFG.MSG_MAX), source: 'heuristic', platform };
+   652→  return null;
+   653→}
+   654→function heuristicMessages() {
+   655→  const containers = deepQueryAll('main, article, section, [role="main"], [class*="conversation"], [class*="chat"]');
+   656→  let best = null;
+   657→  for (const c of containers) {
+   658→    const groups = {};
+   659→    Array.from(c.children || []).forEach(child => {
+   660→      const key = child.tagName + '|' + (typeof child.className === 'string' ? child.className : '').split(/\s+/).slice(0, 3).join(' ');
+   661→      (groups[key] = groups[key] || []).push(child);
+   662→    });
+   663→    for (const key of Object.keys(groups)) {
+   664→      const group = dedupeNested(filterValid(groups[key]));
+   665→      if (group.length >= 3 && (!best || group.length > best.length)) best = group;
+   666→    }
+   667→    Array.from(c.children || []).forEach(mid => {
+   668→      Array.from(mid.children || []).forEach(child => {
+   669→        const key = child.tagName + '|' + (typeof child.className === 'string' ? child.className : '').split(/\s+/).slice(0, 3).join(' ');
+   670→        (groups['@' + key] = groups['@' + key] || []).push(child);
+   671→      });
+   672→    });
+   673→    for (const key of Object.keys(groups)) {
+   674→      if (!/^@/.test(key)) continue;
+   675→      const group = dedupeNested(filterValid(groups[key]));
+   676→      if (group.length >= 3 && (!best || group.length > best.length)) best = group;
+   677→    }
+   678→  }
+   679→  return best;
+   680→}
+   681→
+   682→/* ---- B.7. Render holder + markdown ---- */
+   683→let renderHolder = null;
+   684→function getRenderHolder() {
+   685→  if (!renderHolder || !renderHolder.isConnected) {
+   686→    renderHolder = document.createElement('div');
+   687→    renderHolder.style.cssText = 'position:fixed;left:-10000px;top:0;width:900px;pointer-events:none;opacity:0;z-index:-1;white-space:normal;';
+   688→    (document.body || document.documentElement).appendChild(renderHolder);
+   689→  }
+   690→  return renderHolder;
+   691→}
+   692→function extractText(el) {
+   693→  const clone = el.cloneNode(true);
+   694→  const remove = clone.querySelectorAll('style,script,link,meta,noscript,template,svg,button,nav,footer,[role="button"],[role="toolbar"],.sr-only,time,[class*="timestamp"],[class*="copy-button"],[class*="action-bar"],[class*="toolbar"],[class*="feedback"],[class*="rating"],mat-icon,[class*="icon"]:not([class*="content"]),[data-icon],i[class*="fa-"]');
+   695→  for (let i = 0; i < remove.length; i++) remove[i].remove();
+   696→  const holder = getRenderHolder();
+   697→  holder.appendChild(clone);
+   698→  let t = '';
+   699→  try { t = clean(clone.innerText || ''); } catch (e) { t = (clone.textContent || '').trim(); }
+   700→  clone.remove();
+   701→  return t;
+   702→}
+   703→const MD_REMOVE = 'style,script,link,meta,noscript,template,svg,button,nav,footer,header,[role="button"],[role="toolbar"],[aria-hidden="true"],.sr-only,time,[class*="timestamp"],[class*="copy-button"],[class*="action-bar"],[class*="toolbar"],[class*="feedback"],[class*="rating"],mat-icon,[data-icon]';
+   704→const escapeRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+   705→const CHROME_TOKENS = ['python','python3','javascript','js','typescript','ts','jsx','tsx','java','c','c++','cpp','csharp','cs','go','golang','rust','ruby','php','swift','kotlin','scala','bash','sh','shell','zsh','powershell','sql','html','css','scss','less','json','json5','yaml','yml','xml','toml','ini','markdown','md','text','txt','plaintext','perl','r','matlab','dart','lua','groovy','objc','objectivec','pascal','fortran','haskell','elixir','erlang','clojure','vb','vba','asm','assembly','wasm','graphql','dockerfile','makefile','diff','mermaid','run','copy','код','язык','запустить','выполнить','копировать','показать','скрыть','свернуть','развернуть','collapse','expand','toggle','wrap','nowrap','edit','done','save','share','download'];
+   706→const CHROME_TOKENS_SORTED = CHROME_TOKENS.slice().sort((a, b) => b.length - a.length);
+   707→const CHROME_ALT = CHROME_TOKENS_SORTED.map(escapeRe).join('|');
+   708→const CHROME_TOKEN_PREFIX_RE = new RegExp('^(?:' + CHROME_ALT + ')', 'i');
+   709→const CHROME_TOKEN_FULL_RE = new RegExp('^(?:' + CHROME_ALT + ')$', 'i');
+   710→function isChromeText(t) {
+   711→  const s = String(t || '').trim();
+   712→  if (!s || s.length > 40) return false;
+   713→  const words = s.split(/\s+/);
+   714→  if (words.length <= 4 && words.every(w => CHROME_TOKEN_FULL_RE.test(w))) return true;
+   715→  let rest = s.toLowerCase(), guard = 0;
+   716→  while (rest.length && guard++ < 10) {
+   717→    const m = rest.match(CHROME_TOKEN_PREFIX_RE);
+   718→    if (!m) return false;
+   719→    rest = rest.slice(m[0].length);
+   720→  }
+   721→  return rest.length === 0;
+   722→}
+   723→function stripCodeChrome(root) {
+   724→  let pres;
+   725→  try { pres = Array.from(root.querySelectorAll('pre')); } catch (e) { return; }
+   726→  for (const pre of pres) {
+   727→    let anc = pre.parentElement;
+   728→    for (let lvl = 0; anc && lvl < 2; lvl++) {
+   729→      const kids = Array.from(anc.childNodes || []);
+   730→      for (const k of kids) {
+   731→        if (k.nodeType === 3) { if (isChromeText(k.nodeValue)) k.nodeValue = ''; continue; }
+   732→        if (k.nodeType !== 1 || k === pre) continue;
+   733→        const tag = (k.tagName || '').toLowerCase();
+   734→        if (tag === 'pre' || tag === 'code') continue;
+   735→        try { if (k.contains && k.contains(pre)) continue; } catch (e) {}
+   736→        if (isChromeText(k.textContent) && typeof k.remove === 'function') k.remove();
+   737→      }
+   738→      anc = anc.parentElement;
+   739→    }
+   740→  }
+   741→}
+   742→const mermaidEnabled = () => safeStorageGet('uaice_mermaid') !== '0';
+   743→function processMermaid(content) {
+   744→  const s = String(content || '');
+   745→  if (s.indexOf('```mermaid') === -1) return s;
+   746→  return s.replace(/```mermaid\r?\n([\s\S]*?)```/gi, (match, code) => {
+   747→    try {
+   748→      const src = String(code).trim();
+   749→      if (!src || src.length > 50000) return match;
+   750→      const b64 = btoa(unescape(encodeURIComponent(src)));
+   751→      return match + '\n\n> 📊 [SVG-диаграмма](https://mermaid.ink/svg/' + b64 + ')\n';
+   752→    } catch (e) { return match; }
+   753→  });
+   754→}
+   755→function domToMarkdown(el) {
+   756→  const root = el.cloneNode(true);
+   757→  let rm; try { rm = root.querySelectorAll(MD_REMOVE); } catch (e) { rm = []; }
+   758→  for (let i = 0; i < rm.length; i++) rm[i].remove();
+   759→  stripCodeChrome(root);
+   760→  try {
+
+[showing lines 301-760 of 3382; use offset=761 with limit to continue reading]

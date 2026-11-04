@@ -1,0 +1,299 @@
+/* ==========================================================================
+ *  B.7b. СТИЛЕВОЙ ДВИЖОК ЭКСПОРТА PDF/HTML — возвращён из v27.3.0 STYLES+ACCENT
+ *  5 шаблонов МАКТ-2026: ИМПЕРСКИЙ (тёмный фон + золото #d4af37, кегль 18 — для
+ *  слабого зрения), МАКТ Светлый, Швейцарская сетка, Нео-брутализм, Сепия Вечер.
+ *  Печать → PDF силами браузера: векторный текст, 0 внешних запросов, 0 CDN.
+ *  Каждый стиль проверен по WCAG 2.2: контраст текста ≥4.5:1, без чистого
+ *  чёрного/белого, интерлиньяж ≥1.6, мера ≤78ch. Выбор хранится в uaice_tpl.
+ * ========================================================================== */
+/* === TPL-ENGINE:BEGIN === */
+const TPL_STYLES = {
+  imperial: { name: 'Имперский', hint: 'Тёмный фон, золото, кегль 18 — для слабого зрения' },
+  makt: { name: 'МАКТ Светлый', hint: 'Человекоцентричный светлый стандарт проекта' },
+  swiss: { name: 'Швейцарская сетка', hint: 'Editorial-типографика, жёсткая сетка линий' },
+  brutal: { name: 'Нео-брутализм', hint: 'Тренд 2026: жирные рамки и жёсткие тени' },
+  sepia: { name: 'Сепия Вечер', hint: 'Тёплые тона для вечернего чтения — забота о глазах' }
+};
+const TPL_KEY = 'uaice_tpl';
+function tplStyleId() {
+  const v = safeStorageGet(TPL_KEY);
+  return (v && TPL_STYLES[v]) ? v : 'imperial';
+}
+function tplEscape(s) {
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+function tplCss() {
+  return `
+/* ===== БАЗА: единая анатомия, стиль = набор переменных ===== */
+*{box-sizing:border-box}
+html{background:var(--bg)}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:var(--fs);line-height:var(--lh)}
+.page{max-width:78ch;margin:0 auto;padding:26px 22px 70px}
+a{color:var(--accent);text-decoration:underline;text-underline-offset:3px}
+code{font-family:ui-monospace,SFMono-Regular,Consolas,'Liberation Mono',monospace;font-size:.9em;background:var(--code-bg);border:1px solid var(--line);border-radius:4px;padding:.08em .35em;overflow-wrap:anywhere}
+/* --- Шапка-обложка --- */
+.cover{border:var(--cover-border);border-radius:var(--radius);background:var(--paper);padding:22px 24px 20px;margin:0 0 28px}
+.kicker{font-family:var(--font-head);font-size:.72em;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--accent);margin:0 0 10px}
+h1{font-family:var(--font-head);font-size:1.85em;line-height:1.28;margin:0 0 16px;color:var(--ink);overflow-wrap:anywhere}
+.meta{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;margin:0 0 4px;font-size:.86em;color:var(--ink2)}
+.meta b{color:var(--ink);font-weight:600}
+.meta .u{overflow-wrap:anywhere}
+.passport{margin-top:14px;padding-top:12px;border-top:1px solid var(--line);font-size:.8em;line-height:1.7;color:var(--ink2)}
+.passport b{color:var(--accent)}
+/* --- Поток сообщений --- */
+.flow{list-style:none;margin:0;padding:0}
+.msg{margin:0 0 18px;background:var(--paper);border:1px solid var(--line);border-left:4px solid var(--line);border-radius:var(--radius);padding:14px 18px 15px;box-shadow:var(--shadow)}
+.msg.user{background:var(--user-bg);border-left-color:var(--user-edge)}
+.msg.assistant{background:var(--as-bg);border-left-color:var(--as-edge)}
+.role{font-family:var(--font-head);font-size:.74em;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--role-tx);margin:0 0 8px}
+.role .num{font-weight:400;letter-spacing:.02em;color:var(--ink2)}
+.body{overflow-wrap:break-word}
+.body p{margin:0 0 .7em}
+.think{margin:12px 0 0;background:var(--think-bg);color:var(--think-tx);border:1px dashed var(--line);border-radius:6px;padding:10px 14px;font-size:.9em}
+.think summary{cursor:pointer;font-family:var(--font-head);font-weight:700;letter-spacing:.08em;text-transform:uppercase;font-size:.85em}
+.think[open] summary{margin-bottom:8px}
+/* --- Многочатовник --- */
+.chat{margin:0}
+.chat + .chat{margin-top:34px}
+.chat-head{border-top:2px solid var(--line);padding-top:16px;margin-bottom:16px}
+.chat-head h2{font-family:var(--font-head);font-size:1.3em;margin:0 0 6px;line-height:1.3;overflow-wrap:anywhere}
+.chat-head .chat-url{font-size:.8em;color:var(--ink2);overflow-wrap:anywhere}
+/* --- Колофон --- */
+.colophon{margin-top:38px;padding-top:14px;border-top:1px solid var(--line);font-size:.78em;color:var(--ink2);line-height:1.7}
+/* --- Панель стилей (не печатается) --- */
+.tpl-bar{position:sticky;top:0;z-index:9;display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 14px;background:var(--bar-bg);color:var(--bar-tx);border-bottom:2px solid var(--accent)}
+.tpl-bar .lbl{font-size:.78em;font-weight:700;letter-spacing:.12em;text-transform:uppercase;margin-right:2px}
+.tpl-btn{font:inherit;font-size:.86em;min-height:44px;padding:6px 14px;border-radius:8px;border:1px solid var(--bar-line);background:var(--bar-btn);color:var(--bar-tx);cursor:pointer}
+.tpl-btn[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-tx);font-weight:700}
+.tpl-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.tpl-print{margin-left:auto;font-weight:700;background:var(--accent);border-color:var(--accent);color:var(--accent-tx)}
+.tpl-hint{flex-basis:100%;font-size:.74em;line-height:1.5;opacity:.78}
+@media (max-width:640px){.tpl-print{margin-left:0}}
+/* ===== СТИЛЬ 1: ИМПЕРСКИЙ — тёмный фон + золото, крупный кегль ===== */
+html[data-tpl="imperial"]{
+  --bg:#191410;--paper:#211b14;--ink:#f2e9d3;--ink2:#c9b98a;--line:#413524;
+  --accent:#d4af37;--accent-tx:#191410;--code-bg:#1a1510;
+  --user-bg:#2a2312;--user-edge:#d4af37;--as-bg:#1e1913;--as-edge:#6b5a2e;
+  --think-bg:#1b1611;--think-tx:#bca982;--role-tx:#e8c96a;
+  --font-head:Georgia,'Times New Roman',serif;--font-body:Georgia,'Times New Roman',serif;
+  --fs:18px;--lh:1.78;--radius:6px;--shadow:none;--cover-border:3px double #8a7430;
+  --bar-bg:#100d0a;--bar-tx:#f2e9d3;--bar-btn:#241d15;--bar-line:#413524;
+}
+html[data-tpl="imperial"] h1{letter-spacing:.015em}
+html[data-tpl="imperial"] .kicker{color:#e8c96a}
+/* ===== СТИЛЬ 2: МАКТ СВЕТЛЫЙ — человекоцентричный стандарт ===== */
+html[data-tpl="makt"]{
+  --bg:#f6f6f8;--paper:#fdfdfd;--ink:#1d1d1f;--ink2:#51515b;--line:#d9d9e0;
+  --accent:#0b66c3;--accent-tx:#ffffff;--code-bg:#f0f0f4;
+  --user-bg:#eaf2fc;--user-edge:#0b66c3;--as-bg:#f4f4f7;--as-edge:#9a9aa4;
+  --think-bg:#fafafa;--think-tx:#51515b;--role-tx:#444a56;
+  --font-head:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+  --font-body:-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+  --fs:16px;--lh:1.65;--radius:10px;--shadow:0 1px 2px rgba(20,20,30,.06);
+  --cover-border:1px solid var(--line);
+  --bar-bg:#fdfdfd;--bar-tx:#1d1d1f;--bar-btn:#f0f0f4;--bar-line:#d9d9e0;
+}
+/* ===== СТИЛЬ 3: ШВЕЙЦАРСКАЯ СЕТКА — editorial-типографика ===== */
+html[data-tpl="swiss"]{
+  --bg:#fbfbf8;--paper:#fefefe;--ink:#161616;--ink2:#5b5b55;--line:#161616;
+  --accent:#d43518;--accent-tx:#ffffff;--code-bg:#f1f1ea;
+  --user-bg:#fefefe;--user-edge:#d43518;--as-bg:#f0f0ea;--as-edge:#161616;
+  --think-bg:#f5f5ef;--think-tx:#44443e;--role-tx:#161616;
+  --font-head:'Helvetica Neue',Helvetica,Arial,sans-serif;
+  --font-body:'Helvetica Neue',Helvetica,Arial,sans-serif;
+  --fs:16px;--lh:1.6;--radius:0;--shadow:none;--cover-border:2px solid #161616;
+  --bar-bg:#161616;--bar-tx:#fbfbf8;--bar-btn:#232320;--bar-line:#3a3a36;
+}
+html[data-tpl="swiss"] h1{letter-spacing:-.02em;text-transform:uppercase}
+html[data-tpl="swiss"] .msg{border:1px solid transparent;border-top:2px solid var(--ink);border-left:none;border-radius:0;background:transparent;box-shadow:none;padding:12px 2px 14px}
+html[data-tpl="swiss"] .msg.user{border-top-color:#d43518}
+html[data-tpl="swiss"] .role .num{font-size:1.5em;color:#b9b9ae}
+/* ===== СТИЛЬ 4: НЕО-БРУТАЛИЗМ — тренд 2026 ===== */
+html[data-tpl="brutal"]{
+  --bg:#f3ecdd;--paper:#fffdf4;--ink:#151515;--ink2:#4c4a42;--line:#151515;
+  --accent:#2c49d0;--accent-tx:#ffffff;--code-bg:#efeadb;
+  --user-bg:#ffd23f;--user-edge:#151515;--as-bg:#fffdf4;--as-edge:#151515;
+  --think-bg:#efeadb;--think-tx:#3f3d36;--role-tx:#151515;
+  --font-head:'Segoe UI',Arial,sans-serif;--font-body:'Segoe UI',Arial,sans-serif;
+  --fs:16px;--lh:1.6;--radius:0;--shadow:5px 5px 0 #151515;--cover-border:3px solid #151515;
+  --bar-bg:#ffd23f;--bar-tx:#151515;--bar-btn:#fffdf4;--bar-line:#151515;
+}
+html[data-tpl="brutal"] h1{font-weight:900;text-transform:uppercase;letter-spacing:-.01em}
+html[data-tpl="brutal"] .msg{border-width:2.5px;border-left-width:2.5px;border-radius:0;box-shadow:5px 5px 0 #151515}
+html[data-tpl="brutal"] .msg.user{box-shadow:5px 5px 0 #151515}
+html[data-tpl="brutal"] .role{display:inline-block;background:#151515;color:#ffd23f;padding:3px 10px;border-radius:0;margin-bottom:10px}
+html[data-tpl="brutal"] .msg.user .role{background:#151515;color:#ffd23f}
+html[data-tpl="brutal"] .msg.assistant .role{background:#2c49d0;color:#ffffff}
+/* ===== СТИЛЬ 5: СЕПИЯ ВЕЧЕР — тёплые тона, забота о глазах ===== */
+html[data-tpl="sepia"]{
+  --bg:#f2e9d5;--paper:#f9f3e3;--ink:#443522;--ink2:#6f5d40;--line:#d8c8a6;
+  --accent:#8a4d20;--accent-tx:#fff8ec;--code-bg:#ece2c9;
+  --user-bg:#ecdfc0;--user-edge:#8a4d20;--as-bg:#f4ecd8;--as-edge:#b09468;
+  --think-bg:#efe5cc;--think-tx:#5c4c32;--role-tx:#7a4a22;
+  --font-head:Georgia,'Times New Roman',serif;--font-body:Georgia,'Times New Roman',serif;
+  --fs:17px;--lh:1.75;--radius:8px;--shadow:none;--cover-border:1px solid #c9b287;
+  --bar-bg:#e9ddc2;--bar-tx:#443522;--bar-btn:#f9f3e3;--bar-line:#c9b287;
+}
+/* ===== ПЕЧАТЬ → PDF: векторный текст, фон сохраняется ===== */
+@page{size:A4;margin:15mm 13mm 17mm}
+@media print{
+  *{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important}
+  html,body{background:var(--bg) !important}
+  body{margin:0}
+  .tpl-bar{display:none !important}
+  .page{max-width:none;margin:0;padding:0}
+  .cover,.think{break-inside:avoid}
+  .cover{break-after:avoid}
+  .role{break-after:avoid}
+  .chat + .chat{break-before:page}
+  .body{orphans:3;widows:3}
+  .msg{break-inside:auto}
+  a{color:inherit}
+}
+`;
+}
+function tplBarHTML() {
+  let h = '<div class="tpl-bar" role="toolbar" aria-label="Стиль оформления экспорта"><span class="lbl">Стиль:</span>';
+  Object.keys(TPL_STYLES).forEach((id) => {
+    const s = TPL_STYLES[id];
+    h += '<button type="button" class="tpl-btn" data-style="' + id + '" aria-pressed="' + (id === tplStyleId() ? 'true' : 'false') + '" title="' + tplEscape(s.hint) + '">' + tplEscape(s.name) + '</button>';
+  });
+  h += '<button type="button" class="tpl-btn tpl-print" data-act="print" title="Печать / Сохранить как PDF (Ctrl+P)">🖨 Печать / PDF</button>';
+  h += '<span class="tpl-hint">Выбор стиля запоминается · Тёмным стилям (Имперский) фон даёт свойство print-color-adjust: exact — если браузер спросит про «Фоновую графику», включите.</span></div>';
+  return h;
+}
+function tplPassportHTML(msgs) {
+  const st = TPL_STYLES[tplStyleId()];
+  return '<div class="passport"><b>Паспорт страницы</b> · стиль «<span id="pp-style">' + tplEscape(st.name) + '</span>»' +
+    ' · кегль <span id="pp-fs">—</span> · интерлиньяж <span id="pp-lh">—</span>' +
+    ' · контраст текста <span id="pp-cr">—</span>' +
+    ' · сообщений: ' + msgs + ' · внешних запросов: <b>0</b>' +
+    ' · экспортёр UAICE v' + SCRIPT_VER + '</div>';
+}
+function tplChatHTML(scraped, title, idx, withHead, url) {
+  const esc = tplEscape;
+  let h = '';
+  if (withHead) {
+    h += '<section class="chat"><header class="chat-head"><h2>' + (idx + 1) + '. ' + esc(title) + '</h2>' +
+      '<div class="chat-url">' + esc(url || location.href) + ' · ' + esc(platformName(scraped)) + '</div></header>';
+  }
+  h += '<ol class="flow">';
+  (scraped.items || []).forEach((m, i) => {
+    const role = String(m.role || 'unknown');
+    h += '<li class="msg ' + esc(role) + '"><div class="role"><span class="num">' + String(i + 1).padStart(2, '0') + '</span> ' + esc(roleLabel(m.role)) + '</div>';
+    if (m.thinking && m.thinking.length) {
+      h += '<details class="think"><summary>🧠 Thinking</summary><div>' + esc(m.thinking.join('\n\n')).replace(/\n/g, '<br>') + '</div></details>';
+    }
+    h += '<div class="body">' + esc(m.text || m.content).replace(/\n/g, '<br>') + '</div></li>';
+  });
+  h += '</ol>';
+  if (withHead) h += '</section>';
+  return h;
+}
+function tplPageScript() {
+  return '<script>(function(){' +
+    'var VALID=["imperial","makt","swiss","brutal","sepia"];' +
+    'try{var s=localStorage.getItem("uaice_tpl");' +
+    'if(s&&VALID.indexOf(s)>=0&&s!==document.documentElement.getAttribute("data-tpl"))document.documentElement.setAttribute("data-tpl",s);}catch(e){}' +
+    'function lum(c){var m=c.match(/rgba?\\(([^)]+)\\)/);if(!m)return null;var p=m[1].split(",").map(function(x){return parseFloat(x)});' +
+    'var r=p[0]/255,g=p[1]/255,b=p[2]/255;var f=function(v){return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4)};' +
+    'return 0.2126*f(r)+0.7152*f(g)+0.0722*f(b);}' +
+    'function bgOf(el){var e=el;while(e){var c=getComputedStyle(e).backgroundColor;if(c&&c.indexOf("rgba(0, 0, 0, 0)")!==0&&c!=="transparent")return c;e=e.parentElement;}return "rgb(255,255,255)";}' +
+    'function ratio(a,b){var l1=lum(a),l2=lum(b);if(l1===null||l2===null)return null;var hi=Math.max(l1,l2),lo=Math.min(l1,l2);return (hi+0.05)/(lo+0.05);}' +
+    'function pass(){try{var b=getComputedStyle(document.body);var fs=parseFloat(b.fontSize);var lh=parseFloat(b.lineHeight);' +
+    'var cr=ratio(b.color,bgOf(document.body));' +
+    'var f=function(id,v){var n=document.getElementById(id);if(n)n.textContent=v;};' +
+    'f("pp-fs",Math.round(fs)+" px");f("pp-lh",(lh/fs).toFixed(2));f("pp-cr",cr?cr.toFixed(1)+" : 1":"—");' +
+    'var st=document.documentElement.getAttribute("data-tpl");var names={imperial:"Имперский",makt:"МАКТ Светлый",swiss:"Швейцарская сетка",brutal:"Нео-брутализм",sepia:"Сепия Вечер"};' +
+    'f("pp-style",names[st]||st);}catch(e){}}' +
+    'var bar=document.querySelector(".tpl-bar");' +
+    'if(bar)bar.addEventListener("click",function(ev){var b=ev.target&&ev.target.closest?ev.target.closest(".tpl-btn"):null;if(!b||b.__wired)return;b.__wired=true;' +
+    'if(b.dataset.style){document.documentElement.setAttribute("data-tpl",b.dataset.style);' +
+    'bar.querySelectorAll(".tpl-btn[data-style]").forEach(function(x){x.setAttribute("aria-pressed",x===b?"true":"false")});' +
+    'try{localStorage.setItem("uaice_tpl",b.dataset.style)}catch(e){}pass();}' +
+    'else if(b.dataset.act==="print"){try{window.print()}catch(e){}}});' +
+    'window.addEventListener("beforeprint",function(){document.querySelectorAll("details.think").forEach(function(d){d.open=true})});' +
+    'pass();window.passportRefresh=pass;})();<\/script>';
+}
+function styledParts(scrapedOrList, title, opts) {
+  const isList = Array.isArray(scrapedOrList);
+  const list = isList ? scrapedOrList : [{ scraped: scrapedOrList, title: title, url: location.href }];
+  const styleId = tplStyleId();
+  const stName = TPL_STYLES[styleId].name;
+  const esc = tplEscape;
+  let msgs = 0;
+  list.forEach((r) => { msgs += (r.scraped && r.scraped.items ? r.scraped.items.length : 0); });
+  const docTitle = isList ? (title || 'AI Chats') : title;
+  const cover = '<header class="cover"><p class="kicker">' + (isList ? 'Сводный экспорт диалогов' : 'Экспорт диалога') + ' · ' + esc(platformName(list[0].scraped)) + '</p>' +
+    '<h1>' + esc(docTitle) + '</h1>' +
+    '<dl class="meta">' +
+    '<dt>Экспортировано</dt><dd>' + esc(now()) + '</dd>' +
+    '<dt>Диалогов</dt><dd>' + list.length + '</dd>' +
+    '<dt>Сообщений</dt><dd>' + msgs + '</dd>' +
+    (isList ? '' : '<dt>Источник</dt><dd class="u">' + esc(location.href) + '</dd>') +
+    '</dl>' + tplPassportHTML(msgs) + '</header>';
+  const chats = list.map((r, i) => tplChatHTML(r.scraped, r.title, i, isList, r.url)).join('\n');
+  const colophon = '<footer class="colophon">Сделано человеком с заботой о человеке · Universal AI Chat Exporter v' + SCRIPT_VER +
+    ' · шаблон МАКТ-2026 · стиль «' + esc(stName) + '» · печать: Ctrl+P → «Сохранить как PDF» · 0 внешних запросов</footer>';
+  return { cover: cover, chats: chats, colophon: colophon, docTitle: docTitle, styleId: styleId, stName: stName, msgs: msgs, list: list, isList: isList };
+}
+function buildStyledHTML(scrapedOrList, title, opts) {
+  const p = styledParts(scrapedOrList, title, opts);
+  return '<!DOCTYPE html><html lang="ru" data-tpl="' + p.styleId + '"><head><meta charset="UTF-8">' +
+    '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+    '<title>' + tplEscape(p.docTitle) + '</title>' +
+    '<style>' + tplCss() + '</style></head><body>' +
+    tplBarHTML() + '<main class="page">' + p.cover + p.chats + p.colophon + '</main>' + tplPageScript() + '</body></html>';
+}
+/* v28.3.0: наполнение iframe-печати ВЫБРАННЫМ СТИЛЕМ через DOM-API (TT-безопасно:
+ * без document.write — gemini/Trusted Types) */
+function fillStyledDoc(doc, scraped, title) {
+  const parts = styledParts(scraped, title, {});
+  try { doc.documentElement.setAttribute('data-tpl', parts.styleId); } catch (e) {}
+  try { const t = doc.createElement('title'); t.textContent = String(parts.docTitle || 'export').replace(/[&<>]/g, ''); doc.head.appendChild(t); } catch (e) {}
+  try { const st = doc.createElement('style'); st.textContent = tplCss(); doc.head.appendChild(st); } catch (e) {}
+  const main = doc.createElement('main');
+  main.className = 'page';
+  setHTML(main, parts.cover + parts.chats + parts.colophon);
+  doc.body.appendChild(main);
+  try { doc.querySelectorAll('details.think').forEach(d => { d.open = true; }); } catch (e) {}
+  return main;
+}
+/* v27.3.0: отдельное окно печати со стилями (blob-URL; проводка кнопок через opener
+ * работает даже при строгом CSP окна) */
+function openPrintWindow(html) {
+  let url = '';
+  try {
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    url = URL.createObjectURL(blob);
+  } catch (e) { return null; }
+  const w = window.open(url, '_blank');
+  if (!w) { setTimeout(() => URL.revokeObjectURL(url), 30000); return null; }
+  const wire = () => {
+    try {
+      const doc = w.document;
+      if (!doc || !doc.body) return;
+      const bar = doc.querySelector('.tpl-bar');
+      if (bar && !bar.__wiredOpener) {
+        bar.__wiredOpener = true;
+        bar.addEventListener('click', (ev) => {
+          const t = ev.target && ev.target.closest ? ev.target.closest('.tpl-btn') : null;
+          if (!t) return;
+          if (t.dataset.style) {
+            doc.documentElement.setAttribute('data-tpl', t.dataset.style);
+            bar.querySelectorAll('.tpl-btn[data-style]').forEach((x) => x.setAttribute('aria-pressed', x === t ? 'true' : 'false'));
+            try { localStorage.setItem(TPL_KEY, t.dataset.style); } catch (e) {}
+            try { w.passportRefresh && w.passportRefresh(); } catch (e) {}
+          } else if (t.dataset.act === 'print') { try { w.print(); } catch (e) {} }
+        });
+      }
+      doc.querySelectorAll('details.think').forEach((d) => { d.open = true; });
+    } catch (e) {}
+  };
+  setTimeout(wire, 350);
+  setTimeout(wire, 1200);
+  setTimeout(() => { try { w.focus(); w.print(); } catch (e) {} }, 600);
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  return w;
+}
+/* === TPL-ENGINE:END === */

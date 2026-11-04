@@ -1,0 +1,882 @@
+     1→// ==UserScript==
+     2→// @name         UACE · PML-PANEL 1.0 (вариант B · UACE v27.6 core)
+     3→// @namespace    uace.pml.b
+     4→// @version      27.6.0
+     5→// @description  Референс-реализация замороженного мастера PML-PANEL 1.0 (§1–17) + Модуль I на каноне r2 §5 (соль PMLSTRUCT, pre-order UPPERCASE-сигнатуры, urlHash SALT+'URL>'+href) + наблюдение 60 с + скоринг/резерв r2 §2–3 + реестр с «Копировать struct» + усвоение мирового ландшафта 2025–2026 (agentView в духе Playwright MCP, downsample по D2Snap, simhash/minhash-сверки) + экспорт-пакет 27.6.0 (JSON/Markdown/HTML/TXT/CSV/agent-view файлами + ZIP-бандл: инлайновый райтер CRC32+STORE) — всё аддитивно, вне хэш-канона, 0 внешних запросов (§15). Вариант сессии B для сверки с ЧК-1; канон UPOLY ведёт сессия A.
+     6→// @author       session B (UACE-main)
+     7→// @match        *://*/*
+     8→// @grant        none
+     9→// @run-at       document-idle
+    10→// @noframes
+    11→// ==/UserScript==
+    12→
+    13→/* UACE v27.6.0 · вариант B · 2026-09-20
+    14→   Реализует: мастер PML-PANEL 1.0 §1–17; PML-STRUCT r1+r2 §5 — соль/сигнатуры/urlHash дословно столбец UPOLY
+    15→   (полевые конверты №2/№3); findGroups/pickPrimary/findMounts — столбец UPOLY (модальные группы, отсечения
+    16→   32px/0.4·высоты, сортировка count*uniformity↓→parentPath, БЕЗ дедупа sigHash — подтверждено полем: f0338710
+    17→   встречается дважды); скан от document.body — собственный хост (#pml-host под <html>) исключён из struct ПО
+    18→   ПОСТРОЕНИЮ (fix 27.4.3: в 27.4.2 скан от documentElement мог включать собственную панель).
+    19→   Рендер struct терпит ОБЕ формы scroll (канон-объект со строкой на primary И легаси-строку на уровне scroll) —
+    20→   класс E1 «reading 'path'» закрыт в обе стороны (27.4.2, сохранено и расширено).
+    21→   Новое 27.4.3: наблюдение 60 с (I-3/I-4b: мутации, рециклы по prefixPath-4, снапшоты каждые 10 с, stability,
+    22→   stream-критерий I.4.3, Esc — стоп; при pagehide авто-разведка глушится — мелочь B-6 применена у B); разведка
+    23→   мгновенная (бюджет ≤150 мс; default mut window 60); скоринг r2 §2 + резерв r2 §3 (гейты G1–G4); экспорт
+    24→   struct: действие «Копировать struct» + Alt+C (JSON, lastStruct || свежая сборка); хоткеи — канонный набор
+    25→   E/D/C/S/X/I (журнал и свёртка — только кнопками); __UACE_INTERNALS__ — полевая сверка хэшей из консоли.
+    26→   Снято B в пользу столбца UPOLY (финал развилок r2): соль 'pml-s1' → PMLSTRUCT; сигнатура sig3 → pre-order
+    27→   UPPERCASE; urlHash 'pml-s1'+href → SALT+'URL>'+href; C1 «scroll всегда объект» → форма UPOLY (строка на
+    28→   уровне scroll); truncated-списки 0-b → boolean; mut-окно 10 с → 60 с; скан от documentElement → body.
+    29→   Удержано B (позиции к r2): белый список landmarks (C3: роль-any шумит — 18/20 role=button в поле); append-
+    30→   семантика renderActions (гость получает кнопки-фолбэки, не затирая реестр владельца; replace у A —
+    31→   дефект-кандидат, M2-семейство); контраст акцента — от активной темы.
+    32→   Тесты: node --check PASS; core — FNV-канон-векторы + P1-палитры + солвер §6; smoke jsdom — boot, рендер,
+    33→   двойной страж scroll, экспорт, честная версия. FNV-ядро переведено на UTF-8-байты (для ASCII-входов
+    34→   байт-эквивалентно прежнему — сверено векторами).
+    35→   Новое 27.5.0 «усвоение ландшафта» (наказ владельца: не изобретать велосипед — интегрировать лучшие
+    36→   наработки; аддитивно, хэш-канон r2 §5 НЕ тронут — канон-векторы прежние):
+    37→   • agentView — a11y-скелет в формате Playwright MCP a11y-снапшота (де-факто стандарт 2025–2026), но БЕЗ
+    38→     имён (accessible name = текст) — §15 «0 текста страницы» соблюдено, отличие осознанное (вопрос к r3);
+    39→   • downsample — детерминированный даунсемплинг под токен-бюджет по мотивам D2Snap «DOM Downsampling
+    40→     for LLM Web Agents» (arXiv 08.2025): фаза coverage (landmarks→mounts→groups по канонному рангу I.2.5),
+    41→     фаза selection добором под бюджет; без рандома, без Salt-зависимости порядка;
+    42→   • domSim64/simBetween — simhash 64 бита (Charikar, Google 2002) по структурным фичам struct: расстояние
+    43→     Хэмминга «один класс страницы» — кандидат на калибровку порога в ЧК-3; вне хэш-конверта (ext);
+    44→   • compareStructs — точный Jaccard по sigHash групп (линейка minhash, Broder/AltaVista 1997; наборы ≤12 —
+    45→     точный подсчёт дешевле аппроксимации);
+    46→   • уже усвоено ранее: повторяющиеся структуры = findGroups (wrapper induction: Kushmerick 1997, RoadRunner
+    47→     VLDB 2001); uniformity-скоринг = Readability-линейка; синглтон = P13 (Greasemonkey-линейка не формализовала).
+    48→   Новое 27.6.0 «возврат экспорт-пакета» (наказ владельца: вернуть ВСЕ срезанные кнопки/функции — MD, JSON,
+    49→   HTML, TXT, CSV, ZIP; структура 27.5.0 сохранена дословно, всё аддитивно — хэш-канон r2 §5 и канон хоткеев
+    50→   §13 E/D/C/S/X/I не тронуты):
+    51→   • файловые выгрузки: struct.json, Markdown-отчёт (.md: таблицы ландмарков/групп/якорей), автономный
+    52→     HTML-отчёт (.html, инлайн-CSS), TXT-отчёт (тикеты/чаты), CSV групп (BOM для Excel/Sheets), agent-view
+    53→     (.txt); канал — Blob + URL.createObjectURL + <a download>, внешних запросов НЕТ (§15);
+    54→   • ZIP-бандл: инлайновый райтер (таблица CRC32 0xEDB88320 + метод STORE, флаг UTF-8 0x0800, центральный
+    55→     каталог + EOCD) — все 6 форматов одним архивом, без внешних зависимостей;
+    56→   • кнопки: реестр «Действия» +7 («Скачать JSON/Markdown/HTML/TXT/CSV/agent-view/ZIP-бандл»), панель
+    57→     разведки +2 быстрых («Скачать JSON», «Скачать ZIP-бандл»); append-семантика renderActions сохранена;
+    58→   • паспорт: счётчик выгрузок и ZIP; __UACE_INTERNALS__ дополнен (crc32/makeZip/buildExportSet/…).
+    59→   Объём: ~700 строк кода (физических 881) — потолок §17 превышен (данные R3 для STP-2, вопрос поднят в r2).
+    60→   Приватность: 0 внешних запросов, 0 чтения текста страницы — только структурные агрегаты (§15); agentView,
+    61→   downsample и весь экспорт-пакет 27.6.0 строятся ТОЛЬКО из уже собранного struct. */
+    62→(() => {
+    63→'use strict';
+    64→const T0 = performance.now(); // 0-d: старт сессии — первая исполняемая строка
+    65→if (typeof document === 'undefined' || !document.documentElement) return;
+    66→
+    67→/*PML-PURE-BEGIN*/
+    68→const fnvByte = (h, b) => Math.imul(((h ^ b) >>> 0), 0x01000193) >>> 0;
+    69→const FNV1a32 = s => { // FNV-1a 32-bit по байтам UTF-8 — канон r2 §5, дословно столбец UPOLY
+    70→  let h = 0x811c9dc5 >>> 0;
+    71→  for (let i = 0; i < s.length; i++) {
+    72→    let c = s.codePointAt(i);
+    73→    if (c > 0xffff) i++;
+    74→    if (c < 0x80) h = fnvByte(h, c);
+    75→    else if (c < 0x800) { h = fnvByte(h, 0xc0 | c >> 6); h = fnvByte(h, 0x80 | c & 63); }
+    76→    else if (c < 0x10000) { h = fnvByte(h, 0xe0 | c >> 12); h = fnvByte(h, 0x80 | (c >> 6) & 63); h = fnvByte(h, 0x80 | c & 63); }
+    77→    else { h = fnvByte(h, 0xf0 | c >> 18); h = fnvByte(h, 0x80 | (c >> 12) & 63); h = fnvByte(h, 0x80 | (c >> 6) & 63); h = fnvByte(h, 0x80 | c & 63); }
+    78→  }
+    79→  return h >>> 0;
+    80→};
+    81→const hex8 = n => (n >>> 0).toString(16).padStart(8, '0'); // 0-a: lowercase hex 8, padStart
+    82→const SALT = 'PMLSTRUCT';                                  // r2 §5: соль обеих сборок; смена после Ф2 запрещена
+    83→const sigHashIn = sig => SALT + '>' + sig;                 // вход sigHash: 'PMLSTRUCT>UL>LI>P'
+    84→const urlHashIn = href => SALT + 'URL>' + href;            // вход urlHash: столбец UPOLY (SALT+'URL>'+href)
+    85→const simhash64 = feats => { // Charikar (2002): 64-бит фингерпринт мультмножества фич; две независимые 32-бит половины
+    86→  const a1 = new Array(32).fill(0), a2 = new Array(32).fill(0);
+    87→  for (const f of feats) {
+    88→    const h1 = FNV1a32('SIM1>' + f.k), h2 = FNV1a32('SIM2>' + f.k), w = Math.max(1, Math.min(9, f.w | 0));
+    89→    for (let i = 0; i < 32; i++) { if ((h1 >>> i) & 1) a1[i] += w; else a1[i] -= w; if ((h2 >>> i) & 1) a2[i] += w; else a2[i] -= w; }
+    90→  }
+    91→  let v1 = 0, v2 = 0;
+    92→  for (let i = 0; i < 32; i++) { if (a1[i] > 0) v1 |= 1 << i; if (a2[i] > 0) v2 |= 1 << i; }
+    93→  return hex8(v1) + hex8(v2); // hex16: две канонные hex8 половины
+    94→};
+    95→const hammingHex = (a, b) => { // расстояние Хэмминга между hex16-фингерпринтами; -1 на некорректном входе
+    96→  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== 16 || b.length !== 16) return -1;
+    97→  let d = 0;
+    98→  for (let i = 0; i < 16; i += 8) { let v = parseInt(a.slice(i, i + 8), 16) ^ parseInt(b.slice(i, i + 8), 16);
+    99→    while (v) { d += v & 1; v >>>= 1; } }
+   100→  return d;
+   101→};
+   102→const hx = n => Math.round(n * 100) / 100; // 0-c: числа-доли — 2 знака
+   103→const lum = (r, g, b) => { const f = c => (c /= 255) <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+   104→const ratio = (a, b) => { const x = lum(a[0], a[1], a[2]), y = lum(b[0], b[1], b[2]); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+   105→const rgb2ok = (r, g, b) => { const f = c => (c /= 255) <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); const R = f(r), G = f(g), B = f(b);
+   106→  const l = Math.cbrt(0.4122214708 * R + 0.5363325363 * G + 0.0514459929 * B), m = Math.cbrt(0.2119034982 * R + 0.6806995451 * G + 0.1073969566 * B), s2 = Math.cbrt(0.0883024619 * R + 0.2817188376 * G + 0.6299787005 * B);
+   107→  return [0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s2, 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s2, 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s2]; };
+   108→const ok2rgb = (L, a, b) => { const l = (L + 0.3963377774 * a + 0.2158037573 * b) ** 3, m = (L - 0.1055613458 * a - 0.0638541728 * b) ** 3, s2 = (L - 0.0894841775 * a - 1.2914855480 * b) ** 3;
+   109→  const g = c => Math.max(0, Math.min(255, Math.round(255 * (c <= 0.0031308 ? 12.92 * c : 1.055 * Math.pow(c, 1 / 2.4) - 0.055))));
+   110→  return [g(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s2), g(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s2), g(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s2)]; };
+   111→const parseRgb = v => { if (!v) return null; const m = /rgba?\(([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)/i.exec(v); if (m) return [+m[1], +m[2], +m[3]];
+   112→  const h = v.trim(); const n = h.length === 4 ? h.slice(1).split('').map(c => c + c).join('') : h.slice(1);
+   113→  return /^[\da-f]{6}$/i.test(n) ? [0, 2, 4].map(i => parseInt(n.slice(i, i + 2), 16)) : null; };
+   114→const guardSat = rgb => { if (!rgb) return false; const [L, a, b] = rgb2ok(rgb[0], rgb[1], rgb[2]); return Math.hypot(a, b) >= 0.02 && L > 0.05 && L < 0.95; }; // сатурационный страж §6
+   115→const solveAccent = (bg, a, b) => { for (let i = 1; i < 100; i++) { const L = i / 100, rgb = ok2rgb(L, a, b);
+   116→  if (ratio(rgb, bg) >= 4.5 && Math.max(ratio(rgb, [255, 255, 255]), ratio(rgb, [24, 24, 24])) >= 4.5) return rgb; } return null; }; // двухпроходная подгонка §6
+   117→const pickTx = rgb => ratio(rgb, [255, 255, 255]) >= 4.5 ? [255, 255, 255] : [24, 24, 24]; // текст-на-акценте §6
+   118→const PAL = { // канон линии B; все пары ≥4.5:1 (P1); fb — fallback акцента по замороженному §6
+   119→  dark:  { bg: [18, 24, 33],    fg: [230, 235, 242], dim: [154, 168, 186], line: [42, 52, 65],    ring: [122, 184, 255], fb: [77, 163, 255], ok: [62, 190, 120],  warn: [255, 180, 84], crit: [255, 107, 107] },
+   120→  light: { bg: [247, 245, 241], fg: [28, 36, 48],    dim: [86, 97, 118],   line: [217, 212, 203], ring: [11, 98, 196],   fb: [11, 98, 196],  ok: [10, 122, 61],   warn: [138, 90, 0],   crit: [179, 38, 30] },
+   121→  warm:  { bg: [246, 239, 226], fg: [51, 41, 26],    dim: [107, 93, 66],   line: [227, 216, 194], ring: [138, 90, 0],    fb: [77, 163, 255], ok: [27, 94, 32],    warn: [138, 90, 0],   crit: [179, 38, 30] } };
+   122→/*PML-PURE-END*/
+   123→
+   124→const VER = '27.6.0', OWNER = 'uace@' + VER, HOST_ID = 'pml-host';
+   125→const S = { theme: 'system', fs: 14, motion: true, collapsed: false }; // pml_panel_v1, белый список §14
+   126→const J = []; const HK = {}; const Q = []; const clean = [];
+   127→let host = null, root = null, mounted = false, busy = false, badge = 'ok', uid = 0;
+   128→let effTheme = 'dark', ACC = null, lastStruct = null, lastElapsed = 0, reconN = 0, mountMs = 0, stT = 0, cfgInfo = { name: 'UACE', version: VER };
+   129→let obsSession = null, obsResult = null;
+   130→const els = {};
+   131→const metrics = { reconRuns: 0, obsRuns: 0, structCopied: false, agentCopied: false, downloads: 0, zipMade: false };
+   132→const ce = (tag, cls, txt) => { const n = document.createElement(tag); if (cls) n.className = cls; if (txt != null) n.textContent = txt; return n; };
+   133→const bind = (t, fn, tgt) => { const w = tgt || window; w.addEventListener(t, fn); clean.push(['l', t, fn, w]); };
+   134→const store = {
+   135→  load() { try { const o = JSON.parse(localStorage.getItem('pml_panel_v1') || '{}'); for (const k of ['theme', 'fs', 'motion', 'collapsed']) if (k in o) S[k] = o[k]; } catch (e) {} },
+   136→  save() { try { const s = JSON.stringify({ theme: S.theme, fs: S.fs, motion: S.motion, collapsed: S.collapsed, hotkeys: Object.keys(HK) }); if (s.length > 512) throw new Error('>512B'); localStorage.setItem('pml_panel_v1', s); } catch (e) { console.warn('[pml] store skip:', e && e.message); } } };
+   137→
+   138→const CSS = `
+   139→.pml-root{position:fixed;right:16px;top:16px;width:360px;min-width:320px;max-width:480px;max-height:80vh;min-height:360px;display:flex;flex-direction:column;font-family:-apple-system,"Segoe UI",Roboto,"Noto Sans",Arial,sans-serif;font-size:var(--pml-fs);line-height:1.5;font-weight:400;background:var(--pml-bg);color:var(--pml-fg);border:1px solid var(--pml-line);border-radius:var(--pml-radius);box-shadow:0 8px 32px rgba(0,0,0,.25);z-index:2147483000;overflow:hidden}
+   140→.pml-badge44{position:fixed;right:16px;top:16px;width:44px;height:44px;border-radius:50%;border:2px solid var(--pml-ok);background:var(--pml-bg);color:var(--pml-fg);cursor:pointer;font:inherit;font-weight:600;display:flex;align-items:center;justify-content:center;z-index:2147483000}
+   141→.pml-hd{display:flex;gap:8px;align-items:center;padding:8px;border-bottom:1px solid var(--pml-line)}.pml-dot{width:10px;height:10px;border-radius:50%;background:var(--pml-ok);flex:none}
+   142→.pml-dot.run{background:var(--pml-accent)}.pml-dot.warn{background:var(--pml-warn)}.pml-dot.err{background:var(--pml-crit)}.pml-title{font-weight:600;margin-right:auto;max-width:48ch}
+   143→.pml-seg{display:flex;border:1px solid var(--pml-line);border-radius:8px;overflow:hidden}.pml-seg button{min-width:44px;min-height:44px;border:0;background:transparent;color:var(--pml-fg);cursor:pointer;font:inherit;padding:0 8px}
+   144→.pml-seg button[aria-checked="true"]{background:var(--pml-accent);color:var(--pml-accent-tx)}
+   145→.pml-btn{min-height:44px;min-width:44px;border:1px solid var(--pml-line);border-radius:8px;background:transparent;color:var(--pml-fg);cursor:pointer;font:inherit;padding:0 12px;text-align:left}.pml-btn:hover{border-color:var(--pml-accent)}.pml-btn:disabled{opacity:.5;cursor:default}
+   146→.pml-btn:focus-visible,.pml-seg button:focus-visible,.pml-tab:focus-visible,.pml-badge44:focus-visible{outline:2px solid var(--pml-ring);outline-offset:2px}
+   147→.pml-tabs{display:flex;border-bottom:1px solid var(--pml-line)}.pml-tab{flex:1;min-height:44px;border:0;background:transparent;color:var(--pml-fg-dim);font:inherit;cursor:pointer}
+   148→.pml-tab[aria-selected="true"]{color:var(--pml-accent);box-shadow:inset 0 -2px var(--pml-accent)}.pml-bd{flex:1;overflow:auto;padding:8px}.pml-sec{margin:8px 0 4px;font-weight:600}
+   149→.pml-row{display:flex;gap:8px;font-size:calc(var(--pml-fs) - 2px)}.pml-k{color:var(--pml-fg-dim);flex:none;max-width:48ch}.pml-v{word-break:break-all}
+   150→.pml-act{display:flex;flex-direction:column;gap:8px;padding:4px 0}.pml-log{display:flex;gap:8px;align-items:baseline;font-size:calc(var(--pml-fs) - 2px)}
+   151→.pml-lg{width:8px;height:8px;border-radius:50%;flex:none;align-self:center}.pml-lg.info{background:var(--pml-fg-dim)}.pml-lg.ok{background:var(--pml-ok)}.pml-lg.warn{background:var(--pml-warn)}.pml-lg.err{background:var(--pml-crit)}
+   152→.pml-ft{border-top:1px solid var(--pml-line);padding:4px 8px;display:flex;flex-direction:column;gap:4px}.pml-status{font-size:calc(var(--pml-fs) - 2px);min-height:1.4em}
+   153→.pml-ft details,.pml-bd details{font-size:calc(var(--pml-fs) - 2px)}.pml-ft summary,.pml-bd summary{cursor:pointer;min-height:28px;display:flex;align-items:center}
+   154→.pml-root,.pml-btn,.pml-seg button,.pml-tab{transition:background-color .15s,color .15s,border-color .15s}.pml-motion-off *{transition:none!important;animation:none!important}
+   155→input[type=range]{accent-color:var(--pml-accent);min-height:44px}input[type=checkbox]{width:44px;height:44px;accent-color:var(--pml-accent)}
+   156→`;
+   157→
+   158→/* ===================== МОДУЛЬ I · РАЗВЕДКА (канон r2: столбец UPOLY, конверты №2/№3) ===================== */
+   159→const CAP = { groups: 12, landmarks: 20, containers: 5, mountPoints: 8, persistentPaths: 8, nodes: 5000 };
+   160→const RECON_BUDGET_MS = 150;   // I.8.1: блокировка ≤150 мс
+   161→const OBS_WINDOW_MS = 60000;   // окно 60 с (r1; 10-с окно 27.4.0 отозвано)
+   162→
+   163→const pathSegs = el => { // сегменты от body (без body/html) — формат столбца UPOLY
+   164→  const segs = []; let n = el;
+   165→  while (n && n.nodeType === 1 && n.tagName !== 'BODY' && n.tagName !== 'HTML') {
+   166→    let i = 1, s = n;
+   167→    while ((s = s.previousElementSibling)) if (s.tagName === n.tagName) i++;
+   168→    segs.unshift(n.tagName.toLowerCase() + (i > 1 ? ':nth(' + i + ')' : ''));
+   169→    n = n.parentElement;
+   170→  }
+   171→  return ['body'].concat(segs);
+   172→};
+   173→const pathOf = el => {                         // структурный путь ≤120 симв. (r1 §0): nth(i) только при i>1
+   174→  const segs = pathSegs(el).slice(1);
+   175→  let p = 'body' + (segs.length ? '>' + segs.join('>') : '');
+   176→  if (p.length > 120) p = '~' + p.slice(-119); // усечение слева, хвост глубже важнее
+   177→  return p;
+   178→};
+   179→const prefixPath = (el, d) => pathSegs(el).slice(0, d).join('>');
+   180→const sigOf = el => {                          // r2 §5: pre-order теги ВЕРХНИМ регистром через '>', глубина ≤3
+   181→  const out = [];
+   182→  (function walk(n, d) {
+   183→    if (!n || n.nodeType !== 1 || d > 3) return;
+   184→    out.push(n.tagName.toUpperCase());
+   185→    for (let c = n.firstElementChild; c; c = c.nextElementSibling) walk(c, d + 1);
+   186→  })(el, 1);
+   187→  return out.join('>');
+   188→};
+   189→const sigHash = el => hex8(FNV1a32(sigHashIn(sigOf(el))));
+   190→const subtreeDepth = (el, cap) => {            // фактическая глубина поддерева (cap 6)
+   191→  let max = 1;
+   192→  (function walk(n, cur) {
+   193→    if (cur > cap) return;
+   194→    for (let c = n.firstElementChild; c; c = c.nextElementSibling) { max = Math.max(max, cur + 1); walk(c, cur + 1); }
+   195→  })(el, 1);
+   196→  return max;
+   197→};
+   198→const median = arr => {                        // медиана целых; null если пусто
+   199→  const a = arr.filter(Number.isFinite).sort((x, y) => x - y);
+   200→  if (!a.length) return null;
+   201→  const m = a.length >> 1;
+   202→  return a.length % 2 ? a[m] : Math.round((a[m - 1] + a[m]) / 2);
+   203→};
+   204→
+   205→function pickPrimary(all, vh) {                // I-2: каскад primary (I.3.2) + контейнеры — столбец UPOLY
+   206→  const cands = [];
+   207→  for (const el of all) {
+   208→    if (el.scrollHeight <= el.clientHeight + 4) continue;
+   209→    let ov = 'visible';
+   210→    try { ov = getComputedStyle(el).overflowY; } catch (e) {}
+   211→    if (ov !== 'auto' && ov !== 'scroll' && ov !== 'overlay') continue;
+   212→    let main = false;
+   213→    try { main = !!el.closest('main,[role="main"]'); } catch (e) {}
+   214→    cands.push({ el, path: pathOf(el), clientHeight: el.clientHeight, scrollHeight: el.scrollHeight, visibleShare: el.clientHeight / vh, insideMain: main });
+   215→  }
+   216→  cands.sort((a, b) => b.visibleShare - a.visibleShare || b.scrollHeight - a.scrollHeight || b.clientHeight - a.clientHeight || (b.insideMain - a.insideMain) || (a.path < b.path ? -1 : 1));
+   217→  return { primary: cands[0] || null, containers: cands.slice(0, CAP.containers).map(c => ({ path: c.path, scrollHeight: c.scrollHeight, clientHeight: c.clientHeight })), truncated: cands.length > CAP.containers };
+   218→}
+   219→function findGroups(all, primaryPath, deadline) {   // I-1: модальная группа на родителя — столбец UPOLY (+ inPrimary r2 3-a)
+   220→  const out = [];
+   221→  for (const parent of all) {
+   222→    if (performance.now() > deadline) { out.budgetHit = true; break; }
+   223→    if (parent.childElementCount < 3) continue;
+   224→    const kids = [...parent.children];
+   225→    const bySig = new Map();
+   226→    for (const k of kids) { const h = sigHash(k); if (!bySig.has(h)) bySig.set(h, []); bySig.get(h).push(k); }
+   227→    let best = null;
+   228→    for (const [h, arr] of bySig) if (!best || arr.length > best.arr.length) best = { h, arr };
+   229→    if (!best || best.arr.length < 3) continue;
+   230→    const u = best.arr.length / kids.length;
+   231→    if (u < 0.6) continue;
+   232→    let pr;
+   233→    try { pr = parent.getBoundingClientRect(); } catch (e) { continue; }
+   234→    let sumH = 0, ok = true;
+   235→    for (const k of best.arr) {
+   236→      const r = k.getBoundingClientRect();
+   237→      if (r.height < 32) { ok = false; break; }   // I.2.3: каждый ребёнок ≥32px
+   238→      sumH += r.height;
+   239→    }
+   240→    if (!ok || sumH < 0.4 * pr.height) continue;  // отсечение toolbar/иконочных рядов
+   241→    out.push({ sigHash: best.h, count: best.arr.length, depth: subtreeDepth(best.arr[0], 6), uniformity: hx(u), samplePath: pathOf(best.arr[0]), parentPath: pathOf(parent), inPrimary: !!primaryPath && (pathOf(best.arr[0]) === primaryPath || pathOf(best.arr[0]).startsWith(primaryPath + '>')), el: best.arr[0] });
+   242→  }
+   243→  out.sort((a, b) => b.count * b.uniformity - a.count * a.uniformity || (a.parentPath < b.parentPath ? -1 : 1)); // I.2.5
+   244→  return out;
+   245→}
+   246→function findMounts(all, vh, deadline) {            // I-4a: кандидаты монтирования — столбец UPOLY + свои узлы вне
+   247→  const out = [];
+   248→  for (const el of all) {
+   249→    if (performance.now() > deadline) { out.budgetHit = true; break; }
+   250→    if (host && (el === host || host.contains(el))) continue;   // свои узлы исключены
+   251→    if (el.childElementCount < 1) continue;
+   252→    let cs; try { cs = getComputedStyle(el); } catch (e) { continue; }
+   253→    if (cs.display === 'none' || cs.visibility === 'hidden') continue;
+   254→    if (cs.position !== 'fixed' && cs.position !== 'sticky') continue;
+   255→    const r = el.getBoundingClientRect();
+   256→    if (!(r.top < 0.15 * vh && r.height >= 32 && r.height <= 96 && r.width >= 120)) continue;
+   257→    out.push({ path: pathOf(el), mode: cs.position, h: Math.round(r.height), top: r.top, x: r.x });
+   258→  }
+   259→  out.sort((a, b) => a.top - b.top || a.x - b.x);
+   260→  return out;
+   261→}
+   262→function findLandmarks(all) {                   // C3 (позиция B на r2): структурные теги + ландмарк-роли, без role=button
+   263→  const out = [];
+   264→  const tags = { MAIN: 1, NAV: 1, HEADER: 1, FOOTER: 1, ASIDE: 1 };
+   265→  const roles = ['banner', 'main', 'navigation', 'complementary', 'contentinfo', 'search', 'region', 'form'];
+   266→  for (const el of all) {
+   267→    const role = el.getAttribute('role');
+   268→    if (!tags[el.tagName] && roles.indexOf(role) < 0) continue;
+   269→    out.push({ tag: el.tagName.toLowerCase(), role: role || null, path: pathOf(el) });
+   270→  }
+   271→  return out;
+   272→}
+   273→function scanSync() {                           // один обход от body (свой хост вне body — самоисключение), бюджет ≤150 мс
+   274→  const t0 = performance.now();
+   275→  const bodyEl = document.body;
+   276→  if (!bodyEl) return { all: [], vh: innerHeight || 800, blockCount: 0, maxDepth: 0, sc: { primary: null, containers: [], truncated: false }, groups: [], mounts: [], landmarks: [], truncatedDom: false, elapsed: 0 };
+   277→  const every = bodyEl.querySelectorAll('*');
+   278→  const all = [...every].slice(0, CAP.nodes);
+   279→  const vh = innerHeight || 800;
+   280→  let blockCount = 0, maxDepth = 0;
+   281→  (function w(n, d) { if (!n || n.nodeType !== 1) return; blockCount++; maxDepth = Math.max(maxDepth, d); for (let c = n.firstElementChild; c; c = c.nextElementSibling) w(c, d + 1); })(bodyEl, 1);
+   282→  const sc = pickPrimary(all, vh);
+   283→  const deadline = t0 + RECON_BUDGET_MS;
+   284→  const groups = findGroups(all, sc.primary ? sc.primary.path : null, deadline);
+   285→  const mounts = findMounts(all, vh, deadline);
+   286→  const landmarks = findLandmarks(all);
+   287→  const budgetHit = !!(groups.budgetHit || mounts.budgetHit);
+   288→  return { all, vh, blockCount, maxDepth, sc, groups, mounts, landmarks, truncatedDom: every.length > CAP.nodes || budgetHit, elapsed: Math.round(performance.now() - t0) };
+   289→}
+   290→function scoreGroup(g) {                        // r2 §2: чистая формула «кандидат → вес-факты»
+   291→  const u = Math.round(100 * Math.max(0, Math.min(1, (g.uniformity - 0.6) / 0.4)));
+   292→  const c = Math.round(100 * Math.min(1, g.count / 40));
+   293→  const p = g.inPrimary ? 100 : 0;
+   294→  const s = Math.round(100 * Math.max(0, Math.min(1, 1 - g.ratio)));
+   295→  const l = g.hasLandmark ? 100 : 0;
+   296→  return { u, c, p, s, l, confidence: Math.round(0.35 * u + 0.25 * c + 0.20 * p + 0.10 * s + 0.10 * l) };
+   297→}
+   298→function resolveRecon(scored) {                 // r2 §3: гейты G1–G4 → found/no-data
+   299→  const ok = scored.filter(x => x.inPrimary && x.count >= 6 && x.depth >= 2).sort((a, b) => b.confidence - a.confidence || (a.samplePath < b.samplePath ? -1 : 1));
+   300→  if (!ok.length || ok[0].confidence < 75) return { status: 'no-data' };
+   301→  const second = ok[1];
+   302→  if (second && ok[0].confidence - second.confidence < 15 && second.confidence >= 50) return { status: 'no-data' };
+   303→  const t = ok[0];
+   304→  return { status: 'found', candidate: { path: t.samplePath, sigHash: t.sigHash, inPrimary: true, confidence: t.confidence, basis: { u: t.u, c: t.c, p: t.p, s: t.s, l: t.l } } };
+   305→}
+   306→function buildStruct() {                        // конверт r1 (+inPrimary, recon по r2) — форма столбца UPOLY
+   307→  const s = scanSync();
+   308→  const primary = s.sc.primary;
+   309→  const raw = s.groups.slice(0, CAP.groups).map(g => {
+   310→    const g2 = { sigHash: g.sigHash, count: g.count, depth: g.depth, uniformity: g.uniformity, samplePath: g.samplePath, inPrimary: g.inPrimary };
+   311→    g2.ratio = primary ? hx(primary.clientHeight / primary.scrollHeight) : 1;
+   312→    try { g2.hasLandmark = !!g.el.closest('main,[role="main"],[role="feed"],[role="log"]'); } catch (e) { g2.hasLandmark = false; }
+   313→    return Object.assign(g2, scoreGroup(g2));
+   314→  });
+   315→  const struct = {
+   316→    structVersion: 'r1',
+   317→    meta: { ts: Math.round(performance.now() - T0), viewport: { w: innerWidth, h: innerHeight }, dpr: hx(devicePixelRatio || 1), urlHash: hex8(FNV1a32(urlHashIn(location.href))) },
+   318→    dom: { maxDepth: s.maxDepth, blockCount: s.blockCount, landmarks: s.landmarks.slice(0, CAP.landmarks), groups: raw.map(g => ({ sigHash: g.sigHash, count: g.count, depth: g.depth, uniformity: g.uniformity, samplePath: g.samplePath, inPrimary: g.inPrimary })), truncated: s.truncatedDom || s.groups.length > CAP.groups || s.landmarks.length > CAP.landmarks },
+   319→    scroll: primary ? { primary: { path: primary.path, scrollHeight: primary.scrollHeight, clientHeight: primary.clientHeight, ratio: hx(primary.clientHeight / primary.scrollHeight) }, containers: s.sc.containers, truncated: s.sc.truncated } : 'no-scroll-container',
+   320→    mut: obsResult ? obsResult.mut : { window: 60, adds: 0, removes: 0, recycles: 0, medianIntervalMs: null, streamCandidate: null },
+   321→    anchors: { mountPoints: s.mounts.slice(0, CAP.mountPoints).map(m => ({ path: m.path, mode: m.mode, h: m.h })), persistentPaths: obsResult ? obsResult.persistent : [], stability: obsResult ? obsResult.stability : 0, truncated: s.mounts.length > CAP.mountPoints || (obsResult ? obsResult.persistentTruncated : false) }
+   322→  };
+   323→  struct.recon = resolveRecon(raw);             // r2 §1.2: рендереры r1 ключ игнорируют
+   324→  lastElapsed = s.elapsed;
+   325→  return struct;
+   326→}
+   327→/* ===================== УСВОЕНИЕ ЛАНДШАФТА 27.5.0 (аддитивно; вне хэш-конверта r2 §5) =====================
+   328→   Все функции работают ТОЛЬКО от уже собранного struct (0 новых обращений к DOM-тексту — §15).
+   329→   Ни одно поле канонного struct не меняется; sigHash/urlHash не затронуты (канон-векторы прежние). */
+   330→const structFeatures = st => { // фичи simhash: landmarks ×3, группы ×2, точки монтажа ×1 (веса важности)
+   331→  const f = [];
+   332→  ((st.dom && st.dom.landmarks) || []).forEach(l => f.push({ k: 'L:' + l.tag + '|' + (l.role || '') + '|' + l.path, w: 3 }));
+   333→  ((st.dom && st.dom.groups) || []).forEach(g => f.push({ k: 'G:' + g.sigHash + '|' + g.count, w: 2 }));
+   334→  ((st.anchors && st.anchors.mountPoints) || []).forEach(m => f.push({ k: 'M:' + m.path + '|' + m.mode, w: 1 }));
+   335→  if (!f.length) f.push({ k: 'EMPTY', w: 1 });
+   336→  return f;
+   337→};
+   338→const domSim64 = st => simhash64(structFeatures(st));            // hex16; детерминирован на равном struct
+   339→const simBetween = (a, b) => hammingHex(domSim64(a), domSim64(b)); // биты Хэмминга; 0 = идентичный каркас
+   340→const agentView = st => { // формат Playwright MCP a11y-снапшота (2025–2026): «- роль [ref=eN] …» — но БЕЗ имён (§15)
+   341→  const v = st || lastStruct || buildStruct(), L = [];
+   342→  L.push('- page urlHash=' + ((v.meta && v.meta.urlHash) || '?') + ' ratio=' + ((v.scroll && v.scroll.primary && v.scroll.primary.ratio) != null ? v.scroll.primary.ratio : 'n/a'));
+   343→  ((v.dom && v.dom.landmarks) || []).forEach((l, i) => L.push('- ' + (l.role || l.tag) + ' [ref=l' + (i + 1) + '] path=' + l.path));
+   344→  ((v.dom && v.dom.groups) || []).forEach((g, i) => L.push('- group ' + g.sigHash + ' [ref=g' + (i + 1) + '] x' + g.count + ' depth=' + g.depth + (g.inPrimary ? ' in-primary' : '')));
+   345→  ((v.anchors && v.anchors.mountPoints) || []).forEach((m, i) => L.push('- mount ' + m.mode + ' [ref=m' + (i + 1) + '] h=' + m.h + ' path=' + m.path));
+   346→  if (v.recon && v.recon.status === 'found') L.push('- candidate ' + v.recon.candidate.sigHash + ' conf=' + v.recon.candidate.confidence);
+   347→  return L.join('\n');
+   348→};
+   349→const downsample = (st, budget) => { // D2Snap (arXiv 08.2025): coverage + selection под бюджет; детерминированно
+   350→  const B = Math.max(60, budget == null ? 400 : budget | 0), items = [];
+   351→  const push = (prio, line) => items.push({ prio, line, cost: Math.ceil(line.length / 4) }); // «токен» ≈ 4 символа
+   352→  push(0, 'page ' + ((st.meta && st.meta.urlHash) || '?'));
+   353→  ((st.dom && st.dom.landmarks) || []).forEach((l, i) => push(1, (l.role || l.tag) + ' [ref=l' + (i + 1) + '] ' + l.path));
+   354→  ((st.anchors && st.anchors.mountPoints) || []).forEach((m, i) => push(2, 'mount ' + m.mode + ' h' + m.h + ' ' + m.path));
+   355→  ((st.dom && st.dom.groups) || []).forEach((g, i) => push(3, 'group ' + g.sigHash + ' x' + g.count + ' d' + g.depth + (g.inPrimary ? ' *' : '') + ' ' + g.samplePath));
+   356→  items.sort((a, b) => a.prio - b.prio); // стабильная сортировка: внутри приоритета — канонный порядок struct
+   357→  const kept = []; let used = 0, dropped = 0;
+   358→  for (const it of items) if (used + it.cost <= B) { kept.push(it.line); used += it.cost; } else dropped++;
+   359→  if (dropped) kept.push('… +' + dropped + ' узлов за бюджетом ' + B);
+   360→  return { view: kept.join('\n'), used, budget: B, dropped };
+   361→};
+   362→const compareStructs = (a, b) => { // Broder/minhash-линейка (1997): точный Jaccard по sigHash групп (наборы ≤12)
+   363→  const ga = new Set(((((a || {}).dom || {}).groups) || []).map(g => g.sigHash));
+   364→  const gb = new Set(((((b || {}).dom || {}).groups) || []).map(g => g.sigHash));
+   365→  let inter = 0; for (const h of ga) if (gb.has(h)) inter++;
+   366→  const union = ga.size + gb.size - inter;
+   367→  return { jaccard: union ? hx(inter / union) : 1, sim: simBetween(a, b), inter, groupsA: ga.size, groupsB: gb.size };
+   368→};
+   369→/* ---- I-3 + I-4b: пассивное окно 60 с; Esc — стоп; снапшот 0 + каждые 10 с (столбец UPOLY) ---- */
+   370→function startObservation() {
+   371→  if (obsSession) return;
+   372→  if (!document.body) { log('err', 'нет document.body — наблюдение отменено'); status('наблюдение: нет body'); return; }
+   373→  metrics.obsRuns++;
+   374→  const s = { adds: 0, removes: 0, recycles: 0, sigBudget: 500, aborted: false, byPath: new Map(), addIntervals: new Map(), lastAdd: new Map(), removedSigs: new Map(), snapshots: [], navEvents: 0, pausedMs: 0, hiddenAt: 0 };
+   375→  s.endsAt = Date.now() + OBS_WINDOW_MS;
+   376→  obsSession = s;
+   377→  setBadge('run');
+   378→  status('Наблюдение: осталось 60 с');
+   379→  log('info', 'окно наблюдения 60 с запущено (Esc — стоп)');
+   380→  s.observer = new MutationObserver(muts => {
+   381→    for (const m of muts) {
+   382→      const p = m.target && m.target.nodeType === 1 ? prefixPath(m.target, 4) : 'body';
+   383→      let rec = s.byPath.get(p);
+   384→      if (!rec) { rec = { adds: 0, removes: 0, net: 0 }; s.byPath.set(p, rec); }
+   385→      for (const n of m.addedNodes) if (n.nodeType === 1) {
+   386→        s.adds++; rec.adds++; rec.net++;
+   387→        const t = performance.now(), last = s.lastAdd.get(p);
+   388→        if (last != null) { const a = s.addIntervals.get(p) || []; a.push(Math.round(t - last)); s.addIntervals.set(p, a); }
+   389→        s.lastAdd.set(p, t);
+   390→        if (s.sigBudget > 0) {
+   391→          s.sigBudget--;
+   392→          const h = sigHash(n), set = s.removedSigs.get(p);
+   393→          if (set && set.has(h)) { s.recycles++; set.delete(h); }   // I.4.4: remove→add с равным sigHash
+   394→        }
+   395→      }
+   396→      for (const n of m.removedNodes) if (n.nodeType === 1) {
+   397→        s.removes++; rec.removes--; rec.net--;
+   398→        if (s.sigBudget > 0) { const set = s.removedSigs.get(p) || s.removedSigs.set(p, new Set()).get(p); if (set.size < 50) set.add(sigHash(n)); }
+   399→      }
+   400→    }
+   401→  });
+   402→  s.observer.observe(document.body, { childList: true, subtree: true, characterData: false, attributes: false });
+   403→  const snap = () => { const set = new Set(); (function w(n, d) { if (!n || n.nodeType !== 1 || d > 4 || set.size >= 300) return; if (!host || n !== host) { set.add(pathOf(n)); for (let c = n.firstElementChild; c; c = c.nextElementSibling) w(c, d + 1); } })(document.body, 1); s.snapshots.push(set); };
+   404→  s.snap = snap; snap();                         // I.5.2: снапшот 0 + каждые 10 с, глубина ≤4, cap 300
+   405→  s.snapTimer = setInterval(() => { if (!document.hidden && s.snapshots.length < 30) snap(); }, 10000);
+   406→  s.navHandler = () => { s.navEvents++; snap(); };
+   407→  s.op = history.pushState; s.orp = history.replaceState;
+   408→  history.pushState = function () { s.navHandler(); return s.op.apply(this, arguments); };
+   409→  history.replaceState = function () { s.navHandler(); return s.orp.apply(this, arguments); };
+   410→  addEventListener('popstate', s.navHandler);
+   411→  s.visHandler = () => { if (document.hidden) s.hiddenAt = Date.now(); else if (s.hiddenAt) { s.pausedMs += Date.now() - s.hiddenAt; s.hiddenAt = 0; } };
+   412→  document.addEventListener('visibilitychange', s.visHandler);
+   413→  s.tick = setInterval(() => {
+   414→    const left = Math.max(0, Math.ceil((s.endsAt + s.pausedMs - Date.now()) / 1000));
+   415→    status('Наблюдение: осталось ' + left + ' с');
+   416→    if (left <= 0) finishObservation(false);
+   417→  }, 1000);
+   418→}
+   419→function finishObservation(aborted, silent) {
+   420→  const s = obsSession;
+   421→  if (!s) return;
+   422→  obsSession = null;
+   423→  clearInterval(s.tick); clearInterval(s.snapTimer);
+   424→  s.observer.disconnect();
+   425→  document.removeEventListener('visibilitychange', s.visHandler);
+   426→  removeEventListener('popstate', s.navHandler);
+   427→  history.pushState = s.op; history.replaceState = s.orp;
+   428→  const top = [...s.byPath.entries()].sort((a, b) => b[1].adds - a[1].adds)[0];
+   429→  const med = top ? median(s.addIntervals.get(top[0]) || []) : null;
+   430→  const stream = top ? (top[1].adds >= 3 && top[1].net > 0 && med !== null && med >= 50 && med <= 5000) : false; // I.4.3
+   431→  obsResult = {
+   432→    mut: { window: 60, adds: s.adds, removes: s.removes, recycles: s.recycles, medianIntervalMs: med, streamCandidate: stream },
+   433→    persistent: [], stability: 0, persistentTruncated: false
+   434→  };
+   435→  if (s.snapshots.length) {                      // I.5.2: присутствуют в ≥90% снапшотов
+   436→    const total = s.snapshots.length, cnt = new Map();
+   437→    for (const set of s.snapshots) for (const p of set) cnt.set(p, (cnt.get(p) || 0) + 1);
+   438→    const per = [...cnt.entries()].filter(x => x[1] / total >= 0.9).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
+   439→    obsResult.persistent = per.slice(0, CAP.persistentPaths).map(x => x[0]);
+   440→    obsResult.persistentTruncated = per.length > CAP.persistentPaths;
+   441→    obsResult.stability = hx(obsResult.persistent.length / Math.max(1, Math.min(s.snapshots[0].size, 20)));
+   442→  }
+   443→  if (!silent) {                                 // silent: pagehide — авто-разведка при выгрузке глушится (мелочь B-6)
+   444→    if (aborted) log('warn', 'наблюдение прервано (Esc): частичный отчёт принят');
+   445→    else log('ok', 'наблюдение завершено: adds ' + s.adds + ', recycles ' + s.recycles + ', поток ' + (stream ? 'да' : 'нет'));
+   446→    status(aborted ? 'Наблюдение прервано' : 'Наблюдение завершено');
+   447→    Promise.resolve().then(runRecon).catch(e => log('err', 'авто-разведка: ' + (e && e.message))); // E1-гигиена: рендер терпит обе формы scroll
+   448→  }
+   449→}
+   450→function abortObservation() { if (obsSession) finishObservation(true, false); }
+   451→
+   452→/* ===================== РЕЕСТР ДЕЙСТВИЙ · экспорт struct (канал ЧК-1/Ф2) ===================== */
+   453→function copyText(text, okMsg) {                 // 0 внешних запросов: clipboard API, fallback execCommand
+   454→  const done = () => { status(okMsg); log('ok', okMsg); };
+   455→  const fail = () => { status('копирование недоступно'); log('warn', 'буфер обмена недоступен'); };
+   456→  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, () => fallback());
+   457→  else fallback();
+   458→  function fallback() {
+   459→    try {
+   460→      const ta = document.createElement('textarea');
+   461→      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+   462→      document.body.appendChild(ta); ta.select();
+   463→      const ok = document.execCommand('copy'); ta.remove();
+   464→      ok ? done() : fail();
+   465→    } catch (e) { fail(); }
+   466→  }
+   467→}
+   468→async function runRecon() {                      // сборка struct r1: мгновенная (≤150 мс); мутации — отдельным окном
+   469→  metrics.reconRuns++;
+   470→  setBadge('run');
+   471→  lastStruct = buildStruct();
+   472→  renderRecon(lastStruct);
+   473→  setBadge(obsSession ? 'run' : 'ok');
+   474→  const r = lastStruct.recon;
+   475→  log('ok', 'разведка ' + lastElapsed + ' мс: групп ' + lastStruct.dom.groups.length + ', резерв: ' + (r.status === 'found' ? 'found ' + r.candidate.confidence : r.status));
+   476→  status('Разведка ' + lastElapsed + ' мс · резерв ' + r.status);
+   477→}
+   478→function copyStruct() { metrics.structCopied = true; copyText(JSON.stringify(lastStruct || buildStruct(), null, 1), 'struct скопирован (JSON)'); }
+   479→function copyAgentView() { metrics.agentCopied = true; copyText(agentView(lastStruct || buildStruct()), 'agent-view скопирован (a11y-скелет без имён, §15)'); }
+   480→/* ===================== ЭКСПОРТ-ПАКЕТ 27.6.0 · ВОЗВРАТ СРЕЗАННОГО (аддитивно, 27.5.0 не тронута) =====================
+   481→   Канал файлов — Blob + URL.createObjectURL + <a download>; 0 внешних запросов (§15).
+   482→   ZIP — инлайновый райтер (CRC32 + STORE); канон хоткеев §13 не тронут — новые действия кнопками. */
+   483→const fileStamp = ext => 'uace-' + VER + '-struct-' + hex8(FNV1a32(urlHashIn(location.href))) + '-' +
+   484→  new Date().toISOString().slice(11, 19).replace(/:/g, '') + '.' + ext;
+   485→const txtBlob = (s, mime) => new Blob([s], { type: mime || 'text/plain;charset=utf-8' });
+   486→function downloadFile(name, blob, okMsg) {
+   487→  try {
+   488→    const url = URL.createObjectURL(blob), a = ce('a');
+   489→    a.href = url; a.download = name;
+   490→    (document.body || document.documentElement).appendChild(a); a.click(); a.remove();
+   491→    setTimeout(() => { try { URL.revokeObjectURL(url); } catch (e) {} }, 4000);
+   492→    metrics.downloads++; status(okMsg); log('ok', okMsg + ' → ' + name);
+   493→  } catch (e) { status('выгрузка недоступна'); log('warn', 'выгрузка не удалась: ' + (e && e.message)); }
+   494→}
+   495→const structToText = st => { // человекочитаемый TXT — тикеты/чаты; собирается ТОЛЬКО из struct (§15)
+   496→  const v = st || lastStruct || buildStruct(), MT = v.meta || { urlHash: '?', ts: 0, viewport: { w: 0, h: 0 }, dpr: '?' },
+   497→    D = v.dom || {}, M = v.mut || {}, A = v.anchors || {}, L = [];
+   498→  const sec = t => { L.push('', '-- ' + t + ' ' + '-'.repeat(Math.max(1, 48 - t.length))); };
+   499→  L.push('UACE ' + VER + ' · PML-STRUCT r1 · TXT-отчёт');
+   500→  L.push('='.repeat(56));
+   501→  L.push('urlHash  : ' + MT.urlHash);
+   502→  L.push('момент   : +' + MT.ts + ' мс от старта');
+   503→  L.push('viewport : ' + MT.viewport.w + 'x' + MT.viewport.h + ' @dpr ' + MT.dpr);
+   504→  L.push('соль     : ' + SALT + ' (контракт PML-STRUCT r1+r2)');
+   505→  sec('Каркас (I-1)');
+   506→  L.push('maxDepth ' + D.maxDepth + ' · blockCount ' + D.blockCount + (D.truncated ? ' · УСЕЧЕНО' : ''));
+   507→  (D.landmarks || []).forEach(l => L.push('  ' + l.tag + (l.role ? '[' + l.role + ']' : '') + ' ' + l.path));
+   508→  (D.groups || []).forEach(g => L.push('  ' + g.sigHash + ' x' + g.count + ' глуб.' + g.depth + ' однород.' + g.uniformity + (g.inPrimary ? ' [скролл]' : '') + ' ' + g.samplePath));
+   509→  sec('Скролл (I-2)');
+   510→  if (v.scroll && v.scroll.primary && v.scroll.primary.path) {
+   511→    L.push('primary  : ' + v.scroll.primary.path + ' ratio ' + v.scroll.primary.ratio + ' (' + v.scroll.primary.scrollHeight + '/' + v.scroll.primary.clientHeight + ')');
+   512→    (v.scroll.containers || []).forEach(c => L.push('  контейнер: ' + c.path + ' ' + c.scrollHeight + '/' + c.clientHeight));
+   513→  } else L.push('no-scroll-container');
+   514→  sec('Мутации (I-3)');
+   515→  L.push('окно ' + (M.window == null ? '—' : M.window) + ' с · adds ' + (M.adds || 0) + ' · removes ' + (M.removes || 0) + ' · рециклы ' + (M.recycles || 0) + ' · медиана ' + (M.medianIntervalMs == null ? '—' : M.medianIntervalMs) + ' мс · поток: ' + (M.streamCandidate ? 'да' : 'нет'));
+   516→  sec('Якоря (I-4)');
+   517→  (A.mountPoints || []).forEach(m => L.push('  ' + m.path + ' ' + m.mode + ' h' + m.h));
+   518→  L.push('стойких путей: ' + (A.persistentPaths || []).length + ' · стабильность ' + (A.stability == null ? '—' : A.stability));
+   519→  sec('Резерв (r2 §3)');
+   520→  if (v.recon && v.recon.status === 'found') L.push('кандидат ' + v.recon.candidate.path + ' · sigHash ' + v.recon.candidate.sigHash + ' · confidence ' + v.recon.candidate.confidence);
+   521→  else L.push('no-data (консервативный отказ)');
+   522→  return L.join('\n') + '\n';
+   523→};
+   524→const structToMarkdown = st => { // отчёт .md — таблицы для PR/вики/чатов
+   525→  const v = st || lastStruct || buildStruct(), MT = v.meta || { urlHash: '?', ts: 0, viewport: { w: 0, h: 0 }, dpr: '?' },
+   526→    D = v.dom || {}, M = v.mut || {}, A = v.anchors || {}, L = [];
+   527→  L.push('# UACE ' + VER + ' · PML-STRUCT r1 — отчёт Markdown', '');
+   528→  L.push('- **urlHash:** `' + MT.urlHash + '`');
+   529→  L.push('- **Момент:** +' + MT.ts + ' мс от старта');
+   530→  L.push('- **Viewport:** ' + MT.viewport.w + '×' + MT.viewport.h + ' @dpr ' + MT.dpr);
+   531→  L.push('- **Соль FNV-1a:** `' + SALT + '` · контракт r1+r2', '');
+   532→  L.push('## Каркас (I-1)', '');
+   533→  L.push('maxDepth **' + D.maxDepth + '** · blockCount **' + D.blockCount + '**' + (D.truncated ? ' · УСЕЧЕНО' : ''));
+   534→  if ((D.landmarks || []).length) {
+   535→    L.push('', '| тег | роль | путь |', '|---|---|---|');
+   536→    D.landmarks.forEach(l => L.push('| ' + l.tag + ' | ' + (l.role || '—') + ' | `' + l.path + '` |'));
+   537→  } else L.push('', '_ландмарков нет_');
+   538→  if ((D.groups || []).length) {
+   539→    L.push('', '### Группы (I-1, скоринг r2 §2)', '', '| sigHash | × | глуб. | однород. | inPrimary | образец |', '|---|---|---|---|---|---|');
+   540→    D.groups.forEach(g => L.push('| `' + g.sigHash + '` | ' + g.count + ' | ' + g.depth + ' | ' + g.uniformity + ' | ' + (g.inPrimary ? 'да' : 'нет') + ' | `' + g.samplePath + '` |'));
+   541→  } else L.push('', '_групп не найдено_');
+   542→  L.push('', '## Скролл (I-2)', '');
+   543→  if (v.scroll && v.scroll.primary && v.scroll.primary.path) {
+   544→    L.push('primary: `' + v.scroll.primary.path + '` · ratio **' + v.scroll.primary.ratio + '** · ' + v.scroll.primary.scrollHeight + '/' + v.scroll.primary.clientHeight);
+   545→    if ((v.scroll.containers || []).length) {
+   546→      L.push('', '| контейнер | scroll/client |', '|---|---|');
+   547→      v.scroll.containers.forEach(c => L.push('| `' + c.path + '` | ' + c.scrollHeight + '/' + c.clientHeight + ' |'));
+   548→    }
+   549→  } else L.push('no-scroll-container');
+   550→  L.push('', '## Мутации (I-3)', '');
+   551→  L.push('окно ' + (M.window == null ? '—' : M.window) + ' с · adds ' + (M.adds || 0) + ' · removes ' + (M.removes || 0) + ' · рециклы ' + (M.recycles || 0) + ' · медиана ' + (M.medianIntervalMs == null ? '—' : M.medianIntervalMs + ' мс') + ' · поток: ' + (M.streamCandidate ? 'да' : 'нет'));
+   552→  L.push('', '## Якоря (I-4)', '');
+   553→  if ((A.mountPoints || []).length) {
+   554→    L.push('', '| точка монтажа | режим | h |', '|---|---|---|');
+   555→    A.mountPoints.forEach(m => L.push('| `' + m.path + '` | ' + m.mode + ' | ' + m.h + ' |'));
+   556→  } else L.push('точек монтажа: 0');
+   557→  L.push('', 'стойких путей: ' + (A.persistentPaths || []).length + ' · стабильность ' + (A.stability == null ? '—' : A.stability));
+   558→  L.push('', '## Резерв (r2 §3)', '');
+   559→  if (v.recon && v.recon.status === 'found') L.push('кандидат `' + v.recon.candidate.path + '` · sigHash `' + v.recon.candidate.sigHash + '` · confidence **' + v.recon.candidate.confidence + '**');
+   560→  else L.push('no-data (консервативный отказ)');
+   561→  return L.join('\n') + '\n';
+   562→};
+   563→const escH = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+   564→const structToHTML = st => { // автономный HTML-отчёт: инлайн-CSS, 0 внешних запросов (§15)
+   565→  const v = st || lastStruct || buildStruct(), MT = v.meta || { urlHash: '?', ts: 0, viewport: { w: 0, h: 0 }, dpr: '?' },
+   566→    D = v.dom || {}, M = v.mut || {}, A = v.anchors || {}, e = escH;
+   567→  const rows = arr => arr.map(r => '<tr>' + r.map(c => '<td>' + e(c) + '</td>').join('') + '</tr>').join('');
+   568→  const tbl = (head, body) => '<table><thead><tr>' + head.map(h => '<th>' + e(h) + '</th>').join('') + '</tr></thead><tbody>' + body + '</tbody></table>';
+   569→  const r = v.recon && v.recon.status === 'found' ? v.recon.candidate : null;
+   570→  return '<!doctype html>\n<html lang="ru"><head><meta charset="utf-8"><title>UACE ' + e(VER) + ' · PML-STRUCT ' + e(MT.urlHash) + '</title>\n'
+   571→    + '<style>body{font:14px/1.5 -apple-system,"Segoe UI",Roboto,"Noto Sans",Arial,sans-serif;margin:0;background:#121821;color:#e6ebf2;padding:24px}'
+   572→    + 'h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:24px 0 8px;border-bottom:1px solid #2a3441;padding-bottom:4px}'
+   573→    + '.m{color:#9aa8ba;font-size:12px;margin:0 0 16px}table{border-collapse:collapse;width:100%;font-size:13px;margin:8px 0}'
+   574→    + 'th,td{border:1px solid #2a3441;padding:4px 8px;text-align:left;vertical-align:top}th{background:#1a2230;color:#9aa8ba;font-weight:600}'
+   575→    + 'code{background:#1a2230;padding:1px 5px;border-radius:4px;font-size:12px}.dim{color:#9aa8ba}</style></head>\n<body>\n'
+   576→    + '<h1>UACE ' + e(VER) + ' · PML-STRUCT r1 — HTML-отчёт</h1>\n'
+   577→    + '<p class="m">urlHash <code>' + e(MT.urlHash) + '</code> · момент +' + e(MT.ts) + ' мс · viewport ' + e(MT.viewport.w + '×' + MT.viewport.h) + ' @dpr ' + e(MT.dpr) + ' · автономный файл: 0 внешних запросов, текст страницы не читался (§15)</p>\n'
+   578→    + '<h2>Каркас (I-1)</h2>' + (D.maxDepth != null ? '<p>maxDepth ' + e(D.maxDepth) + ' · blockCount ' + e(D.blockCount) + (D.truncated ? ' · усечено' : '') + '</p>' : '')
+   579→    + ((D.landmarks || []).length ? tbl(['тег', 'роль', 'путь'], rows(D.landmarks.map(l => [l.tag, l.role || '—', l.path]))) : '<p class="dim">ландмарков нет</p>')
+   580→    + '<h2>Группы (I-1 · скоринг r2 §2)</h2>'
+   581→    + ((D.groups || []).length ? tbl(['sigHash', '×', 'глуб.', 'однород.', 'inPrimary', 'образец'], rows(D.groups.map(g => [g.sigHash, g.count, g.depth, g.uniformity, g.inPrimary ? 'да' : 'нет', g.samplePath]))) : '<p class="dim">групп не найдено</p>')
+   582→    + '<h2>Скролл (I-2)</h2>'
+   583→    + (v.scroll && v.scroll.primary && v.scroll.primary.path
+   584→      ? '<p>primary <code>' + e(v.scroll.primary.path) + '</code> · ratio ' + e(v.scroll.primary.ratio) + ' · ' + e(v.scroll.primary.scrollHeight + '/' + v.scroll.primary.clientHeight) + '</p>'
+   585→        + ((v.scroll.containers || []).length ? tbl(['контейнер', 'scroll/client'], rows(v.scroll.containers.map(c => [c.path, c.scrollHeight + '/' + c.clientHeight]))) : '')
+   586→      : '<p class="dim">no-scroll-container</p>')
+   587→    + '<h2>Мутации (I-3)</h2><p>окно ' + e(M.window == null ? '—' : M.window) + ' с · adds ' + e(M.adds || 0) + ' · removes ' + e(M.removes || 0)
+   588→    + ' · рециклы ' + e(M.recycles || 0) + ' · медиана ' + e(M.medianIntervalMs == null ? '—' : M.medianIntervalMs + ' мс') + ' · поток: ' + e(M.streamCandidate ? 'да' : 'нет') + '</p>'
+   589→    + '<h2>Якоря (I-4)</h2>'
+   590→    + ((A.mountPoints || []).length ? tbl(['точка монтажа', 'режим', 'h'], rows(A.mountPoints.map(m => [m.path, m.mode, m.h]))) : '<p class="dim">точек монтажа нет</p>')
+   591→    + '<p>стойких путей: ' + e((A.persistentPaths || []).length) + ' · стабильность ' + e(A.stability == null ? '—' : A.stability) + '</p>'
+   592→    + '<h2>Резерв (r2 §3)</h2>'
+   593→    + (r ? '<p>кандидат <code>' + e(r.path) + '</code> · sigHash <code>' + e(r.sigHash) + '</code> · confidence ' + e(r.confidence) + '</p>' : '<p class="dim">no-data (консервативный отказ)</p>')
+   594→    + '<p class="m">UACE ' + e(VER) + ' · соль ' + e(SALT) + ' · контракт PML-STRUCT r1+r2</p>\n</body></html>\n';
+   595→};
+   596→const csvCell = x => { const s = String(x == null ? '' : x); return /[",;\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+   597→const structToCSV = st => { // таблица групп — Excel/Sheets; BOM впереди для корректной кириллицы
+   598→  const v = st || lastStruct || buildStruct(), L = ['sigHash,count,depth,uniformity,inPrimary,samplePath'];
+   599→  ((v.dom && v.dom.groups) || []).forEach(g => L.push([g.sigHash, g.count, g.depth, g.uniformity, g.inPrimary ? 1 : 0, g.samplePath].map(csvCell).join(',')));
+   600→  return '\uFEFF' + L.join('\r\n') + '\r\n';
+   601→};
+   602→const crcTbl = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1); t[n] = c >>> 0; } return t; })();
+   603→const crc32 = u8 => { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = crcTbl[(c ^ u8[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+   604→function makeZip(entries) { // инлайновый ZIP-райтер: CRC32 + метод STORE + флаг UTF-8 0x0800 — внешних зависимостей НЕТ (§15)
+   605→  const enc = new TextEncoder(), now = new Date();
+   606→  const dT = ((now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1)) & 0xffff;
+   607→  const dD = (((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate()) & 0xffff;
+   608→  const parts = [], cd = []; let off = 0;
+   609→  for (const en of entries) {
+   610→    const nm = enc.encode(en.name), data = enc.encode(en.text), crc = crc32(data);
+   611→    const h = new DataView(new ArrayBuffer(30));
+   612→    h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint16(8, 0, true);
+   613→    h.setUint16(10, dT, true); h.setUint16(12, dD, true); h.setUint32(14, crc, true);
+   614→    h.setUint32(18, data.length, true); h.setUint32(22, data.length, true);
+   615→    h.setUint16(26, nm.length, true); h.setUint16(28, 0, true);
+   616→    parts.push(new Uint8Array(h.buffer), nm, data);
+   617→    cd.push({ nm, crc, sz: data.length, off });
+   618→    off += 30 + nm.length + data.length;
+   619→  }
+   620→  const cdStart = off; let cdSize = 0;
+   621→  for (const c of cd) {
+   622→    const h = new DataView(new ArrayBuffer(46));
+   623→    h.setUint32(0, 0x02014b50, true); h.setUint16(4, 20, true); h.setUint16(6, 20, true);
+   624→    h.setUint16(8, 0x0800, true); h.setUint16(10, 0, true);
+   625→    h.setUint16(12, dT, true); h.setUint16(14, dD, true);
+   626→    h.setUint32(16, c.crc, true); h.setUint32(20, c.sz, true); h.setUint32(24, c.sz, true);
+   627→    h.setUint16(28, c.nm.length, true); h.setUint32(42, c.off, true);
+   628→    parts.push(new Uint8Array(h.buffer), c.nm);
+   629→    cdSize += 46 + c.nm.length;
+   630→  }
+   631→  const eo = new DataView(new ArrayBuffer(22));
+   632→  eo.setUint32(0, 0x06054b50, true);
+   633→  eo.setUint16(8, cd.length, true); eo.setUint16(10, cd.length, true);
+   634→  eo.setUint32(12, cdSize, true); eo.setUint32(16, cdStart, true);
+   635→  parts.push(new Uint8Array(eo.buffer));
+   636→  return new Blob(parts, { type: 'application/zip' });
+   637→}
+   638→const buildExportSet = st => { // весь пакет из ОДНОГО struct — единый срез данных для всех форматов
+   639→  const v = st || lastStruct || buildStruct();
+   640→  return [
+   641→    { name: fileStamp('json'), mime: 'application/json;charset=utf-8', text: JSON.stringify(v, null, 1), label: 'struct JSON' },
+   642→    { name: fileStamp('md'), mime: 'text/markdown;charset=utf-8', text: structToMarkdown(v), label: 'Markdown-отчёт' },
+   643→    { name: fileStamp('html'), mime: 'text/html;charset=utf-8', text: structToHTML(v), label: 'HTML-отчёт' },
+   644→    { name: fileStamp('txt'), mime: 'text/plain;charset=utf-8', text: structToText(v), label: 'TXT-отчёт' },
+   645→    { name: fileStamp('csv'), mime: 'text/csv;charset=utf-8', text: structToCSV(v), label: 'CSV групп' },
+   646→    { name: fileStamp('agentview.txt'), mime: 'text/plain;charset=utf-8', text: agentView(v), label: 'agent-view' }];
+   647→};
+   648→const dlOne = (e, tail) => downloadFile(e.name, txtBlob(e.text, e.mime), e.label + ' выгружен' + (tail || ''));
+   649→function downloadJSON() { dlOne(buildExportSet()[0]); }
+   650→function downloadMD() { dlOne(buildExportSet()[1]); }
+   651→function downloadHTML() { dlOne(buildExportSet()[2]); }
+   652→function downloadTXT() { dlOne(buildExportSet()[3]); }
+   653→function downloadCSV() { dlOne(buildExportSet()[4]); }
+   654→function downloadAgentView() { metrics.agentCopied = true; dlOne(buildExportSet()[5]); }
+   655→function downloadZip() { const set = buildExportSet(); metrics.zipMade = true;
+   656→  downloadFile(fileStamp('zip'), makeZip(set.map(e => ({ name: e.name, text: e.text }))), 'ZIP-бандл собран: ' + set.length + ' файлов (CRC32+STORE, 0 внешних запросов — §15)'); }
+   657→function stopAll() { if (obsSession) abortObservation(); else { status('стоп: нечего прерывать'); log('info', 'стоп: активного окна нет'); } }
+   658→function cycleTabs() { if (!els.tabs) return; const n = els.tabs.children.length;
+   659→  for (let i = 0; i < n; i++) if (els.tabs.children[i].getAttribute('aria-selected') === 'true') { els.tabs.children[(i + 1) % n].click(); return; }
+   660→  if (n) els.tabs.children[0].click(); }
+   661→function showPassport() { if (!els.pf) return; els.pf.open = true; els.pp.textContent = passportText().join('\n'); els.pf.scrollIntoView({ block: 'nearest' }); }
+   662→
+   663→const renderRecon = st => { // рендер-контракт §2: известные секции, неизвестные ключи игнор; терпит ОБЕ формы scroll (E1)
+   664→  lastStruct = st; const box = els.recon; box.textContent = '';
+   665→  const row = (k, v) => { const r = ce('div', 'pml-row'); r.append(ce('span', 'pml-k', k), ce('span', 'pml-v', String(v))); box.append(r); };
+   666→  if (!st || typeof st !== 'object') { row('struct', 'нет данных'); return; }
+   667→  const found = x => x && x.source === 'backup' ? ' · резерв ' + x.confidence : '';
+   668→  const truncTxt = t => t === true ? 'да' : (t && t.length ? t.join(', ') : ''); // boolean (столбец UPOLY) и список (0-b) обе tolerated
+   669→  box.append(ce('div', 'pml-sec', 'Каркас (I-1)'));
+   670→  if (!st.dom) row('dom', 'нет данных'); else {
+   671→    row('maxDepth', st.dom.maxDepth); row('blockCount', st.dom.blockCount);
+   672→    (st.dom.landmarks || []).forEach(l => row('landmark', l.tag + (l.role ? '[' + l.role + ']' : '') + ' ' + l.path));
+   673→    (st.dom.groups || []).forEach(g => row('group', g.sigHash + ' ×' + g.count + ' глуб.' + g.depth + ' однород.' + g.uniformity + (g.inPrimary ? ' ✓скролл' : '') + (g.found ? found(g.found) : '')));
+   674→    (st.dom.groups || []).slice(0, 1).forEach(g => row('образец', g.samplePath));
+   675→    const t = truncTxt(st.dom.truncated); if (t) row('усечено', t); }
+   676→  box.append(ce('div', 'pml-sec', 'Скролл (I-2)'));
+   677→  if (!st.scroll) row('scroll', 'нет данных'); // двойной страж 27.4.2+ (FIX E1): канон-объект со строкой на primary + легаси-строка на уровне scroll
+   678→  else if (st.scroll === 'no-scroll-container' || st.scroll.primary === 'no-scroll-container') row('primary', 'no-scroll-container');
+   679→  else if (st.scroll.primary && st.scroll.primary.path) { row('primary', st.scroll.primary.path + ' ratio ' + st.scroll.primary.ratio);
+   680→    (st.scroll.containers || []).forEach(c => row('container', c.path + ' ' + c.scrollHeight + '/' + c.clientHeight + found(c.found)));
+   681→    const t2 = truncTxt(st.scroll.truncated); if (t2) row('усечено', t2); }
+   682→  else row('scroll', 'нет данных');
+   683→  box.append(ce('div', 'pml-sec', 'Мутации (I-3)'));
+   684→  if (!st.mut) row('mut', 'нет данных'); else { row('окно, с', st.mut.window); row('добавлено', st.mut.adds); row('удалено', st.mut.removes);
+   685→    row('рецикл', st.mut.recycles); row('медиана, мс', st.mut.medianIntervalMs == null ? 'нет данных' : st.mut.medianIntervalMs);
+   686→    row('поток?', st.mut.streamCandidate == null ? 'нет данных' : String(st.mut.streamCandidate)); }
+   687→  box.append(ce('div', 'pml-sec', 'Якоря (I-4)'));
+   688→  if (!st.anchors) row('anchors', 'нет данных'); else { row('точек монтажа', (st.anchors.mountPoints || []).length);
+   689→    (st.anchors.mountPoints || []).forEach(m => row('точка', m.path + ' ' + m.mode + ' h' + m.h));
+   690→    row('стойких путей', (st.anchors.persistentPaths || []).length); row('стабильность', st.anchors.stability);
+   691→    const t3 = truncTxt(st.anchors.truncated); if (t3) row('усечено', t3); }
+   692→  box.append(ce('div', 'pml-sec', 'Резерв (r2 §3)'));
+   693→  if (!st.recon) row('recon', 'нет данных');
+   694→  else if (st.recon.status === 'found') { row('кандидат', st.recon.candidate.path); row('sigHash', st.recon.candidate.sigHash); row('confidence', st.recon.candidate.confidence); }
+   695→  else row('статус', 'no-data (консервативный отказ)');
+   696→};
+   697→
+   698→const passportText = () => ['Скрипт: ' + cfgInfo.name + ' v' + cfgInfo.version, 'Панель: PML-PANEL 1.0',
+   699→  'Тема: ' + S.theme + ' (эфф. ' + effTheme + ')',
+   700→  'Акцент: ' + (ACC ? 'rgb(' + ACC.rgb + ')' : '—') + ' / ' + (ACC ? ACC.source : '—') + ' / фон ' + (ACC ? ACC.ratioBg : '—') + ':1, текст ' + (ACC ? hx(ratio(ACC.rgb, ACC.tx)) : '—') + ':1',
+   701→  'Движение: ' + (S.motion ? 'вкл' : 'выкл') + '; кегль ' + S.fs,
+   702→  'Разведка: прогонов ' + metrics.reconRuns + ', наблюдений ' + metrics.obsRuns + ', struct ' + (metrics.structCopied ? 'копировался' : 'не копировался') + ', agent-view ' + (metrics.agentCopied ? 'копировался' : 'нет'),
+   703→  'Экспорт-пакет: выгрузок ' + metrics.downloads + ' (JSON/MD/HTML/TXT/CSV/agent-view)' + (metrics.zipMade ? ' · ZIP собирался' : ''),
+   704→  'Метрики: журнал ' + J.length + ', монтирование ' + mountMs + ' мс, последняя разведка ' + lastElapsed + ' мс',
+   705→  'Хоткеи: ' + (Object.keys(HK).map(k => 'Alt+' + k + ' — ' + HK[k].label).join('; ') || 'нет'),
+   706→  'Соль FNV-1a: ' + SALT + ' · контракт: PML-STRUCT r1+r2'];
+   707→
+   708→const REG = [ // реестр ядра; канонный набор хоткеев E/D/C/S/X/I (§13); журнал и свёртка — только кнопками
+   709→  { id: 'observe', label: 'Наблюдение 60 с', hint: 'I-3/I-4b; Esc — стоп (Alt+D)', run: () => startObservation() },
+   710→  { id: 'copy-struct', label: 'Копировать struct', hint: 'JSON в буфер (Alt+C) — канал ЧК-1/Ф2', run: () => copyStruct() },
+   711→  { id: 'copy-agent', label: 'Копировать agent-view', hint: 'a11y-скелет для LLM-агента (формат Playwright MCP, без имён — §15); хоткей Alt+V предложен к r3', run: () => copyAgentView() },
+   712→  { id: 'dl-json', label: 'Скачать JSON', hint: 'файл struct.json — Blob+download, 0 сети (§15); экспорт-пакет 27.6.0', run: () => downloadJSON() },
+   713→  { id: 'dl-md', label: 'Скачать Markdown', hint: 'отчёт .md: таблицы ландмарков/групп/якорей — для PR/вики', run: () => downloadMD() },
+   714→  { id: 'dl-html', label: 'Скачать HTML-отчёт', hint: 'автономный .html, инлайн-CSS — 0 внешних запросов (§15)', run: () => downloadHTML() },
+   715→  { id: 'dl-txt', label: 'Скачать TXT', hint: 'текстовый отчёт для тикет-систем и чатов', run: () => downloadTXT() },
+   716→  { id: 'dl-csv', label: 'Скачать CSV групп', hint: 'sigHash/count/depth/uniformity/inPrimary — Excel/Sheets', run: () => downloadCSV() },
+   717→  { id: 'dl-agent', label: 'Скачать agent-view', hint: 'a11y-скелет файлом (дубль буферной копии)', run: () => downloadAgentView() },
+   718→  { id: 'dl-zip', label: 'Скачать ZIP-бандл', hint: 'все 6 форматов одним архивом — инлайновый CRC32+STORE (§15)', run: () => downloadZip() },
+   719→  { id: 'stop', label: 'Стоп', hint: 'прервать окно (Alt+S)', run: () => stopAll() },
+   720→  { id: 'copylog', label: 'Скопировать журнал', hint: 'Полный лог info/ok/warn/err — канал отчётов беты', run: async () => { copyText(J.map(j => '[' + j.t + '] ' + j.lv + ': ' + j.msg).join('\n'), 'журнал скопирован (' + J.length + ' записей)'); } },
+   721→  { id: 'tabs', label: 'Цикл вкладок', hint: 'Alt+X', run: () => cycleTabs() },
+   722→  { id: 'collapse', label: 'Свернуть панель', run: async () => setCollapsed(true) },
+   723→  { id: 'passport', label: 'Открыть паспорт', hint: 'Alt+I', run: () => showPassport() }];
+   724→
+   725→const runAct = a => async () => { if (busy) return; busy = true; setBadge('run');
+   726→  els.acts.querySelectorAll('button').forEach(b => { b.disabled = true; });
+   727→  try { await a.run(); } catch (e) { log('err', String(e && e.message || e)); status('Ошибка действия'); }
+   728→  finally { busy = false; setBadge(obsSession ? 'run' : 'ok'); els.acts.querySelectorAll('button').forEach(b => { b.disabled = false; }); } };
+   729→
+   730→const addActions = list => (list || []).forEach(a => { if (!a || els.acts.querySelector('[data-id="' + a.id + '"]')) return;
+   731→  const b = ce('button', 'pml-btn', a.label); b.type = 'button'; b.dataset.id = a.id; if (a.hint) b.title = a.hint; b.disabled = !!a.disabled;
+   732→  b.onclick = runAct(a); els.acts.append(b); });
+   733→
+   734→const regHotkeys = cfg => { let added = 0; ((cfg && cfg.hotkeys) || []).forEach(h => { const k = String(h.key || '').toUpperCase();
+   735→  if ('EDCSXI'.indexOf(k) < 0) return;
+   736→  if (HK[k]) { console.warn('[pml] Alt+' + k + ' занят («' + HK[k].label + '» побеждает)'); addActions([{ id: 'hk-' + k + '-' + (++uid), label: h.label + ' (без хоткея)', run: h.run }]); }
+   737→  else { HK[k] = { label: h.label, run: h.run }; added++; } });
+   738→  store.save(); return { attached: true, owner: OWNER }; }; // хедер/паспорт не переписываем (§1)
+   739→
+   740→const setBadge = s => { badge = s; if (els.dot) els.dot.className = 'pml-dot ' + s; // бейдж красим напрямую: var() не достаёт вне поддерева root
+   741→  if (els.badge && PAL[effTheme]) { const map = { ok: 'ok', warn: 'warn', err: 'crit', run: null }[s];
+   742→    els.badge.style.borderColor = 'rgb(' + (map ? PAL[effTheme][map] : ACC ? ACC.rgb : PAL[effTheme].fb) + ')'; } };
+   743→const log = (lv, msg) => { J.unshift({ t: Math.round(performance.now() - T0), lv, msg: String(msg).slice(0, 120) }); if (J.length > 200) J.pop(); // §9: свежее сверху
+   744→  els.log.textContent = ''; J.forEach(j => { const r = ce('div', 'pml-log'); r.append(ce('span', 'pml-lg ' + j.lv), ce('span', '', '[' + j.t + '] ' + j.msg)); els.log.append(r); }); };
+   745→const status = m => { els.status.textContent = String(m).slice(0, 80); clearTimeout(stT); stT = setTimeout(() => { els.status.textContent = ''; }, 4000); clean.push(['t', stT]); }; // §12
+   746→const setCollapsed = v => { S.collapsed = !!v; store.save(); root.hidden = !!v; els.badge.hidden = !v; };
+   747→
+   748→const syncTheme = () => { // §5–§6
+   749→  const h = new Date().getHours();
+   750→  effTheme = S.theme === 'system' ? (h >= 20 || h < 6 ? 'warm' : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : S.theme;
+   751→  const P = PAL[effTheme];
+   752→  let probe = null; try { const i = ce('input'); i.type = 'checkbox'; i.style.accentColor = 'auto'; document.body.append(i);
+   753→    probe = parseRgb(getComputedStyle(i).accentColor); i.remove(); } catch (e) {}
+   754→  const sat = guardSat(probe); // сатурационный страж
+   755→  const c = sat ? rgb2ok(probe[0], probe[1], probe[2]) : rgb2ok(P.fb[0], P.fb[1], P.fb[2]);
+   756→  const rgb = (sat && solveAccent(P.bg, c[1], c[2])) || P.fb; // отказ стража → детерминированный дефолт
+   757→  ACC = { rgb, source: sat ? 'system' : 'fallback', ratioBg: hx(ratio(rgb, P.bg)), tx: pickTx(rgb) };
+   758→  const st = root.style, T = { 'pml-bg': P.bg, 'pml-fg': P.fg, 'pml-fg-dim': P.dim, 'pml-line': P.line, 'pml-accent': rgb, 'pml-accent-tx': ACC.tx, 'pml-ring': P.ring, 'pml-ok': P.ok, 'pml-warn': P.warn, 'pml-crit': P.crit };
+   759→  for (const k in T) st.setProperty('--pml-' + k, 'rgb(' + T[k] + ')');
+   760→  st.setProperty('--pml-radius', '12px'); st.setProperty('--pml-fs', S.fs + 'px');
+   761→  if (els.badge) { els.badge.style.background = 'rgb(' + P.bg + ')'; els.badge.style.color = 'rgb(' + P.fg + ')'; }
+   762→  root.className = 'pml-root' + (S.motion ? '' : ' pml-motion-off');
+   763→  [...els.seg.children].forEach(b => b.setAttribute('aria-checked', String(b.dataset.v === S.theme)));
+   764→};
+   765→
+   766→const zscan = () => { // §3: разведка перед монтажом
+   767→  let z = 1000; const bars = [];
+   768→  for (const el of (document.body || document.documentElement).querySelectorAll('*')) { let s = null; try { s = getComputedStyle(el); } catch (e) {}
+   769→    if (!s || (s.position !== 'fixed' && s.position !== 'sticky')) continue;
+   770→    const r = el.getBoundingClientRect(); const zz = +s.zIndex; if (zz > z) z = Math.min(zz + 1, 2147483000);
+   771→    if (r.top < innerHeight * 0.15 && r.height >= 32 && r.height <= 96 && r.width >= 120) bars.push(r); }
+   772→  let top = 16, bottom = null;
+   773→  if (bars.length) { const maxB = Math.max.apply(null, bars.map(r => r.bottom)); if (maxB + 8 + 360 < innerHeight * 0.8) top = Math.round(maxB + 8); else bottom = 16; }
+   774→  return { z, top, bottom };
+   775→};
+   776→
+   777→const build = () => {
+   778→  let h = document.getElementById(HOST_ID); if (h) h.remove(); // takeover: под нашим ID снимаем ЛЮБОЙ прежний хост (анти-дубль ID)
+   779→  host = ce('div'); host.id = HOST_ID; host.__pml = 1; document.documentElement.appendChild(host);
+   780→  let sh = null; try { sh = host.attachShadow({ mode: 'open' }); } catch (e) {}
+   781→  const style = ce('style'); style.textContent = CSS;
+   782→  if (sh) { root = ce('div'); sh.append(style, root); } else { root = host; (document.head || document.documentElement).append(style); clean.push(['n', style]); } // fallback §2
+   783→  const hd = ce('div', 'pml-hd');
+   784→  els.dot = ce('span', 'pml-dot'); els.title = ce('span', 'pml-title', cfgInfo.name + ' v' + cfgInfo.version.split('.').slice(0, 2).join('.'));
+   785→  els.seg = ce('div', 'pml-seg'); els.seg.setAttribute('role', 'radiogroup'); els.seg.setAttribute('aria-label', 'Тема');
+   786→  [['system', 'Авто'], ['light', 'Свет'], ['dark', 'Тьма'], ['warm', 'Тепло']].forEach((v, i) => {
+   787→    const b = ce('button', '', v[1]); b.type = 'button'; b.dataset.v = v[0]; b.setAttribute('role', 'radio'); b.tabIndex = i === 0 ? 0 : -1;
+   788→    b.onclick = () => { S.theme = b.dataset.v; store.save(); syncTheme(); status('Тема: ' + b.dataset.v); };
+   789→    b.onkeydown = e => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].indexOf(e.key) < 0) return; e.preventDefault();
+   790→      const bs = [...els.seg.children], i2 = bs.indexOf(e.target);
+   791→      const j = e.key === 'ArrowLeft' ? i2 - 1 : e.key === 'ArrowRight' ? i2 + 1 : e.key === 'Home' ? 0 : bs.length - 1;
+   792→      const jj = (j + bs.length) % bs.length; bs.forEach((x, xi) => { x.tabIndex = xi === jj ? 0 : -1; }); bs[jj].focus(); bs[jj].click(); }; // roving tabindex §9
+   793→    els.seg.append(b); });
+   794→  const col = ce('button', 'pml-btn', '⌃'); col.type = 'button'; col.title = 'Свернуть'; col.setAttribute('aria-label', 'Свернуть панель'); col.onclick = () => setCollapsed(true);
+   795→  hd.append(els.dot, els.title, els.seg, col);
+   796→  const tabs = ce('div', 'pml-tabs'); els.tabs = tabs; const bd = ce('div', 'pml-bd'); els.panels = {};
+   797→  const ids = ['recon', 'actions', 'log'], names = ['Разведка', 'Действия', 'Журнал'];
+   798→  ids.forEach((id, i) => { const t = ce('button', 'pml-tab', names[i]); t.type = 'button'; t.setAttribute('role', 'tab');
+   799→    t.setAttribute('aria-selected', String(i === 0)); t.onclick = () => ids.forEach((id2, i2) => { tabs.children[i2].setAttribute('aria-selected', String(i2 === i)); els.panels[id2].hidden = i2 !== i; });
+   800→    tabs.append(t); const p = ce('div'); p.hidden = i !== 0; els.panels[id] = p; bd.append(p); });
+   801→  const rb = ce('button', 'pml-btn', 'Запустить разведку'); rb.type = 'button'; rb.onclick = runAct({ id: 'recon', run: runRecon });
+   802→  const cs = ce('button', 'pml-btn', 'Копировать struct'); cs.type = 'button'; cs.title = 'JSON в буфер (Alt+C) — канал ЧК-1/Ф2'; cs.onclick = runAct({ id: 'copy-struct', run: copyStruct });
+   803→  const ca = ce('button', 'pml-btn', 'Копировать agent-view'); ca.type = 'button'; ca.title = 'a11y-скелет в духе Playwright MCP (без имён — §15); усвоение ландшафта 27.5.0'; ca.onclick = runAct({ id: 'copy-agent', run: copyAgentView });
+   804→  const dj = ce('button', 'pml-btn', 'Скачать JSON'); dj.type = 'button'; dj.title = 'struct.json файлом — экспорт-пакет 27.6.0 (Blob+download, 0 сети — §15)'; dj.onclick = runAct({ id: 'dl-json', run: downloadJSON });
+   805→  const dz = ce('button', 'pml-btn', 'Скачать ZIP-бандл'); dz.type = 'button'; dz.title = 'JSON+MD+HTML+TXT+CSV+agent-view одним архивом (инлайновый CRC32+STORE)'; dz.onclick = runAct({ id: 'dl-zip', run: downloadZip });
+   806→  els.recon = ce('div'); els.panels.recon.append(rb, cs, ca, dj, dz, els.recon);
+   807→  els.acts = ce('div', 'pml-act'); els.panels.actions.append(els.acts);
+   808→  els.log = ce('div'); els.panels.log.append(els.log);
+   809→  const ft = ce('div', 'pml-ft'); els.status = ce('div', 'pml-status'); els.status.setAttribute('role', 'status'); els.status.setAttribute('aria-live', 'polite');
+   810→  const cm = ce('details'); cm.append(ce('summary', '', 'Комфорт'));
+   811→  const mv = ce('label'); const mc = ce('input'); mc.type = 'checkbox'; mc.checked = !S.motion;
+   812→  mc.onchange = () => { S.motion = !mc.checked; store.save(); syncTheme(); }; mv.append(mc, ' Движение выкл');
+   813→  const fv = ce('label'); const fr = ce('input'); fr.type = 'range'; fr.min = '12'; fr.max = '20'; fr.step = '1'; fr.value = String(S.fs);
+   814→  fr.oninput = () => { S.fs = +fr.value; store.save(); syncTheme(); }; fv.append(fr, ' Кегль ' + S.fs);
+   815→  cm.append(mv, fv);
+   816→  els.pf = ce('details'); els.pf.append(ce('summary', '', 'Паспорт')); els.pp = ce('pre'); els.pf.append(els.pp);
+   817→  ft.append(els.status, cm, els.pf);
+   818→  root.append(hd, tabs, bd, ft);
+   819→  els.badge = ce('button', 'pml-badge44', cfgInfo.name.slice(0, 2)); els.badge.type = 'button'; els.badge.title = 'Развернуть панель';
+   820→  els.badge.onclick = () => setCollapsed(false); (root.parentElement || sh || root).append(els.badge); // FIX 27.4.1: у ребёнка ShadowRoot parentElement === null
+   821→  const z = zscan(); root.style.zIndex = z.z;
+   822→  if (z.bottom != null) { root.style.top = 'auto'; root.style.bottom = '16px'; } else root.style.top = z.top + 'px'; // §3 каскад
+   823→  els.pf.addEventListener('toggle', () => { if (els.pf.open) els.pp.textContent = passportText().join('\n'); });
+   824→};
+   825→
+   826→const CONFIG = { name: 'UACE', version: VER, hotkeys: [ // канонный набор §13: E/D/C/S/X/I
+   827→  { key: 'E', label: 'разведка', run: () => { if (els.panels) els.panels.recon.querySelector('button').click(); } },
+   828→  { key: 'D', label: 'наблюдение 60 с', run: () => startObservation() },
+   829→  { key: 'C', label: 'копировать struct', run: () => copyStruct() },
+   830→  { key: 'S', label: 'стоп', run: () => stopAll() },
+   831→  { key: 'X', label: 'цикл вкладок', run: () => cycleTabs() },
+   832→  { key: 'I', label: 'паспорт', run: () => showPassport() }] };
+   833→
+   834→const api = Object.freeze({ // §1: синглтон API
+   835→  version: '1.0',
+   836→  ping: () => ({ version: '1.0', alive: true, owner: OWNER }),
+   837→  mount(c) { if (!mounted) { Q.push(['mount', c]); return { queued: true }; } log('info', 'подключён через mount(config): ' + ((c && c.name) || '?') + ' v' + ((c && c.version) || '?')); return regHotkeys(c); },
+   838→  setBadge(s) { if (!mounted) { Q.push(['setBadge', s]); return; } setBadge(s); },
+   839→  log(lv, msg) { if (!mounted) { Q.push(['log', lv, msg]); return; } log(lv, msg); },
+   840→  renderRecon(st) { if (!mounted) { Q.push(['renderRecon', st]); return; } renderRecon(st); }, // прямая совместимость с r1; lastStruct обновляется — «Копировать struct» владельца отдаст struct гостя
+   841→  renderActions(list) { if (!mounted) { Q.push(['renderActions', list]); return; } addActions(list); },
+   842→  getPassport() { return passportText().join('\n'); } });
+   843→
+   844→const init = () => {
+   845→  const t0 = performance.now(); store.load(); build();
+   846→  syncTheme(); els.badge.hidden = !S.collapsed; root.hidden = !!S.collapsed;
+   847→  regHotkeys(CONFIG); addActions(REG);
+   848→  const wd = setInterval(() => { try { if (!host.isConnected) document.documentElement.appendChild(host); } catch (e) {} }, 2000); // watchdog §2
+   849→  clean.push(['i', wd]);
+   850→  bind('keydown', e => { if (e.key === 'Escape' && obsSession) { abortObservation(); return; } // Esc — стоп окна I-3
+   851→    if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return; // §13
+   852→    const t = e.target; if (t && ((t.matches && t.matches('input,textarea,select')) || t.isContentEditable)) return; // P5
+   853→    const h = HK[String(e.key || '').toUpperCase()]; if (!h) return; e.preventDefault(); h.run(); });
+   854→  bind('focus', syncTheme); bind('visibilitychange', syncTheme, document); // §5–§6 переспрос
+   855→  bind('pagehide', () => { if (obsSession) finishObservation(true, true); // мелочь B-6: без авто-разведки при выгрузке
+   856→    clean.forEach(c => { try { if (c[0] === 'l') c[3].removeEventListener(c[1], c[2]); else if (c[0] === 'i') clearInterval(c[1]);
+   857→      else if (c[0] === 't') clearTimeout(c[1]); else if (c[0] === 'n') c[1].remove(); } catch (e) {} }); if (host) host.remove(); }); // самоочистка §2
+   858→  mounted = true;
+   859→  while (Q.length) { const q = Q.shift(); try { if (q[0] === 'mount') regHotkeys(q[1]); else if (q[0] === 'renderRecon') renderRecon(q[1]);
+   860→    else if (q[0] === 'renderActions') addActions(q[1]); else if (q[0] === 'log') log(q[1], q[2]); else if (q[0] === 'setBadge') setBadge(q[1]); } catch (e) {} }
+   861→  mountMs = Math.round(performance.now() - t0);
+   862→  setBadge('ok'); log('ok', 'Панель PML-PANEL 1.0 · UACE ' + VER + ' · монтирование ' + mountMs + ' мс');
+   863→  log('info', 'соль FNV-1a: ' + SALT + ' — сверка sigHash со второй сборкой на первом обмене struct');
+   864→  log('info', 'экспорт-пакет 27.6.0: JSON/MD/HTML/TXT/CSV/agent-view/ZIP — кнопки «Действия» и панель разведки; хоткеи §13 прежние');
+   865→  status('Панель готова');
+   866→};
+   867→
+   868→try { Object.defineProperty(window, '__UACE_INTERNALS__', { value: Object.freeze({ FNV1a32, hex8, SALT, urlHashIn, sigHashIn, sigOf, sigHash, pathOf, prefixPath, subtreeDepth, scoreGroup, resolveRecon, buildStruct, median, ok2rgb, rgb2ok, ratio, simhash64, hammingHex, structFeatures, domSim64, simBetween, agentView, downsample, compareStructs, fileStamp, structToText, structToMarkdown, structToHTML, structToCSV, crc32, makeZip, buildExportSet, downloadFile }), configurable: true }); } catch (e) {} // полевая сверка хэшей (ЧК-1) + интеграция 27.5.0 + экспорт-пакет 27.6.0
+   869→
+   870→const prev = window.__PML_PANEL_API__;
+   871→if (prev) { // P13: синглтон; takeover >5 с (§1)
+   872→  let tries = 0;
+   873→  const chk = () => { let alive = false; try { const hh = document.getElementById(HOST_ID); // FIX 27.4.1: alive = живой UI, не голый хост
+   874→    const sr = hh && hh.shadowRoot; const ui = sr ? sr.childElementCount > 1 : !!(hh && hh.childElementCount);
+   875→    alive = !!ui && !!hh && hh.isConnected && prev.ping().alive; } catch (e) {}
+   876→    if (alive) { try { prev.mount(CONFIG); } catch (e) {} console.info('[pml] attached:', OWNER, '← владелец', prev.ping && prev.ping().owner); return; }
+   877→    if (++tries < 5) { setTimeout(chk, 1000); return; }
+   878→    console.warn('[pml] takeover: панель не отвечает >5 с — пересоздаю'); init(); };
+   879→  try { chk(); } catch (e) { console.warn('[pml] chk', e); init(); }
+   880→} else { window.__PML_PANEL_API__ = api; try { init(); } catch (e) { console.warn('[pml] init', e); } }
+   881→})();
+   882→

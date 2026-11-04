@@ -1,0 +1,176 @@
+     9712  AI Chat Экспортер-2026-09-17-23-06-58.md
+    13284  AI Chat Экспортер-2026-09-18-10-28-05.md
+   105996  Dola — ваш ИИ-snapshot-2026-09-18-18-54-55.md
+  1281277  HTML_DIFF_v110_vs_v111.html
+   146750  Lumo экспорт чатов-2026-09-17-22-54-13.md
+    44645  Lumo_ Privacy-first AI assistant where chats stay confidential-2026-09-18-00-29-40.md
+    44612  Lumo_ Privacy-first AI assistant where chats stay confidential_2026-09-18_003515.md
+   275287  MY_CHATS.7z
+   119948  PDF-3-Швейцарская-сетка.pdf
+   129986  PDF-5-Сепия-Вечер.pdf
+     4773  POLYMAT_SYNTHESIS_v22.1.md
+     3901  Polymat AI Summarization Tool-2026-09-18-10-20-39.md
+     7839  Polymat AI Summarization Tool-2026-09-18-10-20-54.json
+    64708  Polymat Web Sandbox_ Python Tools-2026-09-18-13-49-50.md
+    43939  Polymat_ AI Synthesis Tool-2026-09-17-23-11-42.md
+    20820  Qwen Studio-2026-09-17-22-58-39.md
+     7248  Qwen Studio-2026-09-18-12-52-36.md
+    17394  Qwen Studio-2026-09-18-13-45-44.md
+    17215  Qwen Studio-2026-09-18T05-24-26-381.md
+    17215  Qwen Studio-2026-09-18T05-25-32-826.md
+    36095  Qwen Studio-2026-09-18T05-26-47-226.json
+    32023  Qwen Studio-2026-09-19-13-40-51.md
+   809325  Qwen Studio.pdf
+    85798  SSEA-2026 (1).user.js
+    87976  SSEA-2026 (2).user.js
+    85798  SSEA-2026 (3).user.js
+    85798  SSEA-2026 (4).user.js
+    87976  SSEA-2026 (5).user.js
+   770047  SSEA-2026 fix.pdf
+    84985  SSEA-2026.user.js
+    35127  TZ-PROMPT.txt
+    35127  TZ-SSEA-2026-AUDITOR-PROMPT.md
+   203285  Tampermonkey script fix for error.pdf
+   137188  UACE-v26.0.0-RESTORED.user.js
+   171065  UACE-v27.0.0-HUMAN-FIRST.user.js
+   182790  UACE-v27.1.0-HUMAN-FIRST (1).user.js
+   182790  UACE-v27.1.0-HUMAN-FIRST (2).user.js
+   182790  UACE-v27.1.0-HUMAN-FIRST.user.js
+   197306  UACE-v27.2.0-STYLES.user.js
+    56650  UACE-v27.2.0-STYLES.zip
+    31292  Universal AI Exporter-2026-09-17-23-15-44.md
+    79589  Universal-AI-Chat-Exporter-21.0.0.user.js
+    69156  Universal-AI-Chat-Exporter-Polymat-v22.1.7.user.js
+   123714  Universal-AI-Chat-Exporter-Polymat-v25.0.0-ULTIMATE.user.js
+   149583  Universal-AI-Chat-Exporter-Polymat-v26.0.0-POLYMATH.user.js
+   159279  Universal-AI-Chat-Exporter-Polymat-v26.1.0-POLYMATH.user.js
+   176369  Universal-AI-Chat-Exporter-Polymat-v27.0.0-HUMAN-FIRST.user.js
+    36232  Universal_AI_Chat_Exporter_Polymat_v25.1.0_ULTIMATE.zip
+   138340  Universal_AI_Chat_Exporter_Polymat_v25.2.0_ULTIMATE.user.js
+    17292  Z.ai - Advanced AI Chatbot & Agent powered by GLM-5.3-2026-09-18-00-10-17.md
+    17867  Z.ai - Advanced AI Chatbot & Agent powered by GLM-5.3-2026-09-18-00-13-02.md
+    55251  Z.ai - Advanced AI Chatbot & Agent powered by GLM-5.3-2026-09-18-12-49-47.md
+   634357  Z.ai - Advanced AI Chatbot & Agent powered by GLM-5.3-Flash.html
+        0  Z.ai - Advanced AI Chatbot & Agent powered by GLM-5.3-Flash_files/0
+      869  Z.ai - Advanced AI Chatbot & Agent powered by GLM-5.3-Flash_files/187234156
+     4267  Z.ai - Advanced AI Chatbot & Agent powered by GLM-5.3-Flash_files/187234156.js
+   495335  Z.ai - Advanced AI Chatbot & Agent powered by GLM-5.3-Flash_files/1921933375117245
+   214725  Z.ai - Advanced AI Chatbot & Agent powered by GLM-5.3-Flash_files/PdfViewer-BA3gpFdn.css
+    89811  Z.ai - Advanced AI Chatbot & Agent powered by GLM-5.3-Flash_files/XlsxUniverViewer-GYDU0wJv.css
+       43  Z.ai - Advanced AI Chatbot & Agent powered by GLM-5.3-Flash_files/adsct
+       43  Z.ai - Advanced AI Chatbot & Agent powered by GLM-5.3-Flash_files/adsct(1)
+       43  Z.ai - Advanced AI Chatbot & Agent powered by GLM-5.3-Flash_files/adsct(2)
+     3397  Z.ai - Advanced AI Chatbot & Agent powered by GLM-5.3-Flash_files/auto_claw.png
+    55631  Z.ai - Advanced AI Chatbot & Agent powered by GLM-5.3-Flash_files/bat.js
+   297740  Z.ai - Advanced AI Chatbot & Agent powered by GLM-5.3-Flash_files/browser-sdk.js
+    75095  Z.ai - Advanced AI Chatbot & Agent powered by GLM-5.3-Flash_files/clarity.js
+    56482  Z.ai - Advanced AI Chatbot & Agent powered by GLM-5.3-Flash_files/clientParamBuilder.bundle.js
+   421600  Z.ai - Advanced AI Chatbot & Agent powered by GLM-5.3-Flash_files/fbevents.js
+   401919  Z.ai - Advanced AI Chatbot & Agent powered by GLM-5.3-Flash_files/gtm.js
+  3244475  Z.ai - Advanced AI Chatbot & Agent powered by GLM-5.3-Flash_files/index-BjHUnlhR.js
+   436235  Z.ai - Advanced AI Chatbot & Agent powered by GLM-5.3-Flash_files/index-CqXvxGON.css
+   174933  Z.ai - Advanced AI Chatbot & Agent powered by GLM-5.3-Flash_files/jquery.min.js
+   599508  Z.ai - Advanced AI Chatbot & Agent powered by GLM-5.3-Flash_files/js
+   588528  Z.ai - Advanced AI Chatbot & Agent powered by GLM-5.3-Flash_files/js(1)
+   603025  Z.ai - Advanced AI Chatbot & Agent powered by GLM-5.3-Flash_files/js(2)
+    11037  Z.ai - Advanced AI Chatbot & Agent powered by GLM-5.3-Flash_files/logo.svg
+    78430  Z.ai - Advanced AI Chatbot & Agent powered by GLM-5.3-Flash_files/pixel.js
+    61343  Z.ai - Advanced AI Chatbot & Agent powered by GLM-5.3-Flash_files/uwt.js
+   229663  Z.ai - Advanced AI Chatbot & Agent powered by GLM-5.3.pdf
+      107  _FAILURES-2026-09-18-01-55-09.txt
+      296  _FAILURES-2026-09-18-02-18-11.txt
+      446  _FAILURES-2026-09-18-02-21-16.txt
+     1934  _FAILURES-2026-09-18-09-10-31.txt
+      159  _FAILURES-2026-09-18-09-29-10.txt
+     8810  _FAILURES-2026-09-18-09-41-56.txt
+     2002  _FAILURES-2026-09-18-10-29-32.txt
+      339  _FAILURES-2026-09-18-10-47-23.txt
+      585  _FAILURES-2026-09-18-10-52-27.txt
+      153  _FAILURES-2026-09-18-11-36-41.txt
+      145  _FAILURES-2026-09-18-15-43-39.txt
+     3007  _FAILURES-2026-09-18-19-09-45.txt
+     1366  _FAILURES-2026-09-18-19-55-26.txt
+   436394  ai-chats-2026-09-18-01-55-09.md
+    55328  ai-chats-2026-09-18-02-25-11.md
+   218233  ai-chats-2026-09-18-09-29-10.md
+   336686  ai-chats-2026-09-18-10-11-13.md
+    38256  ai-chats-2026-09-18-10-14-12.md
+   630052  ai-chats-2026-09-18-11-36-41.md
+   720837  ai-chats-2026-09-18-11-41-27.md
+   204965  ai-chats-2026-09-18-11-43-59.zip
+  2180175  ai-chats-2026-09-18-15-43-39.md
+    82989  auto-chat-1789738347900.md
+   130169  chat-export-1789738663274.md
+     6237  chat_2026-09-18-13-16.md
+    92132  clean-chat-1789738905917.md
+   169042  clean-chat-export-1789738480118.md
+    61418  deepseek_javascript_20260917_adc46e.js
+   107993  deepseek_javascript_20260918_3c1a52.js
+     3427  dialog_1789736900791.md
+     7024  dialog_1789738210686.md
+    25455  files.zip
+   190528  gemini-chat-1789739126797.md
+    96047  polymat-v22-5-0-исправленный-экспортёр-ai-чатов (1).js
+    91014  polymat-v22-5-0-исправленный-экспортёр-ai-чатов.js
+     2717  python_chat_scraper.zip
+     4646  smart_chat_exporter.js
+    69005  ssea-2026-09-19T06-54-23-208Z.html
+    53654  ssea-2026-09-19T06-54-23-208Z.json
+    65789  ssea-2026-09-19T07-00-00-340Z.html
+    48397  ssea-2026-09-19T07-00-00-340Z.json
+    62171  ssea-2026-09-19T07-06-50-559Z.html
+    42855  ssea-2026-09-19T07-06-50-559Z.json
+    72793  ssea-2026-09-19T07-13-03-691Z.html
+    57016  ssea-2026-09-19T07-13-03-691Z.json
+    51311  ssea-2026-09-19T07-18-12-269Z.html
+    42105  ssea-2026-09-19T07-18-12-269Z.json
+    54101  ssea-2026-09-19T07-29-56-257Z.html
+    45086  ssea-2026-09-19T07-29-56-257Z.json
+    83729  ssea-2026-09-19T07-33-57-790Z.html
+    93895  ssea-2026-09-19T07-33-57-790Z.json
+    90470  ssea-2026-09-19T07-43-09-241Z.html
+   137342  ssea-2026-09-19T07-43-09-241Z.json
+     4349  uaice-debug-2026-09-18-14-07-04.json
+     4549  uaice-debug-2026-09-18-14-07-24.json
+     4109  uaice-debug-2026-09-18-14-17-24.json
+     2830  uaice-debug-2026-09-18-14-29-01.json
+     1045  uaice-debug-2026-09-18-15-06-59.json
+     1167  uaice-debug-2026-09-18-15-13-13.json
+     1138  uaice-debug-2026-09-18-15-17-32.json
+     1146  uaice-debug-2026-09-18-15-31-56.json
+    13804  uaice-sniffer-chat.qwen.ai-2026-09-18-14-30-18.json
+    96764  uaice-sniffer-www.dola.com-2026-09-18-15-07-33.json
+    24386  uaice-sniffer-www.dola.com-2026-09-18-15-13-45.json
+    22162  uaice-sniffer-www.dola.com-2026-09-18-15-17-56.json
+    11117  uaice-sniffer-www.dola.com-2026-09-18-15-32-14.json
+    83093  universal-ai-exporter-v22.1.user.js
+    23715  Алгоритм долговой ямы-2026-09-18-18-56-57.md
+   139129  Алгоритм долговой ямы.pdf
+    15699  Аудит структурной модели цивилизаций-2026-09-18-09-40-31.md
+   213364  Ветка · Ветка · Ветка · Ветка · Ветка · Ветка.pdf
+   169887  Исправление ошибок скрипта-2026-09-18-01-52-55.md
+   103916  Ошибка ERR_BLOCKED_BY_CLIENT-2026-09-18-10-38-49.md
+   103916  Ошибка ERR_BLOCKED_BY_CLIENT-2026-09-18-10-46-55.md
+    90860  Ошибка ERR_BLOCKED_BY_CLIENT-2026-09-18-11-24-53.md
+    90524  Ошибка ERR_BLOCKED_BY_CLIENT-2026-09-18-11-34-54.md
+    91343  Ошибка ERR_BLOCKED_BY_CLIENT-2026-09-18-13-52-12.md
+    90582  Ошибка ERR_BLOCKED_BY_CLIENT-2026-09-18-17-22-24.md
+   501558  Ошибки сессии 1. Ошибка ERR_BLOCKED_BY_CLIENT - Пользователь столкнулся с ошибко-2026-09-18-13-51-25.md
+    76711  Полимат с инструментами веб-интернета и Python.md
+     1920  Полимат с инструментами веб-интернета и Python_2026-09-18_004805.md
+     3908  Росси, Паоло — Википедия-2026-09-18-23-40-32.html
+     1919  Росси, Паоло — Википедия-2026-09-18-23-41-02.txt
+     4034  Росси, Паоло — Википедия-2026-09-18-23-41-25.md
+     2356  Росси, Паоло — Википедия-2026-09-18-23-42-18.alpaca.json
+     2626  Росси, Паоло — Википедия-2026-09-18-23-42-48.sharegpt.json
+   134356  Синтез архитектур сознания-2026-09-18-23-39-34.html
+    18852  Синтез корпуса Polymat-2026-09-18-17-22-50.md
+   163137  Синтез экспортера чатов-2026-09-17-23-04-21.md
+   100755  Синтезировать рабочий код-2026-09-17-22-49-56.md
+   106349  Синтезировать рабочий код.md
+   191664  Синхронизация темы панели с системой-2026-09-18-22-43-52.md
+     3058  Синхронизация темы панели с системой-2026-09-18-22-48-55.pdf
+   716466  Синхронизация темы панели с системой.pdf
+    33844  Скрипт экспорта AI-чатов с UI.md
+   356347  ЧАТ.txt
+     8764  Эволюция тысячелетнего механизма долга-2026-09-19-00-00-01.md

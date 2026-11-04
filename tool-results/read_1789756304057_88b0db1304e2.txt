@@ -1,0 +1,502 @@
+   601→  // вставляет пробелов между span-ами, поэтому «pythonRunCopy» — тоже хром.
+   602→  // Проза вида «Run the code» / «Код на Python это круто» не трогается.
+   603→  function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+   604→  const CHROME_TOKENS = ['python', 'python3', 'javascript', 'js', 'typescript', 'ts', 'jsx', 'tsx', 'java', 'c', 'c++', 'cpp', 'csharp', 'cs', 'go', 'golang', 'rust', 'ruby', 'php', 'swift', 'kotlin', 'scala', 'bash', 'sh', 'shell', 'zsh', 'powershell', 'sql', 'html', 'css', 'scss', 'less', 'json', 'json5', 'yaml', 'yml', 'xml', 'toml', 'ini', 'markdown', 'md', 'text', 'txt', 'plaintext', 'perl', 'r', 'matlab', 'dart', 'lua', 'groovy', 'objc', 'objectivec', 'pascal', 'fortran', 'haskell', 'elixir', 'erlang', 'clojure', 'vb', 'vba', 'asm', 'assembly', 'wasm', 'graphql', 'dockerfile', 'makefile', 'diff', 'mermaid', 'run', 'copy', 'код', 'язык', 'запустить', 'выполнить', 'копировать', 'показать', 'скрыть', 'свернуть', 'развернуть', 'collapse', 'expand', 'toggle', 'wrap', 'nowrap', 'edit', 'done', 'save', 'share', 'download'];
+   605→  const CHROME_TOKENS_SORTED = CHROME_TOKENS.slice().sort((a, b) => b.length - a.length);
+   606→  const CHROME_ALT = CHROME_TOKENS_SORTED.map(escapeRe).join('|');
+   607→  const CHROME_TOKEN_PREFIX_RE = new RegExp('^(?:' + CHROME_ALT + ')', 'i');
+   608→  const CHROME_TOKEN_FULL_RE = new RegExp('^(?:' + CHROME_ALT + ')$', 'i');
+   609→  function isChromeText(t) {
+   610→    const s = String(t || '').trim();
+   611→    if (!s || s.length > 40) return false;
+   612→    const words = s.split(/\s+/);
+   613→    if (words.length <= 4 && words.every((w) => CHROME_TOKEN_FULL_RE.test(w))) return true;
+   614→    let rest = s.toLowerCase(), guard = 0;
+   615→    while (rest.length && guard++ < 10) {
+   616→      const m = rest.match(CHROME_TOKEN_PREFIX_RE);
+   617→      if (!m) return false;
+   618→      rest = rest.slice(m[0].length);
+   619→    }
+   620→    return rest.length === 0;
+   621→  }
+   622→  function stripCodeChrome(root) {
+   623→    let pres;
+   624→    try { pres = Array.from(root.querySelectorAll('pre')); } catch (e) { return; }
+   625→    for (const pre of pres) {
+   626→      let anc = pre.parentElement;
+   627→      for (let lvl = 0; anc && lvl < 2; lvl++) {
+   628→        const kids = Array.from(anc.childNodes || []);
+   629→        for (const k of kids) {
+   630→          if (k.nodeType === 3) { if (isChromeText(k.nodeValue)) k.nodeValue = ''; continue; }
+   631→          if (k.nodeType !== 1 || k === pre) continue;
+   632→          const tag = (k.tagName || '').toLowerCase();
+   633→          if (tag === 'pre' || tag === 'code') continue;
+   634→          try { if (k.contains && k.contains(pre)) continue; } catch (e) {}
+   635→          if (isChromeText(k.textContent) && typeof k.remove === 'function') k.remove();
+   636→        }
+   637→        anc = anc.parentElement;
+   638→      }
+   639→    }
+   640→  }
+   641→
+   642→  // v26: Mermaid-диаграммы → ссылка на SVG-рендер (mermaid.ink), zero-dependency
+   643→  function mermaidEnabled() { return safeStorageGet('uaice_mermaid') !== '0'; }
+   644→  function processMermaid(content) {
+   645→    const s = String(content || '');
+   646→    if (s.indexOf('```mermaid') === -1) return s;
+   647→    return s.replace(/```mermaid\r?\n([\s\S]*?)```/gi, (match, code) => {
+   648→      try {
+   649→        const src = String(code).trim();
+   650→        if (!src || src.length > 50000) return match;
+   651→        const b64 = btoa(unescape(encodeURIComponent(src)));
+   652→        return match + '\n\n> 📊 [SVG-диаграмма](https://mermaid.ink/svg/' + b64 + ')\n';
+   653→      } catch (e) { return match; }
+   654→    });
+   655→  }
+   656→
+   657→  function domToMarkdown(el) {
+   658→    const root = el.cloneNode(true);
+   659→    let rm;
+   660→    try { rm = root.querySelectorAll(MD_REMOVE); } catch (e) { rm = []; }
+   661→    for (let i = 0; i < rm.length; i++) rm[i].remove();
+   662→    stripCodeChrome(root);
+   663→    // v26: KaTeX/MathJax → LaTeX-математика в markdown. ВАЖНО: до MD_REMOVE,
+   664→    // иначе annotation[aria-hidden] вычищается и формула теряется целиком.
+   665→    try {
+   666→      const maths = root.querySelectorAll('.katex, .katex-display, mjx-container, math[alttext]');
+   667→      for (let mi = 0; mi < maths.length; mi++) {
+   668→        const mn = maths[mi];
+   669→        if (!mn.parentElement || (root.contains && !root.contains(mn))) continue;
+   670→        let tex = '';
+   671→        const ann = mn.querySelector('annotation[encoding="application/x-tex"]');
+   672→        if (ann && ann.textContent) tex = ann.textContent.trim();
+   673→        if (!tex && mn.getAttribute) tex = mn.getAttribute('alttext') || '';
+   674→        if (!tex) continue;
+   675→        const display = (mn.classList && mn.classList.contains('katex-display')) || mn.getAttribute('display') === 'block';
+   676→        const doc = root.ownerDocument || document;
+   677→        mn.parentElement.replaceChild(doc.createTextNode(display ? '\n\n$$' + tex + '$$\n\n' : ' $' + tex + '$ '), mn);
+   678→      }
+   679→    } catch (e) {}
+   680→    function children(node) { return Array.from(node.childNodes || []).map(walk).join(''); }
+   681→    function walk(node) {
+   682→      if (node.nodeType === 3) return node.nodeValue || '';
+   683→      if (node.nodeType !== 1) return '';
+   684→      const tag = node.tagName.toLowerCase();
+   685→      if (tag === 'script' || tag === 'style' || tag === 'svg' || tag === 'noscript') return '';
+   686→      if (tag === 'br') return '\n';
+   687→      if (tag === 'hr') return '\n\n---\n\n';
+   688→      if (tag === 'pre') {
+   689→        const code = node.querySelector('code');
+   690→        const lang = code && code.className && (code.className.match(/language-([\w-]+)/) || [])[1] || '';
+   691→        const text = (code ? code.textContent : node.textContent) || '';
+   692→        return '\n\n```' + lang + '\n' + String(text).replace(/\r\n/g, '\n').replace(/\n+$/, '') + '\n```\n\n';
+   693→      }
+   694→      if (tag === 'code') return '`' + clean(node.textContent) + '`';
+   695→      if (tag === 'img') { const src = node.getAttribute('src') || ''; if (!src) return ''; return '![' + (node.getAttribute('alt') || '') + '](' + src + ')'; }
+   696→      if (tag === 'a') { const href = node.getAttribute('href') || ''; const v = clean(children(node)); return href ? '[' + (v || href) + '](' + href + ')' : v; }
+   697→      if (/^h[1-6]$/.test(tag)) return '\n\n' + '#'.repeat(Number(tag[1])) + ' ' + clean(children(node)) + '\n\n';
+   698→      if (tag === 'strong' || tag === 'b') { const v = clean(children(node)); return v ? '**' + v + '**' : ''; }
+   699→      if (tag === 'em' || tag === 'i') { const v = clean(children(node)); return v ? '*' + v + '*' : ''; }
+   700→      if (tag === 'del' || tag === 's') { const v = clean(children(node)); return v ? '~~' + v + '~~' : ''; }
+   701→      if (tag === 'blockquote') { const v = clean(children(node)); return '\n\n' + v.split('\n').map((l) => '> ' + l).join('\n') + '\n\n'; }
+   702→      if (tag === 'li') { const ordered = node.parentElement && node.parentElement.tagName.toLowerCase() === 'ol'; return (ordered ? '1. ' : '- ') + clean(children(node)) + '\n'; }
+   703→      if (tag === 'ul' || tag === 'ol') {
+   704→        // v25.0.1: настоящая нумерация <ol> вместо «1. 1. 1.»
+   705→        const ordered = tag === 'ol';
+   706→        let lis = [];
+   707→        try { lis = Array.from(node.children || []).filter((c) => c && c.tagName && c.tagName.toLowerCase() === 'li'); } catch (e) {}
+   708→        if (lis.length) {
+   709→          const body = lis.map((li, i) => (ordered ? (i + 1) + '. ' : '- ') + clean(children(li)) + '\n').join('');
+   710→          return '\n\n' + body + '\n';
+   711→        }
+   712→        return '\n\n' + children(node) + '\n';
+   713→      }
+   714→      if (tag === 'table') return tableToMarkdown(node);
+   715→      if (tag === 'p' || tag === 'div' || tag === 'section' || tag === 'article' || tag === 'figure') return '\n' + children(node) + '\n';
+   716→      return children(node);
+   717→    }
+   718→    function tableToMarkdown(table) {
+   719→      let rows;
+   720→      try { rows = Array.from(table.querySelectorAll('tr')); } catch (e) { return ''; }
+   721→      if (!rows.length) return '';
+   722→      // v26: поддержка colspan — объединённые ячейки дополняются пустыми, колонки не уезжают
+   723→      const matrix = rows.map((row) => {
+   724→        const cells = [];
+   725→        try {
+   726→          Array.from(row.querySelectorAll('th,td')).forEach((cell) => {
+   727→            const t = clean(cell.innerText || cell.textContent || '').replace(/\|/g, '\\|').replace(/\n/g, ' ');
+   728→            const cs = Math.max(1, parseInt(cell.getAttribute('colspan') || '1', 10) || 1);
+   729→            cells.push(t);
+   730→            for (let k = 1; k < cs; k++) cells.push('');
+   731→          });
+   732→        } catch (e) {}
+   733→        return cells;
+   734→      });
+   735→      const width = Math.max(1, ...matrix.map((r) => r.length));
+   736→      const norm = matrix.map((r) => { const c = r.slice(); while (c.length < width) c.push(''); return c; });
+   737→      const head = norm[0];
+   738→      let out = '\n\n| ' + head.join(' | ') + ' |\n| ' + head.map(() => '---').join(' | ') + ' |\n';
+   739→      out += norm.slice(1).map((r) => '| ' + r.join(' | ') + ' |').join('\n') + '\n\n';
+   740→      return out;
+   741→    }
+   742→    return clean(walk(root));
+   743→  }
+   744→
+   745→  const THINK_SELECTORS = ['[class*="think"]','[class*="reason"]','[class*="analysis"]','[class*="thought"]','[data-testid*="think"]','[data-testid*="reason"]','[data-testid*="analysis"]','[aria-label*="thinking" i]','[aria-label*="reasoning" i]'];
+   746→  function extractThinking(el) {
+   747→    const nodes = [];
+   748→    for (const sel of THINK_SELECTORS) { nodes.push(...deepQueryAll(sel, el)); }
+   749→    const unique = dedupeNested(nodes);
+   750→    const out = [];
+   751→    for (const n of unique) { const t = domToMarkdown(n); if (t && out.indexOf(t) === -1) out.push(t); }
+   752→    return out;
+   753→  }
+   754→
+   755→  // Сбор картинок и вложений сообщения (для ZIP-режима)
+   756→  function collectMedia(el, msgIndex) {
+   757→    const images = [], attachments = [];
+   758→    try {
+   759→      const imgs = el.querySelectorAll('img[src]');
+   760→      for (let i = 0; i < imgs.length && images.length < CFG.IMG_PER_MSG; i++) {
+   761→        const src = imgs[i].getAttribute('src') || '';
+   762→        if (!src || /^data:/i.test(src)) continue;
+   763→        images.push({ src: new URL(src, location.href).href, alt: imgs[i].getAttribute('alt') || '', msg: msgIndex });
+   764→      }
+   765→    } catch (e) {}
+   766→    try {
+   767→      const atts = el.querySelectorAll('a[href][download],[class*="attachment"] a[href],[data-filename]');
+   768→      for (let i = 0; i < atts.length; i++) {
+   769→        const a = atts[i];
+   770→        const href = a.getAttribute('href') || '';
+   771→        if (!href || /^(#|javascript:)/i.test(href)) continue;
+   772→        attachments.push({
+   773→          url: new URL(href, location.href).href,
+   774→          name: a.getAttribute('data-filename') || a.getAttribute('download') || (href.split('/').pop() || 'file').split('?')[0]
+   775→        });
+   776→      }
+   777→    } catch (e) {}
+   778→    return { images: images, attachments: attachments };
+   779→  }
+   780→
+   781→  // v26: артефакты — код-блоки как отдельные файлы для ZIP
+   782→  const LANG_EXT = { javascript: 'js', js: 'js', typescript: 'ts', ts: 'ts', python: 'py', py: 'py', ruby: 'rb', go: 'go', golang: 'go', rust: 'rs', java: 'java', c: 'c', cpp: 'cpp', 'c++': 'cpp', csharp: 'cs', 'c#': 'cs', php: 'php', bash: 'sh', shell: 'sh', sh: 'sh', html: 'html', css: 'css', json: 'json', yaml: 'yml', yml: 'yml', xml: 'xml', markdown: 'md', md: 'md', sql: 'sql', r: 'r', swift: 'swift', kotlin: 'kt', scala: 'scala', perl: 'pl', lua: 'lua', dart: 'dart', toml: 'toml', ini: 'ini', tex: 'tex', matlab: 'm', mermaid: 'mmd' };
+   783→  function collectArtifacts(el, msgIndex) {
+   784→    const arts = [];
+   785→    try {
+   786→      const pres = el.querySelectorAll('pre');
+   787→      for (let i = 0; i < pres.length && arts.length < 30; i++) {
+   788→        const pre = pres[i];
+   789→        const code = pre.querySelector('code') || pre;
+   790→        let lang = '';
+   791→        const cls = (code.className || '') + ' ' + (pre.className || '');
+   792→        const mm = cls.match(/language-([\w+#-]+)/i) || cls.match(/lang-([\w+#-]+)/i);
+   793→        if (mm) lang = mm[1].toLowerCase();
+   794→        const text = (code.textContent || '').replace(/\r\n/g, '\n').replace(/\n+$/, '');
+   795→        if (!text || text.length < 12) continue;
+   796→        if (isCssOrJs(text) && text.length < 80) continue;
+   797→        const ext = LANG_EXT[lang] || (lang ? lang.replace(/[^a-z0-9]/gi, '') : '') || 'txt';
+   798→        arts.push({ type: 'code', lang: lang || 'text', content: text, ext: ext, msg: msgIndex });
+   799→      }
+   800→    } catch (e) {}
+   801→    return arts;
+   802→  }
+   803→
+   804→  // ============ SCRAPE ============
+   805→  function scrape(options) {
+   806→    options = options || {};
+   807→    const found = findMessages();
+   808→    if (!found) return { items: [], platform: null, source: null, images: [], attachments: [], artifacts: [] };
+   809→    const platform = found.platform;
+   810→    const pre = [];
+   811→    found.items.forEach((el) => {
+   812→      const content = stripUiPrefix(domToMarkdown(el));
+   813→      const text = stripUiPrefix(extractText(el));
+   814→      if (!content && !text) return;
+   815→      const plain = text || content;
+   816→      if (plain.length < CFG.MIN_TEXT) return;
+   817→      if (isCssOrJs(plain) || isSourceListing(plain)) return;
+   818→      pre.push({ el: el, content: content, text: text, thinking: extractThinking(el) });
+   819→    });
+   820→    const roles = pre.map((m) => detectRole(m.el, platform));
+   821→    const allUnknown = roles.length > 0 && roles.every((r) => r === 'unknown');
+   822→    const allSame = roles.length > 1 && roles.every((r) => r === roles[0]);
+   823→    const parity = allUnknown || (allSame && roles[0] !== 'user');
+   824→    const allImages = [], allAttachments = [], allArtifacts = [];
+   825→    const out = pre.map((m, i) => {
+   826→      let role = roles[i];
+   827→      if (role === 'unknown' && parity) role = i % 2 === 0 ? 'user' : 'assistant';
+   828→      else if (parity && role === roles[0]) role = i % 2 === 0 ? 'user' : 'assistant';
+   829→      let content = m.content;
+   830→      if (options.stripThinking && m.thinking.length) {
+   831→        // v26: вырезаем ВСЕ вхождения блока (replace по строке бьёт только первое)
+   832→        for (const block of m.thinking) {
+   833→          if (!block || block.length < 3) continue;
+   834→          let guard = 0;
+   835→          while (content.indexOf(block) !== -1 && guard++ < 20) content = content.replace(block, '');
+   836→        }
+   837→        content = clean(content);
+   838→      }
+   839→      if (mermaidEnabled()) content = processMermaid(content);
+   840→      const media = collectMedia(m.el, i);
+   841→      collectArtifacts(m.el, i).forEach((a) => allArtifacts.push(a));
+   842→      media.images.forEach((x) => allImages.push(x));
+   843→      media.attachments.forEach((x) => allAttachments.push(x));
+   844→      return { role: role, content: content, text: m.text || clean(m.content), thinking: options.exportThinking ? m.thinking : [] };
+   845→    }).filter((m) => (options.stripThinking ? m.content : m.text) && (options.stripThinking ? m.content.length : m.text.length) >= CFG.MIN_TEXT);
+   846→    return { items: out.slice(0, CFG.MSG_MAX), source: found.source, platformName: (platform && platform.name) || null, images: allImages.slice(0, CFG.IMG_TOTAL), attachments: allAttachments.slice(0, CFG.IMG_TOTAL), artifacts: allArtifacts.slice(0, 300) };
+   847→  }
+   848→
+   849→  // Аварийный снимок страницы, когда точечная структура не распознана (урок из Gemini-беседы)
+   850→  function snapshotScrape() {
+   851→    try {
+   852→      const clone = document.body.cloneNode(true);
+   853→      clone.querySelectorAll('#' + UI_ID + ',script,style,noscript,svg').forEach((n) => n.remove());
+   854→      const holder = getRenderHolder();
+   855→      holder.appendChild(clone);
+   856→      let t = '';
+   857→      try { t = clean(clone.innerText || ''); } catch (e) { t = (clone.textContent || '').trim(); }
+   858→      clone.remove();
+   859→      if (!t || t.length < CFG.MIN_TOTAL_TEXT) return null;
+   860→      if (t.length > CFG.SNAPSHOT_MAX) t = t.slice(0, CFG.SNAPSHOT_MAX) + '\n\n… (обрезано)';
+   861→      return {
+   862→        items: [{ role: 'unknown', content: '⚠ Автоснимок страницы (структура не распознана точечно):\n\n' + t, text: '⚠ Автоснимок страницы (структура не распознана точечно):\n\n' + t, thinking: [] }],
+   863→        source: 'snapshot', platformName: (getPlatform() || {}).name || null, images: [], attachments: [], artifacts: []
+   864→      };
+   865→    } catch (e) { return null; }
+   866→  }
+   867→
+   868→  function fingerprint() {
+   869→    const found = findMessages();
+   870→    if (!found) return '';
+   871→    return found.items.map((el) => txt(el).slice(0, 80)).join('|');
+   872→  }
+   873→
+   874→  function findScrollContainer() {
+   875→    const found = findMessages();
+   876→    const sample = found && found.items && found.items[0];
+   877→    let p = sample;
+   878→    for (let i = 0; i < 14 && p; i++, p = p.parentElement) {
+   879→      try { const st = getComputedStyle(p); if (/auto|scroll/.test(st.overflowY) && p.scrollHeight > p.clientHeight + 100) return p; } catch (e) {}
+   880→    }
+   881→    const candidates = [document.scrollingElement, document.documentElement, document.body];
+   882→    try { candidates.push(...document.querySelectorAll('main,[role="main"],[class*="scroll"],[class*="conversation"]')); } catch (e) {}
+   883→    let sc = null, bestSize = 0;
+   884→    for (const el of candidates) {
+   885→      if (!el) continue;
+   886→      try { const extra = el.scrollHeight - el.clientHeight; if (extra > 100 && el.clientHeight > 150 && el.scrollHeight > bestSize) { bestSize = el.scrollHeight; sc = el; } } catch (e) {}
+   887→    }
+   888→    return sc;
+   889→  }
+   890→
+   891→  // Автопрокрутка истории: к началу, ждём стабилизации высоты, к концу (рабочая версия из v22/v24)
+   892→  async function autoScroll(statusFn) {
+   893→    const sc = findScrollContainer();
+   894→    if (!sc) return;
+   895→    if (statusFn) statusFn('Прокручиваю историю...');
+   896→    let lastH = -1, stable = 0;
+   897→    for (let i = 0; i < CFG.SCROLL_ROUNDS; i++) {
+   898→      if (CANCEL) return;
+   899→      sc.scrollTop = 0;
+   900→      await sleep(CFG.SCROLL_WAIT);
+   901→      const h = sc.scrollHeight;
+   902→      if (h === lastH) stable++; else stable = 0;
+   903→      lastH = h;
+   904→      if (stable >= 3) break;
+   905→      if (statusFn && i % 5 === 0) statusFn('История: ' + (i + 1) + '/' + CFG.SCROLL_ROUNDS);
+   906→    }
+   907→    try { sc.scrollTop = sc.scrollHeight; } catch (e) {}
+   908→    await sleep(400);
+   909→  }
+   910→
+   911→  // Ожидание смены контента после активации чата: фингерпринт + смена URL (фикс «экспорт предыдущего чата»)
+   912→  async function waitStable(prevFp, prevHref) {
+   913→    const start = Date.now();
+   914→    let lastFp = '', lastChangeTime = Date.now();
+   915→    let hrefChanged = !!(prevHref && location.href !== prevHref);
+   916→    while (Date.now() - start < CFG.MAX_WAIT) {
+   917→      if (CANCEL) return false;
+   918→      await sleep(CFG.POLL);
+   919→      if (!hrefChanged && prevHref && location.href !== prevHref) { hrefChanged = true; lastChangeTime = Date.now(); }
+   920→      const cur = fingerprint();
+   921→      if (cur && cur !== prevFp) {
+   922→        if (cur !== lastFp) { lastFp = cur; lastChangeTime = Date.now(); }
+   923→        else if (Date.now() - lastChangeTime >= CFG.STABLE_MS) return true;
+   924→      } else if (hrefChanged && Date.now() - lastChangeTime >= CFG.STABLE_MS) {
+   925→        return true;
+   926→      }
+   927→      if (!hrefChanged && !lastFp && Date.now() - start > 6000) return false;
+   928→    }
+   929→    const fp = fingerprint();
+   930→    return (!!fp && fp !== prevFp) || hrefChanged;
+   931→  }
+   932→
+   933→  async function waitForContentChange(beforeHref, prevFp, timeoutMs) {
+   934→    const t0 = Date.now();
+   935→    while (Date.now() - t0 < timeoutMs) {
+   936→      if (CANCEL) return false;
+   937→      await sleep(250);
+   938→      if (location.href !== beforeHref) return true;
+   939→      if (fingerprint() !== prevFp) return true;
+   940→    }
+   941→    return false;
+   942→  }
+   943→
+   944→  // ============ ФОРМАТЫ ЭКСПОРТА (9) ============
+   945→  function platformName(scraped) {
+   946→    const n = scraped && scraped.platformName;
+   947→    if (n) return n;
+   948→    const p = getPlatform();
+   949→    return p ? p.name : 'universal-heuristic';
+   950→  }
+   951→  function roleLabel(role) {
+   952→    if (role === 'user') return '🧑‍💻 User';
+   953→    if (role === 'assistant') return '🤖 Assistant';
+   954→    return '❔ ' + (role || 'Unknown');
+   955→  }
+   956→  function frontMatterEnabled() { return safeStorageGet('uaice_fm') !== '0'; }
+   957→
+   958→  function toMarkdown(scraped, title) {
+   959→    const L = [];
+   960→    if (frontMatterEnabled()) {
+   961→      const dateTag = '#export-' + now().slice(0, 10);
+   962→      const platTag = '#' + String(platformName(scraped)).toLowerCase().replace(/[^a-zа-я0-9]+/gi, '');
+   963→      L.push('---',
+   964→        'title: ' + JSON.stringify(String(title || 'export')),
+   965→        'platform: ' + JSON.stringify(platformName(scraped)),
+   966→        'url: ' + JSON.stringify(location.href),
+   967→        'exported_at: ' + JSON.stringify(new Date().toISOString()),
+   968→        'exporter: ' + JSON.stringify('Universal AI Chat Exporter v' + SCRIPT_VER),
+   969→        'messages_count: ' + scraped.items.length,
+   970→        'tags: [' + JSON.stringify(platTag) + ', ' + JSON.stringify(dateTag) + ']',
+   971→        '---', '', '# ' + title, '');
+   972→    } else {
+   973→      L.push('# ' + title, '',
+   974→        '- **Platform:** ' + platformName(scraped), '- **URL:** ' + location.href,
+   975→        '- **Exported:** ' + now() + ' (v' + SCRIPT_VER + ')', '- **Messages:** ' + scraped.items.length, '', '---', '');
+   976→    }
+   977→    scraped.items.forEach((m) => {
+   978→      L.push('### ' + roleLabel(m.role), '', m.content || m.text, '');
+   979→      if (m.thinking && m.thinking.length) L.push('<details><summary>🧠 Thinking</summary>', '', m.thinking.join('\n\n'), '', '</details>', '');
+   980→    });
+   981→    return L.join('\n');
+   982→  }
+   983→  function toJSON(scraped, title) {
+   984→    return JSON.stringify({
+   985→      title: title, platform: platformName(scraped), exporter: 'Universal AI Chat Exporter v' + SCRIPT_VER,
+   986→      url: location.href, exported_at: new Date().toISOString(), messages_count: scraped.items.length,
+   987→      source_selector: scraped.source || null,
+   988→      messages: scraped.items.map((m, i) => ({ index: i, role: m.role, content_markdown: m.content, text: m.text, thinking: m.thinking || [] }))
+   989→    }, null, 2);
+   990→  }
+   991→  function toTXT(scraped, title) {
+   992→    const lines = [title, '='.repeat(Math.min(title.length, 70)), 'Platform: ' + platformName(scraped), 'URL: ' + location.href, 'Exported: ' + now() + ' (v' + SCRIPT_VER + ')', ''];
+   993→    scraped.items.forEach((m) => {
+   994→      lines.push('[' + String(m.role || 'unknown').toUpperCase() + ']');
+   995→      if (m.thinking && m.thinking.length) lines.push('[REASONING]', m.thinking.join('\n\n'), '');
+   996→      lines.push(m.text || m.content); lines.push('');
+   997→    });
+   998→    return lines.join('\n');
+   999→  }
+  1000→  function htmlCss() {
+  1001→    return 'body{font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:800px;margin:2rem auto;padding:0 1rem;line-height:1.6;color:#222}h1{border-bottom:2px solid #eee;padding-bottom:.5rem}.msg{margin:1.5rem 0;padding:1rem;border-radius:8px}.user{background:#e7f3ff;border-left:4px solid #1a73e8}.assistant{background:#f5f5f5;border-left:4px solid #666}.unknown{background:#fff8e1;border-left:4px solid #f0a500}.role{font-weight:600;margin-bottom:.5rem;color:#555}.meta{color:#888;font-size:.9rem;margin-bottom:2rem}.think{background:#fafafa;border:1px dashed #ccc;border-radius:6px;padding:.6rem;margin:.6rem 0;font-size:.92em;color:#555}';
+  1002→  }
+  1003→  function htmlBody(scraped, title) {
+  1004→    const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  1005→    let h = '<h1>' + esc(title) + '</h1>';
+  1006→    h += '<div class="meta">Platform: ' + esc(platformName(scraped)) + '<br>URL: ' + esc(location.href) + '<br>Exported: ' + now() + ' (v' + SCRIPT_VER + ')<br>Messages: ' + scraped.items.length + '</div>';
+  1007→    scraped.items.forEach((m) => {
+  1008→      h += '<div class="msg ' + esc(String(m.role || 'unknown')) + '">';
+  1009→      h += '<div class="role">' + esc(roleLabel(m.role)) + '</div>';
+  1010→      if (m.thinking && m.thinking.length) h += '<div class="think"><b>🧠 Thinking</b><br>' + esc(m.thinking.join('\n\n')).replace(/\n/g, '<br>') + '</div>';
+  1011→      h += '<div>' + esc(m.text || m.content).replace(/\n/g, '<br>') + '</div></div>';
+  1012→    });
+  1013→    return h;
+  1014→  }
+  1015→  function toHTML(scraped, title) {
+  1016→    const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  1017→    return '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>' + esc(title) + '</title><style>' + htmlCss() + '</style></head><body>' + htmlBody(scraped, title) + '</body></html>';
+  1018→  }
+  1019→  // ShareGPT: {title,url,conversations:[{from:'human'|'gpt'|'system', value}]}
+  1020→  function sharegptFrom(role) {
+  1021→    if (role === 'user') return 'human';
+  1022→    if (role === 'assistant') return 'gpt';
+  1023→    return 'system';
+  1024→  }
+  1025→  function toShareGPT(scraped, title) {
+  1026→    return JSON.stringify({
+  1027→      title: title,
+  1028→      url: location.href,
+  1029→      exported_at: new Date().toISOString(),
+  1030→      conversations: scraped.items.map((m) => ({ from: sharegptFrom(m.role), value: m.text || m.content }))
+  1031→    }, null, 2);
+  1032→  }
+  1033→  // JSONL: одна строка на сообщение
+  1034→  function toJSONL(scraped, title) {
+  1035→    return scraped.items.map((m, i) => JSON.stringify({
+  1036→      chat: title, i: i, role: m.role, text: m.text || m.content
+  1037→    })).join('\n');
+  1038→  }
+  1039→  // Alpaca: пары instruction(user) -> output(assistant)
+  1040→  function toAlpaca(scraped, title) {
+  1041→    const samples = [];
+  1042→    let pending = null;
+  1043→    scraped.items.forEach((m) => {
+  1044→      if (m.role === 'user') {
+  1045→        if (pending) samples.push({ instruction: pending, input: '', output: '' });
+  1046→        pending = m.text || m.content;
+  1047→      } else if (m.role === 'assistant') {
+  1048→        samples.push({ instruction: pending || '', input: '', output: m.text || m.content });
+  1049→        pending = null;
+  1050→      } else if (pending) {
+  1051→        samples.push({ instruction: pending, input: '', output: '' });
+  1052→        pending = null;
+  1053→      }
+  1054→    });
+  1055→    if (pending) samples.push({ instruction: pending, input: '', output: '' });
+  1056→    return JSON.stringify({ chat: title, url: location.href, samples: samples }, null, 2);
+  1057→  }
+  1058→  function contentFor(format, scraped, title) {
+  1059→    if (format === 'json') return { content: toJSON(scraped, title), ext: 'json', mime: 'application/json;charset=utf-8' };
+  1060→    if (format === 'txt') return { content: toTXT(scraped, title), ext: 'txt', mime: 'text/plain;charset=utf-8' };
+  1061→    if (format === 'html') return { content: toHTML(scraped, title), ext: 'html', mime: 'text/html;charset=utf-8' };
+  1062→    if (format === 'sharegpt') return { content: toShareGPT(scraped, title), ext: 'sharegpt.json', mime: 'application/json;charset=utf-8' };
+  1063→    if (format === 'jsonl') return { content: toJSONL(scraped, title), ext: 'jsonl', mime: 'application/x-ndjson;charset=utf-8' };
+  1064→    if (format === 'alpaca') return { content: toAlpaca(scraped, title), ext: 'alpaca.json', mime: 'application/json;charset=utf-8' };
+  1065→    return { content: toMarkdown(scraped, title), ext: 'md', mime: 'text/markdown;charset=utf-8' };
+  1066→  }
+  1067→
+  1068→  // ============ ДОСТАВКА: BLOB / СОБСТВЕННЫЙ ZIP (без CDN) / PDF ============
+  1069→  function downloadBlob(content, filename, mime) {
+  1070→    const blob = (content instanceof Blob) ? content : new Blob([content], { type: mime || 'text/plain;charset=utf-8' });
+  1071→    const url = URL.createObjectURL(blob);
+  1072→    const a = document.createElement('a');
+  1073→    a.href = url; a.download = filename; a.rel = 'noopener';
+  1074→    (document.body || document.documentElement).appendChild(a);
+  1075→    a.click(); a.remove();
+  1076→    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  1077→  }
+  1078→  // v26: стриминговая запись больших ZIP/PDF через File System Access API (без удержания blob в памяти вкладки)
+  1079→  async function downloadSmart(content, filename, mime) {
+  1080→    const blob = (content instanceof Blob) ? content : new Blob([content], { type: mime || 'text/plain;charset=utf-8' });
+  1081→    if (typeof window.showSaveFilePicker === 'function' && /\.(zip|pdf)$/i.test(String(filename || ''))) {
+  1082→      try {
+  1083→        const h = await window.showSaveFilePicker({ suggestedName: filename });
+  1084→        const wr = await h.createWritable();
+  1085→        await wr.write(blob);
+  1086→        await wr.close();
+  1087→        return true;
+  1088→      } catch (e) { if (e && e.name === 'AbortError') return false; }
+  1089→    }
+  1090→    downloadBlob(blob, filename, mime);
+  1091→    return false;
+  1092→  }
+  1093→
+  1094→  // Собственный ZIP-писатель (метод store, UTF-8 имена). Никаких внешних библиотек.
+  1095→  const CRC_TABLE = (function () {
+  1096→    const t = new Uint32Array(256);
+  1097→    for (let n = 0; n < 256; n++) {
+  1098→      let c = n;
+  1099→      for (let k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+  1100→      t[n] = c >>> 0;
+
+[showing lines 601-1100 of 2736; use offset=1101 with limit to continue reading]
