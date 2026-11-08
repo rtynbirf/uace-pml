@@ -1,5 +1,2 @@
-skills/
-node_modules/
-upload/
-*.log
-.env
+__pycache__/
+*.py[cod]
