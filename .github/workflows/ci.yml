@@ -1,0 +1,32 @@
+name: ci
+
+# Канон сборки UACE: фрагменты v29 p1→p6 склеиваются и парсятся (node --check),
+# Python-сборщики компилируются. Склейка и проверки повторяют build_v291_package.py.
+
+permissions:
+  contents: read
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  canon-build:
+    name: склейка p1→p6 + node --check + сборщики
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: склейка фрагментов v29 (канон p1→p6)
+        run: |
+          cat scripts/v29/p1_header_core.js \
+              scripts/v29/p2_runtime_evidence.js \
+              scripts/v29/p3_platforms.js \
+              scripts/v29/p4_capture_storage.js \
+              scripts/v29/p5_orchestrator.js \
+              scripts/v29/p6_ui_pml.js > /tmp/uace-v29-merged.user.js
+          wc -l /tmp/uace-v29-merged.user.js
+      - name: склейка парсится (node --check)
+        run: node --check /tmp/uace-v29-merged.user.js
+      - name: Python-сборщики компилируются
+        run: python3 -m py_compile scripts/*.py
