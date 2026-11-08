@@ -9,7 +9,9 @@ Evidence First: любой провал = abort, архив не перезап�
 """
 import hashlib, os, shutil, subprocess, sys, tempfile, zipfile
 
-ROOT = '/home/z/my-project'
+# Корень = клон репо (портативно): скрипт живёт в <root>/scripts/, root — на уровень выше.
+# Раньше был прибит к /home/z/my-project — на чужой машине/в CI сборка падала бы сразу.
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PARTS = [f'{ROOT}/scripts/v29/p{i}_{n}.js' for i, n in
          [(1, 'header_core'), (2, 'runtime_evidence'), (3, 'platforms'),
           (4, 'capture_storage'), (5, 'orchestrator'), (6, 'ui_pml')]]
