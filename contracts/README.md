@@ -10,12 +10,26 @@
 ```
 contracts/
   schema/chatdocument.schema.json   # JSON Schema результата экспорта (ChatDocument/29)
+  manifest.json                     # манифест 36 доменов: пин реестра p3 (имена/порядок, hostsRe, pathRe,
+                                    #   msgSelectors, roleAttr, chatUrlPattern, roleFnSig) + routing-пробы
+                                    #   checkHost/checkPath; правка p3 без перепиновки = красный гейт
   fixtures/NN-slug/fixture.html     # фиксированный HTML-снапшот вёрстки сообщений домена
   fixtures/NN-slug/expected.json    # замороженная проекция: platform, chatId, сообщения (role/method/confidence/text)
   negative/ChatGPT-broken.html      # намеренно поломанная вёрстка → обязана давать КРАСНЫЙ с именем домена
-scripts/contract_runner.mjs        # раннер (stdlib Node, без внешних зависимостей)
-.github/workflows/contracts.yml    # CI: selftest + прогон 36/36
+scripts/contract_runner.mjs        # раннер волны ×4 (stdlib Node): РЕАЛЬНЫЙ код p1..p4 в песочнице
+scripts/validate_contracts.py      # НЕЗАВИСИМЫЙ python3-валидатор волны ×6 (stdlib, ноль зависимостей):
+                                   #   реестр парсится из живого p3, конвейер экспорта воспроизводится на
+                                   #   Python (селекторы → лестница ролей → ChatDocument → integrity FNV-1a),
+                                   #   сверка со схемой, манифестом и expected.json
+scripts/test_negative.py           # негативный тест: валидатор обязан КРАСНЕТЬ на поломанной фикстуре
+                                   #   (сам шаг зелёный, доказывает красный гейт; мутации + сквозной теневой прогон)
+.github/workflows/contracts.yml           # CI волны ×4: selftest + прогон 36/36 (node)
+.github/workflows/validate-contracts.yml  # CI волны ×6: python3-валидатор 36/36 + негативный тест
 ```
+
+Два независимых гейта (Node ×4 и Python ×6) ловят разные классы ошибок: правка
+p3/селекторов/ролей, дрейф схемы, ручная правка expected.json, рассинхрон
+манифеста — всё = красный с ТОЧНЫМ именем платформы/домена в обоих прогонах.
 
 ## Как это работает (честно)
 
@@ -52,10 +66,29 @@ scripts/contract_runner.mjs        # раннер (stdlib Node, без внеш�
 node scripts/contract_runner.mjs            # 36 доменов, rc=0/1 (FAIL-строки с именами)
 node scripts/contract_runner.mjs --selftest # 6 проверок каркаса (реестр/36/негатив/мутация/детерминизм)
 node scripts/contract_runner.mjs --freeze   # переписать expected.json по факту (с ревью diff!)
+
+python3 scripts/validate_contracts.py              # python-гейт ×6: 36/36 + сверки, rc=0/1
+python3 scripts/test_negative.py                   # доказательство красного гейта (8 проверок)
+python3 scripts/validate_contracts.py --emit-manifest  # переписать manifest.json по живому p3 (с ревью diff!)
 ```
 
 ## Негативный тест
 
 `contracts/negative/ChatGPT-broken.html` — та же фикстура ChatGPT, но атрибут роли
 переименован (`data-msg-author-role`) — типовая «молчаливая смена вёрстки».
-Selftest обязан получить КРАСНЫЙ с именем `ChatGPT`; иначе каркас сломан.
+Selftest раннера обязан получить КРАСНЫЙ с именем `ChatGPT`; иначе каркас сломан.
+Python-гейт ×6 доказывает красный отдельно (`scripts/test_negative.py`, 8 проверок):
+негативная фикстура красная с именем домена · причина не тихая · контроль боевого
+fixture зелёный · мутации атрибута/текста ловятся · сквозной теневой прогон: чистый
+срез rc=0, срез с поломанной фикстурой rc=1 и `ChatGPT` в stdout.
+
+## Честные ограничения python-гейта ×6
+
+- Роль-функции p3 воспроизводятся python-зеркалами (36 лямбд): дрейф ЛОГИКИ ловится
+  дважды — `roleFnSig` пинит source-текст role-функции, а сверка с `expected.json`
+  ловит расхождение результата; но буквальная эквивалентность зеркал JS-коду не
+  доказана формально (проверена на фикстурах 36/36 и мутациях).
+- Геометрия браузера — константная честная среда («элемент видим»), как в раннере ×4:
+  это часть среды фикстуры, не домена.
+- Пробы `checkHost/checkPath` в манифесте — читаемые человеко-списки; их корректность
+  гарантируется проверкой по реальным регэкспам p3 (routing-проба), а не наоборот.

@@ -1,0 +1,37 @@
+name: validate-contracts
+
+# П54 (issue #5, волна ×6): НЕЗАВИСИМЫЙ python3-гейт контракт-снапшотов 36 доменов.
+# Дубль contracts.yml (node-раннер волны ×4) на stdlib Python: две реализации ловят
+# разные классы ошибок. Гейт: реестр p3 = 36 ↔ манифест ↔ schema.enum; конвейер
+# экспорта на каждой фикстуре (платформенные селекторы, лестница ролей §5, ChatDocument,
+# integrity FNV-1a) сверяется со снапшотом expected.json. Поломка домена = красный
+# с ТОЧНЫМ именем платформы. Красный гейт доказывается отдельно: scripts/test_negative.py.
+
+permissions:
+  contents: read
+
+on:
+  push:
+    paths:
+      - "contracts/**"
+      - "scripts/validate_contracts.py"
+      - "scripts/test_negative.py"
+      - "scripts/v29/**"
+      - ".github/workflows/validate-contracts.yml"
+  schedule:
+    - cron: "37 3 * * *" # ежедневный дозор доменов (python-гейт)
+  workflow_dispatch:
+
+jobs:
+  python-contracts:
+    name: контракт-снапшоты 36/36 (python3 stdlib) + негативный гейт
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (канон аккаунта)
+      - name: скрипты компилируются (py_compile)
+        run: python3 -m py_compile scripts/validate_contracts.py scripts/test_negative.py
+      - name: валидатор 36 доменов (python3, stdlib) — поломка домена = красный с именем
+        run: python3 scripts/validate_contracts.py
+      - name: негативный тест — валидатор обязан КРАСНЕТЬ на поломанной фикстуре (шаг зелёный, гейт доказан)
+        run: python3 scripts/test_negative.py

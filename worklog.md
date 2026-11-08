@@ -433,3 +433,19 @@ Work Log:
 
 Stage Summary:
 - П54 закрыт машинообразно: schema + 36 fixtures + runner + негативная фикстура + selftest 6/6 + CI-гейт «поломка домена = красный с ТОЧНЫМ именем платформы». Локальный прогон: 36 passed, 0 failed; selftest 6/6; node --check ок.
+
+---
+Task ID: W6-P54
+Agent: Волна ×6 «Педали» (полимат-рой rtynbirf)
+Task: ПРЕДЛОЖЕНИЕ-54 (issue #5) — контракт-снапшоты 36 доменов: python3-валидатор + манифест доменов + негативный тест (второй, независимый CI-гейт)
+
+Work Log:
+- contracts/manifest.json — НОВЫЙ артефакт: манифест 36 доменов из РЕАЛЬНОГО реестра scripts/v29/p3_platforms.js. Пинит: имена/порядок, hostsRe (source-тексты host-регэкспов), pathRe, msgSelectors (точные строки), roleAttr, chatUrlPattern, roleFnSig (fnv1a32 source-текста role-функции) + routing-пробы checkHost/checkPath. Перегенерация: python3 scripts/validate_contracts.py --emit-manifest (с ревью diff). Правка p3 без перепиновки манифеста = красный гейт (проверено теневым прогоном: правка селектора ChatGPT в p3 → FAIL «msgSelectors ≠ p3» + красный домена).
+- scripts/validate_contracts.py — НОВЫЙ python3-валидатор (stdlib-only: html.parser/re/json/urllib): НЕЗАВИСИМЫЙ дубль гейта волны ×4 на другом языке. Воспроизводит конвейер экспорта: парсинг ЖИВОГО p3 (мини-парсер JS-литералов) → getPlatform по host/path (реальные регэкспы, порядок реестра) → платформенные селекторы (generic/структурные фолбэки не воспроизводятся — пин контракта) → лестница ролей §5 (attribute 0.99 / testid 0.97 / platform-selector 0.95 / semantic-class / ancestor / unknown; python-зеркала 36 role-функций) → textOf (UI-префикс, cap) → chatIdFrom → makeChatDocument (integrity contentHash FNV-1a32 портом) → мини-валидатор draft-07-подмножества против contracts/schema/chatdocument.schema.json → сверка проекции с expected.json байт-в-байт. Сверки каркаса: реестр=36, schema.platform.enum=реестру (порядок), манифест=реестру+каталогу fixtures, expected.json против enum схемы (role/method/confidence/text), routing-пробы по реальным регэкспам. FAIL-строки несут ТОЧНОЕ имя домена; rc=1 при любом расхождении.
+- scripts/test_negative.py — НОВЫЙ негативный тест (8 проверок, сам зелёный в обычном CI): негативная фикстура contracts/negative/ChatGPT-broken.html → красный с ТОЧНЫМ именем ChatGPT и не тихой причиной; контроль боевого fixture зелёный; мутации в памяти (переименование атрибута роли; изменение текста) ловятся; сквозной теневой прогон во временном каталоге: чистый срез rc=0 (36/36), срез с поломанной фикстурой rc=1 и «ChatGPT» в stdout. Боевые файлы не трогаются.
+- .github/workflows/validate-contracts.yml — НОВЫЙ CI: py_compile → python3-валидатор 36/36 → негативный тест; пин checkout каноном аккаунта (v7.0.1); триггеры push (contracts/**, скрипты, scripts/v29/**, workflow) + workflow_dispatch + ежедневный дозор 03:37 UTC.
+- Мини-правки по конвенции AGENTS.md «Update README when structure changes»: README.md (структура contracts/ + команды ×6) и contracts/README.md (устройство каталога, запуск python-гейта, разделы «Негативный тест» и «Честные ограничения ×6»).
+- Приёмка локально: python3 scripts/validate_contracts.py → 36/36 доменов PASS + 36/36 пинов манифеста + 5/5 структурных (GREEN, rc=0); двойной прогон байт-в-байт идентичен (capturedAt вне снапшота); python3 scripts/test_negative.py → 8/8 (NEGATIVE GATE GREEN); теневые дрейф-пробы: правка p3-селектора → rc=1 с именем ChatGPT; ручная правка expected.json DeepSeek → rc=1 с именем DeepSeek. Node-раннер ×4 не тронут, его прогон 36/36 зелёный.
+
+Stage Summary:
+- П54 усилен вторым независимым гейтом: манифест-пин реестра p3 + python3-валидатор + негативный тест в отдельном workflow. Поломка домена/адаптера/схемы/снапшота/манифеста = красный с ТОЧНЫМ именем платформы в ДВУХ реализациях (Node и Python). Локально: 36/36 GREEN + негатив 8/8 GREEN; честные ограничения (role-зеркала не формально эквивалентны JS, геометрия — константная среда фикстуры) задокументированы в contracts/README.md.

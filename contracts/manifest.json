@@ -1,0 +1,759 @@
+{
+  "proposal": "ПРЕДЛОЖЕНИЕ-54 · контракт-снапшоты 36 доменов (issue uace-pml#5)",
+  "wave": "Волна ×6 (python3-валидатор scripts/validate_contracts.py)",
+  "registrySource": "scripts/v29/p3_platforms.js",
+  "schema": "contracts/schema/chatdocument.schema.json",
+  "domainsCount": 36,
+  "note": "манифест ПИНИТ живой реестр p3: имена/порядок, hostsRe, pathRe, msgSelectors, roleAttr, chatUrlPattern, roleFnSig (fnv1a source-текста role-функции). checkHost/checkPath — читаемые routing-пробы, валидатор проверяет их по реальным регэкспам p3 с учётом порядка реестра. Правка p3 без перепиновки манифеста (--emit-manifest + ревью diff) = красный гейт.",
+  "domains": [
+    {
+      "order": 1,
+      "name": "ChatGPT",
+      "slug": "01-chatgpt",
+      "fixture": "contracts/fixtures/01-chatgpt/fixture.html",
+      "expected": "contracts/fixtures/01-chatgpt/expected.json",
+      "checkHost": "chatgpt.com",
+      "checkPath": "/c/abc123",
+      "hostsRe": [
+        "(^|\\.)(chatgpt\\.com|chat\\.openai\\.com)$"
+      ],
+      "pathRe": null,
+      "msgSelectors": [
+        "[data-message-author-role]",
+        "article[data-testid^=\"conversation-turn\"]"
+      ],
+      "roleAttr": "data-message-author-role",
+      "chatUrlPattern": "/c/{id}",
+      "roleFnSig": null
+    },
+    {
+      "order": 2,
+      "name": "Claude",
+      "slug": "02-claude",
+      "fixture": "contracts/fixtures/02-claude/fixture.html",
+      "expected": "contracts/fixtures/02-claude/expected.json",
+      "checkHost": "claude.ai",
+      "checkPath": "/chat/cl-1",
+      "hostsRe": [
+        "(^|\\.)claude\\.ai$"
+      ],
+      "pathRe": null,
+      "msgSelectors": [
+        "[data-testid=\"user-message\"]",
+        "[data-testid=\"assistant-message\"]",
+        ".font-claude-message",
+        ".font-user-message"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": "/chat/{id}",
+      "roleFnSig": "c0fa559f"
+    },
+    {
+      "order": 3,
+      "name": "Gemini",
+      "slug": "03-gemini",
+      "fixture": "contracts/fixtures/03-gemini/fixture.html",
+      "expected": "contracts/fixtures/03-gemini/expected.json",
+      "checkHost": "gemini.google.com",
+      "checkPath": "/app/g1",
+      "hostsRe": [
+        "(^|\\.)gemini\\.google\\.com$|(^|\\.)bard\\.google\\.com$"
+      ],
+      "pathRe": null,
+      "msgSelectors": [
+        "user-query",
+        "model-response",
+        "conversation-turn",
+        "ms-chat-turn"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": "/app/{id}",
+      "roleFnSig": "3636c650"
+    },
+    {
+      "order": 4,
+      "name": "Google AI Studio",
+      "slug": "04-google-ai-studio",
+      "fixture": "contracts/fixtures/04-google-ai-studio/fixture.html",
+      "expected": "contracts/fixtures/04-google-ai-studio/expected.json",
+      "checkHost": "aistudio.google.com",
+      "checkPath": "/chat/1",
+      "hostsRe": [
+        "(^|\\.)aistudio\\.google\\.com$"
+      ],
+      "pathRe": null,
+      "msgSelectors": [
+        "[data-test-id=\"user-message\"]",
+        "[data-test-id=\"model-message\"]",
+        "ms-chat-turn"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": null,
+      "roleFnSig": "7fe0ff87"
+    },
+    {
+      "order": 5,
+      "name": "DeepSeek",
+      "slug": "05-deepseek",
+      "fixture": "contracts/fixtures/05-deepseek/fixture.html",
+      "expected": "contracts/fixtures/05-deepseek/expected.json",
+      "checkHost": "deepseek.com",
+      "checkPath": "/a/chat/s/ds1",
+      "hostsRe": [
+        "(^|\\.)deepseek\\.com$"
+      ],
+      "pathRe": null,
+      "msgSelectors": [
+        "[class*=\"message\"]",
+        "[class*=\"_message\"]"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": "/a/chat/s/{id}",
+      "roleFnSig": "d277b043"
+    },
+    {
+      "order": 6,
+      "name": "Qwen",
+      "slug": "06-qwen",
+      "fixture": "contracts/fixtures/06-qwen/fixture.html",
+      "expected": "contracts/fixtures/06-qwen/expected.json",
+      "checkHost": "qwen.ai",
+      "checkPath": "/c/q1",
+      "hostsRe": [
+        "(^|\\.)qwen\\.ai$|(^|\\.)tongyi\\.aliyun\\.com$"
+      ],
+      "pathRe": null,
+      "msgSelectors": [
+        "[class*=\"_message\"]",
+        "[data-message-role]",
+        "[class*=\"chat-message\"]",
+        "[class*=\"markdown\"]"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": "/c/{id}",
+      "roleFnSig": "661a0677"
+    },
+    {
+      "order": 7,
+      "name": "Kimi",
+      "slug": "07-kimi",
+      "fixture": "contracts/fixtures/07-kimi/fixture.html",
+      "expected": "contracts/fixtures/07-kimi/expected.json",
+      "checkHost": "kimi.moonshot.cn",
+      "checkPath": "/kimi/k1",
+      "hostsRe": [
+        "(^|\\.)kimi\\.moonshot\\.cn$|(^|\\.)kimi\\.ai$|(^|\\.)kimi\\.com$"
+      ],
+      "pathRe": null,
+      "msgSelectors": [
+        ".segment",
+        ".segment-container",
+        "[class*=\"message\"]"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": null,
+      "roleFnSig": "6b4ed26a"
+    },
+    {
+      "order": 8,
+      "name": "MiniMax",
+      "slug": "08-minimax",
+      "fixture": "contracts/fixtures/08-minimax/fixture.html",
+      "expected": "contracts/fixtures/08-minimax/expected.json",
+      "checkHost": "minimax.io",
+      "checkPath": "/chat/mm1",
+      "hostsRe": [
+        "(^|\\.)minimax\\.io$|(^|\\.)minimaxi\\.com$"
+      ],
+      "pathRe": null,
+      "msgSelectors": [
+        "[class*=\"message\"]",
+        "[class*=\"chat-item\"]"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": null,
+      "roleFnSig": "7129d2fb"
+    },
+    {
+      "order": 9,
+      "name": "Mistral Le Chat",
+      "slug": "09-mistral-le-chat",
+      "fixture": "contracts/fixtures/09-mistral-le-chat/fixture.html",
+      "expected": "contracts/fixtures/09-mistral-le-chat/expected.json",
+      "checkHost": "mistral.ai",
+      "checkPath": "/chat/m1",
+      "hostsRe": [
+        "(^|\\.)mistral\\.ai$"
+      ],
+      "pathRe": null,
+      "msgSelectors": [
+        "[data-message-role]",
+        "[class*=\"Message\"]",
+        "[class*=\"message\"]"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": null,
+      "roleFnSig": "4d8a341d"
+    },
+    {
+      "order": 10,
+      "name": "Groq",
+      "slug": "10-groq",
+      "fixture": "contracts/fixtures/10-groq/fixture.html",
+      "expected": "contracts/fixtures/10-groq/expected.json",
+      "checkHost": "groq.com",
+      "checkPath": "/play/gr1",
+      "hostsRe": [
+        "(^|\\.)groq\\.com$"
+      ],
+      "pathRe": null,
+      "msgSelectors": [
+        "[class*=\"message\"]",
+        "[class*=\"chat\"]"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": null,
+      "roleFnSig": "7129d2fb"
+    },
+    {
+      "order": 11,
+      "name": "OpenRouter",
+      "slug": "11-openrouter",
+      "fixture": "contracts/fixtures/11-openrouter/fixture.html",
+      "expected": "contracts/fixtures/11-openrouter/expected.json",
+      "checkHost": "openrouter.ai",
+      "checkPath": "/or1",
+      "hostsRe": [
+        "(^|\\.)openrouter\\.ai$"
+      ],
+      "pathRe": null,
+      "msgSelectors": [
+        "[class*=\"message\"]",
+        "[class*=\"chat\"]"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": null,
+      "roleFnSig": "7129d2fb"
+    },
+    {
+      "order": 12,
+      "name": "HuggingChat",
+      "slug": "12-huggingchat",
+      "fixture": "contracts/fixtures/12-huggingchat/fixture.html",
+      "expected": "contracts/fixtures/12-huggingchat/expected.json",
+      "checkHost": "huggingface.co",
+      "checkPath": "/chat/hf1",
+      "hostsRe": [
+        "(^|\\.)huggingface\\.co$"
+      ],
+      "pathRe": "^\\/chat",
+      "msgSelectors": [
+        "[class*=\"message\"]",
+        "[class*=\"chat\"]"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": null,
+      "roleFnSig": "7129d2fb"
+    },
+    {
+      "order": 13,
+      "name": "NVIDIA NIM",
+      "slug": "13-nvidia-nim",
+      "fixture": "contracts/fixtures/13-nvidia-nim/fixture.html",
+      "expected": "contracts/fixtures/13-nvidia-nim/expected.json",
+      "checkHost": "build.nvidia.com",
+      "checkPath": "/nim1",
+      "hostsRe": [
+        "(^|\\.)build\\.nvidia\\.com$"
+      ],
+      "pathRe": null,
+      "msgSelectors": [
+        "[class*=\"message\"]",
+        "[class*=\"chat\"]"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": null,
+      "roleFnSig": "7129d2fb"
+    },
+    {
+      "order": 14,
+      "name": "Z.ai",
+      "slug": "14-z-ai",
+      "fixture": "contracts/fixtures/14-z-ai/fixture.html",
+      "expected": "contracts/fixtures/14-z-ai/expected.json",
+      "checkHost": "z.ai",
+      "checkPath": "/c/z1",
+      "hostsRe": [
+        "(^|\\.)z\\.ai$|(^|\\.)chatglm\\.cn$|(^|\\.)space-z\\.ai$"
+      ],
+      "pathRe": null,
+      "msgSelectors": [
+        "[data-role=\"user\"]",
+        "[data-role=\"assistant\"]",
+        "[data-message-role]",
+        "[class*=\"UserMessage\"]",
+        "[class*=\"AssistantMessage\"]",
+        "[class*=\"message\"]",
+        "[class*=\"chat-message\"]"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": "/c/{id}",
+      "roleFnSig": "43818d61"
+    },
+    {
+      "order": 15,
+      "name": "Pollinations",
+      "slug": "15-pollinations",
+      "fixture": "contracts/fixtures/15-pollinations/fixture.html",
+      "expected": "contracts/fixtures/15-pollinations/expected.json",
+      "checkHost": "pollinations.ai",
+      "checkPath": "/p1",
+      "hostsRe": [
+        "(^|\\.)pollinations\\.ai$"
+      ],
+      "pathRe": null,
+      "msgSelectors": [
+        "[class*=\"message\"]",
+        "[class*=\"chat\"]"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": null,
+      "roleFnSig": "7129d2fb"
+    },
+    {
+      "order": 16,
+      "name": "Puter",
+      "slug": "16-puter",
+      "fixture": "contracts/fixtures/16-puter/fixture.html",
+      "expected": "contracts/fixtures/16-puter/expected.json",
+      "checkHost": "puter.com",
+      "checkPath": "/pu1",
+      "hostsRe": [
+        "(^|\\.)puter\\.com$"
+      ],
+      "pathRe": null,
+      "msgSelectors": [
+        "[class*=\"message\"]",
+        "[class*=\"chat\"]"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": null,
+      "roleFnSig": "7129d2fb"
+    },
+    {
+      "order": 17,
+      "name": "Open WebUI",
+      "slug": "17-open-webui",
+      "fixture": "contracts/fixtures/17-open-webui/fixture.html",
+      "expected": "contracts/fixtures/17-open-webui/expected.json",
+      "checkHost": "my-openwebui.local",
+      "checkPath": "/ow1",
+      "hostsRe": [
+        "openwebui",
+        "^localhost(?::\\d+)?$",
+        "^127\\.0\\.0\\.1(?::\\d+)?$"
+      ],
+      "pathRe": null,
+      "msgSelectors": [
+        "[class*=\"message\"]",
+        "[class*=\"chat\"]"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": null,
+      "roleFnSig": "7129d2fb"
+    },
+    {
+      "order": 18,
+      "name": "Cloudflare AI",
+      "slug": "18-cloudflare-ai",
+      "fixture": "contracts/fixtures/18-cloudflare-ai/fixture.html",
+      "expected": "contracts/fixtures/18-cloudflare-ai/expected.json",
+      "checkHost": "playground.ai.cloudflare.com",
+      "checkPath": "/cf1",
+      "hostsRe": [
+        "(^|\\.)playground\\.ai\\.cloudflare\\.com$"
+      ],
+      "pathRe": null,
+      "msgSelectors": [
+        "[class*=\"message\"]",
+        "[class*=\"chat\"]"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": null,
+      "roleFnSig": "7129d2fb"
+    },
+    {
+      "order": 19,
+      "name": "Grok",
+      "slug": "19-grok",
+      "fixture": "contracts/fixtures/19-grok/fixture.html",
+      "expected": "contracts/fixtures/19-grok/expected.json",
+      "checkHost": "grok.com",
+      "checkPath": "/c/gk1",
+      "hostsRe": [
+        "(^|\\.)grok\\.com$"
+      ],
+      "pathRe": null,
+      "msgSelectors": [
+        "[class*=\"message\"]",
+        "[class*=\"message-bubble\"]"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": "/c/{id}",
+      "roleFnSig": "7129d2fb"
+    },
+    {
+      "order": 20,
+      "name": "Microsoft Copilot",
+      "slug": "20-microsoft-copilot",
+      "fixture": "contracts/fixtures/20-microsoft-copilot/fixture.html",
+      "expected": "contracts/fixtures/20-microsoft-copilot/expected.json",
+      "checkHost": "copilot.microsoft.com",
+      "checkPath": "/cp1",
+      "hostsRe": [
+        "(^|\\.)copilot\\.microsoft\\.com$"
+      ],
+      "pathRe": null,
+      "msgSelectors": [
+        "[class*=\"message\"]",
+        "[class*=\"turn\"]"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": null,
+      "roleFnSig": "7129d2fb"
+    },
+    {
+      "order": 21,
+      "name": "Perplexity",
+      "slug": "21-perplexity",
+      "fixture": "contracts/fixtures/21-perplexity/fixture.html",
+      "expected": "contracts/fixtures/21-perplexity/expected.json",
+      "checkHost": "perplexity.ai",
+      "checkPath": "/search/pp1",
+      "hostsRe": [
+        "(^|\\.)perplexity\\.ai$"
+      ],
+      "pathRe": null,
+      "msgSelectors": [
+        "[class*=\"query\"]",
+        "[class*=\"answer\"]",
+        "[class*=\"message\"]"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": null,
+      "roleFnSig": "a3bad497"
+    },
+    {
+      "order": 22,
+      "name": "Poe",
+      "slug": "22-poe",
+      "fixture": "contracts/fixtures/22-poe/fixture.html",
+      "expected": "contracts/fixtures/22-poe/expected.json",
+      "checkHost": "poe.com",
+      "checkPath": "/chat/poe1",
+      "hostsRe": [
+        "(^|\\.)poe\\.com$"
+      ],
+      "pathRe": null,
+      "msgSelectors": [
+        "[class*=\"human-message\"]",
+        "[class*=\"chat-message\"]",
+        "[class*=\"message\"]"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": null,
+      "roleFnSig": "00b9a93d"
+    },
+    {
+      "order": 23,
+      "name": "Character.ai",
+      "slug": "23-character-ai",
+      "fixture": "contracts/fixtures/23-character-ai/fixture.html",
+      "expected": "contracts/fixtures/23-character-ai/expected.json",
+      "checkHost": "character.ai",
+      "checkPath": "/ch1",
+      "hostsRe": [
+        "(^|\\.)character\\.ai$"
+      ],
+      "pathRe": null,
+      "msgSelectors": [
+        "[class*=\"message\"]",
+        "[class*=\"chat\"]"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": null,
+      "roleFnSig": "7129d2fb"
+    },
+    {
+      "order": 24,
+      "name": "You.com",
+      "slug": "24-you-com",
+      "fixture": "contracts/fixtures/24-you-com/fixture.html",
+      "expected": "contracts/fixtures/24-you-com/expected.json",
+      "checkHost": "you.com",
+      "checkPath": "/yc1",
+      "hostsRe": [
+        "(^|\\.)you\\.com$"
+      ],
+      "pathRe": null,
+      "msgSelectors": [
+        "[class*=\"message\"]",
+        "[class*=\"chat\"]"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": null,
+      "roleFnSig": "7129d2fb"
+    },
+    {
+      "order": 25,
+      "name": "Doubao",
+      "slug": "25-doubao",
+      "fixture": "contracts/fixtures/25-doubao/fixture.html",
+      "expected": "contracts/fixtures/25-doubao/expected.json",
+      "checkHost": "doubao.com",
+      "checkPath": "/db1",
+      "hostsRe": [
+        "(^|\\.)doubao\\.com$"
+      ],
+      "pathRe": null,
+      "msgSelectors": [
+        "[class*=\"message\"]",
+        "[class*=\"chat\"]"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": null,
+      "roleFnSig": "7129d2fb"
+    },
+    {
+      "order": 26,
+      "name": "Tencent Yuanbao",
+      "slug": "26-tencent-yuanbao",
+      "fixture": "contracts/fixtures/26-tencent-yuanbao/fixture.html",
+      "expected": "contracts/fixtures/26-tencent-yuanbao/expected.json",
+      "checkHost": "yuanbao.tencent.com",
+      "checkPath": "/yb1",
+      "hostsRe": [
+        "(^|\\.)yuanbao\\.tencent\\.com$"
+      ],
+      "pathRe": null,
+      "msgSelectors": [
+        "[class*=\"message\"]",
+        "[class*=\"chat\"]"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": null,
+      "roleFnSig": "7129d2fb"
+    },
+    {
+      "order": 27,
+      "name": "Meta AI",
+      "slug": "27-meta-ai",
+      "fixture": "contracts/fixtures/27-meta-ai/fixture.html",
+      "expected": "contracts/fixtures/27-meta-ai/expected.json",
+      "checkHost": "meta.ai",
+      "checkPath": "/ma1",
+      "hostsRe": [
+        "(^|\\.)meta\\.ai$"
+      ],
+      "pathRe": null,
+      "msgSelectors": [
+        "[class*=\"message\"]",
+        "[class*=\"chat\"]"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": null,
+      "roleFnSig": "7129d2fb"
+    },
+    {
+      "order": 28,
+      "name": "Yandex Alice AI",
+      "slug": "28-yandex-alice-ai",
+      "fixture": "contracts/fixtures/28-yandex-alice-ai/fixture.html",
+      "expected": "contracts/fixtures/28-yandex-alice-ai/expected.json",
+      "checkHost": "alice.yandex.ru",
+      "checkPath": "/ya1",
+      "hostsRe": [
+        "(^|\\.)alice\\.yandex\\.ru$"
+      ],
+      "pathRe": null,
+      "msgSelectors": [
+        "[class*=\"message\"]",
+        "[class*=\"chat\"]"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": null,
+      "roleFnSig": "7129d2fb"
+    },
+    {
+      "order": 29,
+      "name": "Yandex Alice (path)",
+      "slug": "29-yandex-alice-path",
+      "fixture": "contracts/fixtures/29-yandex-alice-path/fixture.html",
+      "expected": "contracts/fixtures/29-yandex-alice-path/expected.json",
+      "checkHost": "yandex.ru",
+      "checkPath": "/alice/chat-1",
+      "hostsRe": [
+        "(^|\\.)yandex\\.(ru|com)$|^ya\\.ru$"
+      ],
+      "pathRe": "\\/alice",
+      "msgSelectors": [
+        "[class*=\"message\"]",
+        "[class*=\"chat\"]"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": null,
+      "roleFnSig": "7129d2fb"
+    },
+    {
+      "order": 30,
+      "name": "Dola",
+      "slug": "30-dola",
+      "fixture": "contracts/fixtures/30-dola/fixture.html",
+      "expected": "contracts/fixtures/30-dola/expected.json",
+      "checkHost": "dola.com",
+      "checkPath": "/chat/dl1",
+      "hostsRe": [
+        "(^|\\.)dola\\.com$"
+      ],
+      "pathRe": null,
+      "msgSelectors": [
+        "[class*=\"message\"]",
+        "[class*=\"chat-message\"]"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": "/chat/{id}",
+      "roleFnSig": "a238308b"
+    },
+    {
+      "order": 31,
+      "name": "LM Arena",
+      "slug": "31-lm-arena",
+      "fixture": "contracts/fixtures/31-lm-arena/fixture.html",
+      "expected": "contracts/fixtures/31-lm-arena/expected.json",
+      "checkHost": "lmarena.ai",
+      "checkPath": "/la1",
+      "hostsRe": [
+        "(^|\\.)lmarena\\.ai$|(^|\\.)chat\\.lmarena\\.ai$"
+      ],
+      "pathRe": null,
+      "msgSelectors": [
+        "[data-message-author-role]",
+        "[class*=\"message\"]",
+        "[class*=\"chat\"]"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": null,
+      "roleFnSig": "7129d2fb"
+    },
+    {
+      "order": 32,
+      "name": "NotebookLM",
+      "slug": "32-notebooklm",
+      "fixture": "contracts/fixtures/32-notebooklm/fixture.html",
+      "expected": "contracts/fixtures/32-notebooklm/expected.json",
+      "checkHost": "notebooklm.google.com",
+      "checkPath": "/nb1",
+      "hostsRe": [
+        "(^|\\.)notebooklm\\.google\\.com$"
+      ],
+      "pathRe": null,
+      "msgSelectors": [
+        "[class*=\"message\"]",
+        "[class*=\"chat-turn\"]",
+        "[class*=\"response\"]"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": null,
+      "roleFnSig": "f67f9f20"
+    },
+    {
+      "order": 33,
+      "name": "GitHub Copilot",
+      "slug": "33-github-copilot",
+      "fixture": "contracts/fixtures/33-github-copilot/fixture.html",
+      "expected": "contracts/fixtures/33-github-copilot/expected.json",
+      "checkHost": "github.com",
+      "checkPath": "/copilot/r1",
+      "hostsRe": [
+        "(^|\\.)github\\.com$"
+      ],
+      "pathRe": "\\/copilot",
+      "msgSelectors": [
+        "[data-testid=\"chat-message\"]",
+        "[class*=\"ChatMessage\"]",
+        "[class*=\"message\"]"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": null,
+      "roleFnSig": "3b5e0d8d"
+    },
+    {
+      "order": 34,
+      "name": "Coze",
+      "slug": "34-coze",
+      "fixture": "contracts/fixtures/34-coze/fixture.html",
+      "expected": "contracts/fixtures/34-coze/expected.json",
+      "checkHost": "coze.com",
+      "checkPath": "/cz1",
+      "hostsRe": [
+        "(^|\\.)coze\\.com$|(^|\\.)coze\\.cn$"
+      ],
+      "pathRe": null,
+      "msgSelectors": [
+        "[class*=\"message\"]",
+        "[class*=\"chat-item\"]",
+        "[class*=\"ChatItem\"]"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": null,
+      "roleFnSig": "aefee9fb"
+    },
+    {
+      "order": 35,
+      "name": "Phind",
+      "slug": "35-phind",
+      "fixture": "contracts/fixtures/35-phind/fixture.html",
+      "expected": "contracts/fixtures/35-phind/expected.json",
+      "checkHost": "phind.com",
+      "checkPath": "/ph1",
+      "hostsRe": [
+        "(^|\\.)phind\\.com$"
+      ],
+      "pathRe": null,
+      "msgSelectors": [
+        "[class*=\"message\"]",
+        "[class*=\"Question\"]",
+        "[class*=\"Answer\"]"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": null,
+      "roleFnSig": "8fae9063"
+    },
+    {
+      "order": 36,
+      "name": "v0 (Vercel)",
+      "slug": "36-v0-vercel",
+      "fixture": "contracts/fixtures/36-v0-vercel/fixture.html",
+      "expected": "contracts/fixtures/36-v0-vercel/expected.json",
+      "checkHost": "v0.dev",
+      "checkPath": "/v01",
+      "hostsRe": [
+        "(^|\\.)v0\\.dev$"
+      ],
+      "pathRe": null,
+      "msgSelectors": [
+        "[data-testid=\"message\"]",
+        "[class*=\"message\"]",
+        "[class*=\"chat\"]"
+      ],
+      "roleAttr": null,
+      "chatUrlPattern": null,
+      "roleFnSig": "7129d2fb"
+    }
+  ],
+  "negative": {
+    "file": "contracts/negative/ChatGPT-broken.html",
+    "domain": "ChatGPT",
+    "break": "атрибут роли data-message-author-role → data-msg-author-role (типовая молчаливая смена вёрстки)"
+  }
+}
