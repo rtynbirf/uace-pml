@@ -1,0 +1,11 @@
+7a15ec4ac5238e980ae6ab4c51d450f6  download/UACE-PML-FINAL-CODE-v29.0.0.zip
+f49d004aec8f08d0f57aecd8ec89be13  download/UACE-PML-v29.0.1-HOTFIX.zip
+92969536e3c5e361b5176dc2a3357996  download/UACE-SESSION-FULL-ARCHIVE-2026-09-19.zip
+f9765542b82f33f51f75df1bcb5cd816  download/UACE-v29.0.1-ZADANIE.zip
+be46b361167f0144fafe4d36a808f758  scripts/_v276_test.zip
+764a560ee563dcc44ea7b09afbe2a6bd  scripts/_v277_test.zip
+a5578c6411374f1252ccdb9c23cc608e  scripts/uace-v273-zip-test.zip
+90e40852800759e8cf19b3fa03247a25  scripts/uace-zip-test.zip
+4eeadc8a2cba2c8838b95e8201c53a74  scripts/v29-zip-test.zip
+bf644c3f85864bd596767cdb207f3a81  scripts/v291-zip-test.zip
+# ПАСПОРТ: дата 2026-11-08 (UTC); файлов ZIP: 10; общий объём: 1840722 байт; пустых ZIP: 0
