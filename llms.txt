@@ -1,0 +1,34 @@
+# uace-pml
+> UACE x PML — Universal AI Chat Exporter (Evidence First, PML-PANEL 1.0 / PML-STRUCT canon). Final: v29.0.1-evidence
+
+Автоген 2026-11-08 · источник: живой GitHub API (номера и файлы не руками) · владелец rtynbirf · ветка `main`
+
+## Мембрана
+- README.md — для человека (UACE × PML — Universal AI Chat Exporter)
+- AGENTS.md — есть
+- LICENSE — MIT
+- topics: ai-chat, archiving, chat-exporter, evidence, provenance, research-verification, tool
+
+## Карта корня
+- .github/
+- .gitignore
+- AGENTS.md
+- CODEOWNERS
+- CONTRIBUTING.md
+- LICENSE
+- PULSE.md
+- README.md
+- SECURITY.md
+- download/
+- scripts/
+- tool-results/
+- worklog.md
+
+## CI
+- workflow: guardian-tripwire
+- workflow: self-audit
+
+## Ссылки
+- [GitHub](https://github.com/rtynbirf/uace-pml)
+- [README](https://github.com/rtynbirf/uace-pml/blob/main/README.md)
+- [raw llms.txt](https://raw.githubusercontent.com/rtynbirf/uace-pml/main/llms.txt)
