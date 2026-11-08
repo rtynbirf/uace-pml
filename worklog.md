@@ -416,3 +416,20 @@ Work Log:
 
 Stage Summary:
 - Деливерабл: UACE-PML-v29.0.1-HOTFIX.zip — финальная проверенная сборка v29.0.1-evidence (ставить её); база v29.0.0 и задание — в ранее выданных архивах. Задание §5 закрыто полностью, DoD §7 выполнен. Секрет в приложении пользователя не использован и не сохранён; рекомендован отзыв токена.
+
+---
+Task ID: W4-H2-P54
+Agent: Волна ×4 H2 (полимат-рой)
+Task: ПРЕДЛОЖЕНИЕ-54 (issue #5) — контракт-снапшоты 36 доменов: schema + fixtures в CI
+
+Work Log:
+- contracts/schema/chatdocument.schema.json — JSON Schema результата экспорта ChatDocument/29 (platform enum = 36 имён реестра p3; messages c roleEvidence method/confidence; integrity.contentHash ^[0-9a-f]{8}$; captureEvidence.strategy enum).
+- contracts/fixtures/01…36 — фиксированные HTML-снапшоты вёрстки сообщений на каждый домен (host/path задаются meta uace-fixture → проверяется и getPlatform); expected.json — замороженная проекция фактического извлечения (platform, chatId, role/method/confidence/text), заморожено `--freeze` и сверено ревью.
+- scripts/contract_runner.mjs — раннер (stdlib Node, 0 зависимостей): исполняет РЕАЛЬНЫЙ код p1..p4 (PLATFORMS/findMessages/extractRoleRaw/textOf/makeChatDocument) в функции-песочнице с мини-DOM (свой HTML-парсер + подмножество CSS-селекторов); контракт пинит ПЛАТФОРМЕННЫЕ селекторы: GENERIC_MSG_SELS обнулён, структурная стратегия отключена — сломанный адаптер = красный, фолбэк не «спасает»; мини-валидатор JSON Schema (draft-07 подмножество).
+- Негативный тест: contracts/negative/ChatGPT-broken.html (атрибут роли переименован — типовая молчаливая смена вёрстки) → обязана давать красный с именем ChatGPT; плюс in-memory мутация в selftest.
+- Selftest 6/6 GREEN: реестр = 36 адаптеров; 36 фикстур ↔ 36 имён; 36/36 снапшотов зелёные; негативная фикстура красная с именем домена; мутация ловится; двойной прогон байт-в-байт идентичен (capturedAt вне снапшота).
+- .github/workflows/contracts.yml — CI: node --check раннера → selftest → 36/36; пин checkout каноном аккаунта; ежедневный дозор 02:23 UTC.
+- Семантика findMessages «первая валидированная стратегия» пинита как есть (Claude = user-сторона захода) — документировано в contracts/README.md; пересборка селекторов движка = пере-заморозка с ревью diff.
+
+Stage Summary:
+- П54 закрыт машинообразно: schema + 36 fixtures + runner + негативная фикстура + selftest 6/6 + CI-гейт «поломка домена = красный с ТОЧНЫМ именем платформы». Локальный прогон: 36 passed, 0 failed; selftest 6/6; node --check ок.

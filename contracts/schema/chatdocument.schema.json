@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "uace-chat-document/29",
+  "schemaVersion": "uace-chat-document/29",
+  "title": "Контракт результата экспорта UACE-PML v29 (ChatDocument) — П54",
+  "description": "Каноническая модель ChatDocument (scripts/v29/p1_header_core.js makeChatDocument, SCHEMA_VER uace-chat-document/29). Контракт-снапшоты 36 доменов валидируют фактический вывод рантайма по этой схеме в CI.",
+  "type": "object",
+  "required": ["schemaVersion", "exporter", "platform", "origin", "url", "chatId", "title", "capturedAt", "captureMode", "captureEvidence", "messages", "integrity"],
+  "properties": {
+    "schemaVersion": { "const": "uace-chat-document/29" },
+    "exporter": { "type": "string", "pattern": "^UACE v" },
+    "platform": { "enum": ["ChatGPT", "Claude", "Gemini", "Google AI Studio", "DeepSeek", "Qwen", "Kimi", "MiniMax", "Mistral Le Chat", "Groq", "OpenRouter", "HuggingChat", "NVIDIA NIM", "Z.ai", "Pollinations", "Puter", "Open WebUI", "Cloudflare AI", "Grok", "Microsoft Copilot", "Perplexity", "Poe", "Character.ai", "You.com", "Doubao", "Tencent Yuanbao", "Meta AI", "Yandex Alice AI", "Yandex Alice (path)", "Dola", "LM Arena", "NotebookLM", "GitHub Copilot", "Coze", "Phind", "v0 (Vercel)", null] },
+    "origin": { "type": ["string", "null"] },
+    "url": { "type": "string" },
+    "chatId": { "type": ["string", "null"] },
+    "title": { "type": "string" },
+    "capturedAt": { "type": "string", "format": "date-time" },
+    "captureMode": { "enum": ["structured", "snapshot"] },
+    "captureEvidence": {
+      "type": "object",
+      "required": ["strategy", "confidence", "reasons"],
+      "properties": {
+        "strategy": { "type": "string", "enum": ["platform-deep", "generic-deep", "structural", "scroll-collected", "snapshot", "unknown"] },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "reasons": { "type": "array", "items": { "type": "string" } },
+        "sel": { "type": ["string", "null"] },
+        "source": { "type": ["string", "null"] }
+      }
+    },
+    "messages": { "type": "array", "minItems": 2, "items": { "$ref": "#/definitions/message" } },
+    "integrity": {
+      "type": "object",
+      "required": ["messageCount", "contentHash", "warnings"],
+      "properties": {
+        "messageCount": { "type": "integer", "minimum": 2 },
+        "contentHash": { "type": "string", "pattern": "^[0-9a-f]{8}$" },
+        "warnings": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  },
+  "definitions": {
+    "role": { "enum": ["user", "assistant", "system", "unknown"] },
+    "evidenceMethod": { "enum": ["attribute", "platform-selector", "semantic-class", "ancestor", "structural-order", "framework-internal", "heuristic"] },
+    "message": {
+      "type": "object",
+      "required": ["index", "role", "roleEvidence", "text", "markdown", "thinking", "images", "attachments", "artifacts"],
+      "properties": {
+        "index": { "type": "integer", "minimum": 0 },
+        "role": { "$ref": "#/definitions/role" },
+        "roleEvidence": {
+          "type": "object",
+          "required": ["method", "confidence", "reason"],
+          "properties": {
+            "method": { "$ref": "#/definitions/evidenceMethod" },
+            "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+            "reason": { "type": "string" }
+          }
+        },
+        "text": { "type": "string" },
+        "markdown": { "type": "string" },
+        "thinking": { "type": "array", "items": { "type": "string" } },
+        "images": { "type": "array", "items": { "type": "object", "required": ["src", "w", "h"], "properties": { "src": { "type": "string" }, "w": { "type": "integer" }, "h": { "type": "integer" } } } },
+        "attachments": { "type": "array" },
+        "artifacts": { "type": "array", "items": { "type": "object", "required": ["lang", "content"], "properties": { "lang": { "type": "string" }, "content": { "type": "string" } } } }
+      }
+    }
+  }
+}

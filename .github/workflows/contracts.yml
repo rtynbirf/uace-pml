@@ -1,0 +1,33 @@
+name: contracts
+
+# П54 (issue #5): контракт-снапшоты 36 доменов — фикстура × адаптер × схема.
+# Домены меняют вёрстку молча: поломка домена = красный гейт с ТОЧНЫМ именем
+# платформы (FAIL-строки раннера). Канон запуска — как ci.yml (предустановленный node).
+
+permissions:
+  contents: read
+
+on:
+  push:
+    paths:
+      - "contracts/**"
+      - "scripts/contract_runner.mjs"
+      - "scripts/v29/**"
+      - ".github/workflows/contracts.yml"
+  schedule:
+    - cron: "23 2 * * *" # ежедневный дозор доменов
+  workflow_dispatch:
+
+jobs:
+  domain-contracts:
+    name: контракт-снапшоты 36 доменов
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 (канон аккаунта)
+      - name: раннер парсится (node --check)
+        run: node --check scripts/contract_runner.mjs
+      - name: selftest каркаса (реестр 36 · негативная фикстура · мутация · детерминизм)
+        run: node scripts/contract_runner.mjs --selftest
+      - name: контракт-снапшоты 36/36 (schema + expected)
+        run: node scripts/contract_runner.mjs

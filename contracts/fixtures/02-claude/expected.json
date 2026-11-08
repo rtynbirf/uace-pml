@@ -1,0 +1,18 @@
+{
+  "platform": "Claude",
+  "chatId": "cl-1",
+  "messages": [
+    {
+      "role": "user",
+      "method": "attribute",
+      "confidence": 0.97,
+      "text": "Сколько планет в Солнечной системе?"
+    },
+    {
+      "role": "user",
+      "method": "attribute",
+      "confidence": 0.97,
+      "text": "А какая из них самая большая?"
+    }
+  ]
+}

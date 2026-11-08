@@ -1,0 +1,30 @@
+{
+  "platform": "ChatGPT",
+  "chatId": "abc123",
+  "messages": [
+    {
+      "role": "user",
+      "method": "attribute",
+      "confidence": 0.99,
+      "text": "Сколько планет в Солнечной системе?"
+    },
+    {
+      "role": "assistant",
+      "method": "attribute",
+      "confidence": 0.99,
+      "text": "Восемь: Меркурий, Венера, Земля, Марс, Юпитер, Сатурн, Уран и Нептун."
+    },
+    {
+      "role": "user",
+      "method": "attribute",
+      "confidence": 0.99,
+      "text": "А какая из них самая большая?"
+    },
+    {
+      "role": "assistant",
+      "method": "attribute",
+      "confidence": 0.99,
+      "text": "Юпитер — самая большая планета: его масса больше всех остальных, вместе взятых."
+    }
+  ]
+}
