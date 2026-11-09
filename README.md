@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="banner.png" alt="uace-pml — Universal AI Chat Exporter: Evidence First" width="100%">
+</div>
+
 # UACE × PML — Universal AI Chat Exporter
 
 Userscript-экспортёр диалогов ИИ (36 платформ: ChatGPT, Claude, Gemini, DeepSeek,
