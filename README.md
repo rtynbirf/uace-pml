@@ -2,6 +2,15 @@
   <img src="banner.png" alt="uace-pml — Universal AI Chat Exporter: Evidence First" width="100%">
 </div>
 
+<!--ФОРЖ:МУЗА:НАЧАЛО-->
+<div align="center">
+  <img src="repo-muse.svg" width="100%" alt="Муза uace-pml: картина кузни ПОЛИМАТ, раунд 9" />
+  <br/>
+  <img src="forge-divider.svg" width="62%" alt="разделитель кузни ПОЛИМАТ" />
+</div>
+<!--ФОРЖ:МУЗА:КОНЕЦ-->
+
+
 # UACE × PML — Universal AI Chat Exporter
 
 Userscript-экспортёр диалогов ИИ (36 платформ: ChatGPT, Claude, Gemini, DeepSeek,
@@ -46,3 +55,10 @@ python3 scripts/test_negative.py         # П54 ×6: негативный тес
 
 `upload/` и `.env` вне репо (в `.gitignore`). Экспортёр по умолчанию делает
 0 внешних запросов; сеть — только по явной опции с журналом (см. §3/§4 аудита в шапке сборки).
+
+<!--ФОРЖ:ПОДВАЛ-->
+---
+
+<div align="center">
+  <sub>◆ картина и штандарт — ручная ковка <a href="https://github.com/rtynbirf">КУЗНИ ПОЛИМАТ</a> · ЧЕЛОВЕК=АККАУНТ=PID1 ◆</sub>
+</div>
